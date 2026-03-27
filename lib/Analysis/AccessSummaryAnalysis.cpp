@@ -27,18 +27,6 @@ using namespace mlir::spmd;
 namespace mlir {
 namespace spmd {
 
-/// Footprint information for a single memref accessed inside a group-level
-/// forall.
-struct AccessSummary {
-  Value memref;
-  /// For each dimension: [min_offset, max_offset] relative to the tile origin
-  /// (outer_iv + inner_iv). If the pattern is unrecognized, both are set to
-  /// a conservative large value (INT64_MAX/2).
-  SmallVector<int64_t> minOffset; // usually 0 or negative
-  SmallVector<int64_t> maxOffset; // positive for stencil halos
-  unsigned rank;
-};
-
 /// Try to decompose `index` as (outer_iv + inner_iv + const).
 /// Returns the constant if successful, std::nullopt otherwise.
 static std::optional<int64_t>
@@ -113,8 +101,9 @@ computeAccessSummaries(ForallOp groupForall, ForallOp laneForall) {
     }
 
     unsigned ndim = mrType.getRank();
-    auto &idx = memrefToIdx[mr];
-    if (memrefToIdx.count(mr) == 0) {
+    unsigned idx;
+    auto mapIt = memrefToIdx.find(mr);
+    if (mapIt == memrefToIdx.end()) {
       idx = result.size();
       memrefToIdx[mr] = idx;
       AccessSummary s;
@@ -122,7 +111,9 @@ computeAccessSummaries(ForallOp groupForall, ForallOp laneForall) {
       s.rank   = ndim;
       s.minOffset.assign(ndim, 0);
       s.maxOffset.assign(ndim, 0);
-      result.push_back(s);
+      result.push_back(std::move(s));
+    } else {
+      idx = mapIt->second;
     }
     AccessSummary &summary = result[idx];
 

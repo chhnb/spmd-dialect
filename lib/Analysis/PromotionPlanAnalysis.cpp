@@ -25,15 +25,6 @@ using namespace mlir::spmd;
 namespace mlir {
 namespace spmd {
 
-/// Record describing a single memref promotion decision.
-struct PromotionRecord {
-  Value   globalMemref;        ///< the original global memref
-  unsigned rank;
-  SmallVector<int64_t> tileDims;  ///< allocated tile buffer dimensions
-  SmallVector<int64_t> minOffset; ///< origin offsets (usually 0)
-  SmallVector<int64_t> maxOffset;
-};
-
 /// Maximum allowed group memory footprint in bytes (48 KB).
 static constexpr int64_t kMaxGroupMemBytes = 48 * 1024;
 

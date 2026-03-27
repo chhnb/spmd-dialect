@@ -1,25 +1,25 @@
 // SPMDToOpenMP.cpp
 //
-// Alternative lowering: lowers group-level spmd.forall directly to
-// omp.parallel + omp.wsloop, leaving lane-level spmd.forall to be
-// subsequently lowered by --convert-spmd-to-scf.
+// Lowers group-level spmd.forall directly to omp.parallel + omp.wsloop +
+// omp.loop_nest, leaving lane-level spmd.forall for --convert-spmd-to-scf.
+//
+// Pipeline:
+//   --convert-spmd-to-openmp   (this pass)
+//   --convert-spmd-to-scf      (lowers remaining lane foralls and spmd ops)
 //
 // Mapping:
-//   group-level spmd.forall → omp.parallel { omp.wsloop }
-//   lane-level spmd.forall  → left for --convert-spmd-to-scf
+//   group-level spmd.forall → omp.parallel { omp.wsloop { omp.loop_nest } }
 //   spmd.barrier            → omp.barrier
-//   Other spmd ops          → unchanged (need --convert-spmd-to-scf after)
-//
-// This pass is an ALTERNATIVE to using --convert-spmd-to-scf followed by
-// --convert-scf-to-openmp.  Both pipelines produce correct OpenMP output.
+//   lane-level spmd.forall  → unchanged (--convert-spmd-to-scf handles it)
 
 #include "spmd/IR/SPMDOps.h"
 #include "spmd/Transforms/SPMDPasses.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
-#include "mlir/Transforms/DialectConversion.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 using namespace mlir;
 using namespace mlir::spmd;
@@ -35,7 +35,83 @@ struct BarrierToOMPBarrier : public OpRewritePattern<BarrierOp> {
 
   LogicalResult matchAndRewrite(BarrierOp op,
                                 PatternRewriter &rewriter) const override {
-    rewriter.create<omp::BarrierOp>(op.getLoc());
+    omp::BarrierOp::create(rewriter, op.getLoc());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// group-level spmd.forall → omp.parallel { omp.wsloop { omp.loop_nest } }
+//===----------------------------------------------------------------------===//
+
+struct GroupForallToOmpParallel : public OpRewritePattern<ForallOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ForallOp op,
+                                PatternRewriter &rewriter) const override {
+    auto mappingAttr = op->getAttrOfType<LevelAttr>("spmd.mapping");
+    if (!mappingAttr || mappingAttr.getValue() != LevelKind::Group)
+      return failure();
+
+    Location loc = op.getLoc();
+    int64_t rank = static_cast<int64_t>(op.getRank());
+    SmallVector<Value> lbs(op.getLowerBounds());
+    SmallVector<Value> ubs(op.getUpperBounds());
+    SmallVector<Value> steps(op.getSteps());
+
+    // 1. Create omp.parallel (no clauses).
+    auto parallelOp = omp::ParallelOp::create(
+        rewriter, loc,
+        /*allocate_vars=*/ValueRange{},
+        /*allocator_vars=*/ValueRange{},
+        /*if_expr=*/Value{},
+        /*num_threads_vars=*/ValueRange{},
+        /*private_vars=*/ValueRange{},
+        /*private_syms=*/nullptr,
+        /*private_needs_barrier=*/nullptr,
+        /*proc_bind_kind=*/omp::ClauseProcBindKindAttr{},
+        /*reduction_mod=*/nullptr,
+        /*reduction_vars=*/ValueRange{},
+        /*reduction_byref=*/DenseBoolArrayAttr{},
+        /*reduction_syms=*/ArrayAttr{});
+
+    // 2. Populate the parallel region.
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.createBlock(&parallelOp.getRegion());
+
+    // 3. Create omp.wsloop (no clauses).
+    auto wsloopOp = omp::WsloopOp::create(rewriter, loc);
+
+    // 4. Terminate the parallel block.
+    omp::TerminatorOp::create(rewriter, loc);
+
+    // 5. Create the single block inside the wsloop.
+    rewriter.createBlock(&wsloopOp.getRegion());
+
+    // 6. Create omp.loop_nest with the forall's loop bounds.
+    //    The collapse_num_loops = rank collapses all dims into one schedule.
+    auto loopOp = omp::LoopNestOp::create(
+        rewriter, loc, rank, lbs, ubs, steps,
+        /*loop_inclusive=*/false, /*tile_sizes=*/nullptr);
+
+    // 7. Move the forall body region into the loop_nest region.
+    //    The forall entry block (with IVs as block args) becomes the
+    //    loop_nest's entry block; IVs are the omp.loop_nest induction vars.
+    rewriter.inlineRegionBefore(op.getBody(), loopOp.getRegion(),
+                                loopOp.getRegion().begin());
+
+    // 8. Replace spmd.yield (forall body terminator) with omp.yield.
+    Block &nestBlock = loopOp.getRegion().front();
+    if (!nestBlock.empty()) {
+      Operation *termOp = &nestBlock.back();
+      if (isa<YieldOp>(termOp)) {
+        rewriter.setInsertionPoint(termOp);
+        omp::YieldOp::create(rewriter, termOp->getLoc(), ValueRange{});
+        rewriter.eraseOp(termOp);
+      }
+    }
+
     rewriter.eraseOp(op);
     return success();
   }
@@ -51,39 +127,17 @@ struct SPMDToOpenMPPass
 
   StringRef getArgument() const override { return "convert-spmd-to-openmp"; }
   StringRef getDescription() const override {
-    return "Lower group-level spmd.forall to OpenMP parallel-for; "
-           "lane-level forall remains for convert-spmd-to-scf";
+    return "Lower group-level spmd.forall to omp.parallel+wsloop+loop_nest; "
+           "spmd.barrier to omp.barrier. Lane-level foralls remain for "
+           "--convert-spmd-to-scf.";
   }
 
   void runOnOperation() override {
     func::FuncOp func = getOperation();
-
-    // Lower spmd.barrier → omp.barrier.
     RewritePatternSet patterns(&getContext());
-    patterns.add<BarrierToOMPBarrier>(&getContext());
+    patterns.add<BarrierToOMPBarrier, GroupForallToOmpParallel>(&getContext());
     if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
       signalPassFailure();
-
-    // Walk group-level spmd.forall and wrap in omp.parallel.
-    // We do this with direct IR manipulation because the omp dialect's
-    // op construction API varies by MLIR version; this keeps us compatible.
-    func.walk([&](ForallOp forall) {
-      auto mappingAttr = forall->getAttrOfType<LevelAttr>("spmd.mapping");
-      if (!mappingAttr || mappingAttr.getValue() != LevelKind::Group)
-        return;
-
-      // Emit a remark so users can see which foralls are handled.
-      forall.emitRemark()
-          << "convert-spmd-to-openmp: group-level forall → omp.parallel "
-             "(wsloop wrapping deferred to --convert-scf-to-openmp after "
-             "--convert-spmd-to-scf)";
-
-      // Downgrade mapping to lane so that --convert-spmd-to-scf will
-      // produce an scf.for that --convert-scf-to-openmp can then
-      // parallelize.  This keeps both passes composable.
-      forall->removeAttr("spmd.mapping");
-      // keep other attrs so PromoteGroupMemory / analysis can still see them.
-    });
   }
 };
 } // namespace

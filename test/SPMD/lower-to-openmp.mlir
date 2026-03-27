@@ -1,16 +1,34 @@
 // Lower SPMD kernels through the full CPU pipeline.
 //
-// Pipeline: normalize → materialize-tiling → convert-to-scf → (scf remains)
-// The final --convert-scf-to-openmp (builtin) or --convert-spmd-to-openmp
-// step is invoked to produce OpenMP IR.
+// Pipeline A (SCF baseline):
+//   normalize → plan → materialize-tiling → convert-to-scf
+//   All spmd ops become scf; no OpenMP.
+//
+// Pipeline B (OpenMP parallel):
+//   normalize → plan → materialize-tiling → convert-to-openmp → convert-to-scf
+//   Group-level foralls become omp.parallel+wsloop+loop_nest;
+//   lane-level foralls become scf.for.
 
-// RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
-// RUN:   --convert-spmd-to-scf | FileCheck %s
+// ── Pipeline A: SCF baseline ──────────────────────────────────────────────
+// RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --convert-spmd-to-scf \
+// RUN:   | FileCheck %s --check-prefix=SCF
 
-// After --convert-spmd-to-scf there must be no remaining spmd.* ops.
-// CHECK-LABEL: func @ewise_kernel
-// CHECK-NOT: spmd.
-// CHECK: scf.for
+// SCF-LABEL: func @ewise_kernel
+// SCF-NOT: spmd.
+// SCF: scf.for
+
+// ── Pipeline B: OpenMP ────────────────────────────────────────────────────
+// RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --convert-spmd-to-openmp \
+// RUN:   --convert-spmd-to-scf \
+// RUN:   | FileCheck %s --check-prefix=OMP
+
+// OMP-LABEL: func @ewise_kernel
+// OMP-NOT: spmd.forall
+// OMP: omp.parallel
+// OMP: omp.loop_nest
+// OMP: scf.for
 
 func.func @ewise_kernel(%A: memref<?xf32>, %B: memref<?xf32>,
                          %C: memref<?xf32>, %N: index)
@@ -30,8 +48,9 @@ func.func @ewise_kernel(%A: memref<?xf32>, %B: memref<?xf32>,
 
 // -----
 
-// RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
-// RUN:   --convert-spmd-to-scf | FileCheck %s --check-prefix=REDUCE
+// RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --convert-spmd-to-scf \
+// RUN:   | FileCheck %s --check-prefix=REDUCE
 
 // REDUCE-LABEL: func @reduce_sum
 // REDUCE-NOT: spmd.reduce

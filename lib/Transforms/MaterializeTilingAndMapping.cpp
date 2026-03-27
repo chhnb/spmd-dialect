@@ -76,13 +76,15 @@ struct MaterializeTiledForall : public OpRewritePattern<ForallOp> {
     auto outerForall =
         rewriter.create<ForallOp>(loc, lbs, SmallVector<Value>(ubs),
                                   outerSteps);
-    // Set outer attrs: mapping=group, remove tile_sizes/memory_policy
-    // (they've been consumed by this transformation).
+    // Set outer attrs: mapping=group; propagate tile_sizes and memory_policy
+    // for downstream passes (PromoteGroupMemory needs both).
     outerForall->setAttr("spmd.mapping",
                          LevelAttr::get(ctx, LevelKind::Group));
-    // Propagate memory_policy for later passes.
     if (auto mp = op->getAttr("spmd.memory_policy"))
       outerForall->setAttr("spmd.memory_policy", mp);
+    // Preserve tile_sizes so PromoteGroupMemory can compute footprint dims.
+    if (auto ts = op->getAttr("spmd.tile_sizes"))
+      outerForall->setAttr("spmd.tile_sizes", ts);
 
     // Inside outer body, build inner lane forall: [0, tile_size) step 1.
     rewriter.setInsertionPoint(outerForall.getBody().front().getTerminator());

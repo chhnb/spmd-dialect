@@ -28,6 +28,6 @@ config.spmd_libs_dir = os.path.join(config.spmd_obj_root, "lib")
 llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
 llvm_config.with_environment("PATH", config.spmd_tools_dir, append_path=True)
 
-tools = ["spmd-opt", "FileCheck", "mlir-opt"]
+tools = ["spmd-opt", "FileCheck", "mlir-opt", "mlir-translate", "llc"]
 tool_dirs = [config.spmd_tools_dir, config.llvm_tools_dir]
 llvm_config.add_tool_substitutions(tools, tool_dirs)

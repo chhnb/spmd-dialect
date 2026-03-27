@@ -194,24 +194,48 @@ struct PromoteGroupMemoryPass
         ValueRange outerIvs = groupForall.getInductionVars();
 
         // Global index = outer_iv[d] + copy_iv[d] + minOffset[d]
+        Location copyLoc = laneForall.getLoc();
         SmallVector<Value> globalIndices;
         for (unsigned d = 0; d < rec.rank; ++d) {
-          Value idx = builder.create<arith::AddIOp>(
-              laneForall.getLoc(), outerIvs[d], copyIvs[d]);
+          Value idx = builder.create<arith::AddIOp>(copyLoc, outerIvs[d], copyIvs[d]);
           if (rec.minOffset[d] != 0) {
-            Value off = builder.create<arith::ConstantIndexOp>(
-                laneForall.getLoc(), rec.minOffset[d]);
-            idx = builder.create<arith::AddIOp>(laneForall.getLoc(), idx, off);
+            Value off = builder.create<arith::ConstantIndexOp>(copyLoc, rec.minOffset[d]);
+            idx = builder.create<arith::AddIOp>(copyLoc, idx, off);
           }
           globalIndices.push_back(idx);
         }
-        Value loadedVal = builder.create<memref::LoadOp>(
-            laneForall.getLoc(), globalMr, globalIndices);
 
-        // Tile index = copy_iv[d] (minOffset is already accounted for above).
+        // Build in-bounds condition: globalIndex[d] < globalDim[d] for all d.
+        // This guards boundary tiles that are smaller than the tile size.
+        Value inBounds = nullptr;
+        for (unsigned d = 0; d < rec.rank; ++d) {
+          Value globalUb;
+          if (!globalType.isDynamicDim(d)) {
+            globalUb = builder.create<arith::ConstantIndexOp>(
+                copyLoc, globalType.getDimSize(d));
+          } else {
+            globalUb = builder.create<memref::DimOp>(copyLoc, globalMr, d);
+          }
+          Value cmp = builder.create<arith::CmpIOp>(
+              copyLoc, arith::CmpIPredicate::ult, globalIndices[d], globalUb);
+          inBounds = inBounds
+                         ? builder.create<arith::AndIOp>(copyLoc, inBounds, cmp)
+                         : cmp;
+        }
+
+        // Wrap load-store in spmd.if to prevent out-of-bounds access on
+        // boundary tiles.
+        auto guardIf =
+            builder.create<IfOp>(copyLoc, TypeRange{}, inBounds,
+                                  /*hasElse=*/false);
+        Block &guardThen = guardIf.getThenRegion().front();
+        builder.setInsertionPoint(guardThen.getTerminator());
+
+        // Tile index = copy_iv[d] (minOffset already accounted for in globalIndex).
         SmallVector<Value> tileIndices(copyIvs.begin(), copyIvs.end());
-        builder.create<memref::StoreOp>(
-            laneForall.getLoc(), loadedVal, tileMr, tileIndices);
+        Value loadedVal =
+            builder.create<memref::LoadOp>(copyLoc, globalMr, globalIndices);
+        builder.create<memref::StoreOp>(copyLoc, loadedVal, tileMr, tileIndices);
 
         // c. Insert spmd.barrier after the copy forall.
         builder.setInsertionPointAfter(copyForall);
