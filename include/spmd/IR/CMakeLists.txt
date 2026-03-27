@@ -1,0 +1,6 @@
+mlir_tablegen(SPMDOps.h.inc   -gen-op-decls)
+mlir_tablegen(SPMDOps.cpp.inc -gen-op-defs)
+mlir_tablegen(SPMDAttrs.h.inc   -gen-attrdef-decls)
+mlir_tablegen(SPMDAttrs.cpp.inc -gen-attrdef-defs)
+mlir_tablegen(SPMDDialect.h.inc -gen-dialect-decls)
+add_public_tablegen_target(SPMDOpsIncGen)
