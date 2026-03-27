@@ -96,6 +96,15 @@ LogicalResult ForallOp::verify() {
         return emitOpError("step values must be positive");
   }
 
+  // Verify spmd.mapping, if present, is a non-seq LevelAttr
+  if (auto mappingAttr =
+          getOperation()->getAttrOfType<LevelAttr>("spmd.mapping")) {
+    if (mappingAttr.getValue() == LevelKind::Seq)
+      return emitOpError(
+          "spmd.mapping = seq is not valid for spmd.forall; "
+          "use grid/group/lane/vector to denote parallel execution level");
+  }
+
   return success();
 }
 

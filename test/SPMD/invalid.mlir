@@ -130,19 +130,5 @@ func.func @barrier_no_group() {
   func.return
 }
 
-// -----
-
-// ---- VerifyKernelSubset: barrier in S0/S1 kernel ----
-
-func.func @s0_has_barrier(%N: index) attributes {spmd.kernel} {
-  %c0 = arith.constant 0 : index
-  %c1 = arith.constant 1 : index
-  "spmd.forall"(%c0, %N, %c1) ({
-  ^bb0(%i: index):
-    // expected-error@+1 {{spmd.barrier must not appear in S0/S1 kernel}}
-    "spmd.barrier"() {"spmd.scope" = #spmd.scope<group>} : () -> ()
-    "spmd.yield"() : () -> ()
-  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
-      "spmd.mapping" = #spmd.level<group>} : (index, index, index) -> ()
-  func.return
-}
+// Note: the VerifyKernelSubset negative tests live in invalid_subset.mlir,
+// which uses --verify-spmd-kernel-subset in its RUN line.

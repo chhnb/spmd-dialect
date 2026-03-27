@@ -1,10 +1,15 @@
 set(LIBS
   SPMDDialect
+  SPMDTransforms
+  SPMDAnalysis
+  SPMDToSCF
+  SPMDToOpenMP
   MLIRAffineDialect
   MLIRArithDialect
   MLIRFuncDialect
   MLIRMathDialect
   MLIRMemRefDialect
+  MLIROpenMPDialect
   MLIRSCFDialect
   MLIRVectorDialect
   MLIROptLib

@@ -5,6 +5,6 @@ add_mlir_library(SPMDAnalysis
   LINK_LIBS PUBLIC
     SPMDDialect
     MLIRIR
+    MLIRArithDialect
     MLIRMemRefDialect
-    MLIRAffineAnalysis
 )

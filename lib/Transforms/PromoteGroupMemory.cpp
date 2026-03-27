@@ -1,34 +1,33 @@
 // PromoteGroupMemory.cpp
 //
-// Core innovation pass. Promotes tile-reusable memref slices to
+// Core innovation pass. Promotes tile-reusable global memref slices to
 // group address space, inserts cooperative copy loops and barriers.
 //
-// Input:  S2 IR with group-level spmd.forall containing lane-level
-//         forall bodies that load from global memrefs
-// Output: S2 IR with:
-//           - memref.alloc in group addr space
-//           - cooperative copy lane-level forall (load global -> store tile)
-//           - spmd.barrier
-//           - compute forall reading from tile instead of global
+// Algorithm (MVP — read-only stencil pattern):
+//   For each group-level forall G with memory_policy = prefer_group:
+//     1. Find the first lane-level forall L nested directly inside G.
+//     2. Use PromotionPlanAnalysis to find promotable memrefs.
+//     3. For each promotable memref M with tile dimensions D:
+//        a. Alloc tile buffer T : memref<D... x ElemType, #spmd.addr_space<group>>
+//        b. Before L: insert a cooperative copy lane forall that loads M → T.
+//        c. After the copy forall: insert spmd.barrier.
+//        d. Clone the compute body (L) with loads from M replaced by loads from T.
+//        e. Erase original L.
 //
-// MVP scope: read-only promotion only (no write-back).
-// MVP pattern: stencil / repeated-load tiles with fixed halo.
-//
-// Algorithm (see design-v1.md §7):
-//   For each group-level forall F:
-//     1. Collect candidate memrefs M from AccessSummaryAnalysis
-//     2. For each M: check legality (bounded footprint, reuse>1,
-//        no cross-group conflict, fits in group mem, addr rewritable)
-//     3. Check profitability (copy amortized, occupancy ok)
-//     4. For profitable M:
-//        a. Alloc tile buffer in group addr space
-//        b. Insert cooperative copy loop before compute
-//        c. Insert spmd.barrier after copy
-//        d. Rewrite compute accesses to tile-local indices
+// Negative cases:
+//   - memory_policy = no_promotion: skip entirely (no transformation).
+//   - Footprint > kMaxGroupMemBytes: skip with remark (handled in analysis).
+//   - No inner lane forall found: skip with remark.
 
+#include "spmd/Analysis/PromotionPlanAnalysis.h"
+#include "spmd/IR/SPMDAttrs.h"
 #include "spmd/IR/SPMDOps.h"
+#include "spmd/Transforms/SPMDPasses.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 
@@ -36,6 +35,69 @@ using namespace mlir;
 using namespace mlir::spmd;
 
 namespace {
+
+/// Find the first direct child of `groupForall` that is a lane-level
+/// spmd.forall. Returns null if not found.
+static ForallOp findDirectLaneForall(ForallOp groupForall) {
+  for (auto &op : groupForall.getBody().front()) {
+    if (auto laneForall = dyn_cast<ForallOp>(&op)) {
+      auto mapping = laneForall->getAttrOfType<LevelAttr>("spmd.mapping");
+      if (mapping && mapping.getValue() == LevelKind::Lane)
+        return laneForall;
+      return laneForall; // accept any inner forall if no mapping attr
+    }
+  }
+  return ForallOp{};
+}
+
+/// Build the tile buffer memref type: memref<d0 x d1 x ... x ElemTy, group>.
+static MemRefType buildTileType(MLIRContext *ctx, Type elemTy,
+                                ArrayRef<int64_t> dims) {
+  auto addrSpace = AddressSpaceAttr::get(ctx, AddressSpaceKind::Group);
+  return MemRefType::get(dims, elemTy, MemRefLayoutAttrInterface{}, addrSpace);
+}
+
+/// Replace all uses of `globalMr` (loads inside `block`) with loads from
+/// `tileMr`, adjusting indices by subtracting `minOffset`.
+static void rewriteLoadsToTile(Block &block, Value globalMr, Value tileMr,
+                                ArrayRef<int64_t> minOffset,
+                                ValueRange outerIvs, ValueRange innerIvs,
+                                OpBuilder &rewriter) {
+  block.walk([&](memref::LoadOp load) {
+    if (load.getMemRef() != globalMr)
+      return;
+    Location loc = load.getLoc();
+    SmallVector<Value> tileIndices;
+    auto srcIndices = load.getIndices();
+    for (unsigned d = 0; d < srcIndices.size(); ++d) {
+      Value srcIdx = srcIndices[d];
+      // Tile index = inner_iv + const_offset - minOffset[d].
+      // For simplicity: peel the outer IV from srcIdx to get the tile-local idx.
+      // srcIdx = outer_iv[d] + inner_iv_or_offset → tile_idx = inner_iv_or_offset
+      // We subtract the outer IV if it appears.
+      Value tileIdx = srcIdx;
+      if (d < outerIvs.size()) {
+        // Try to subtract outer IV using arith.
+        tileIdx = rewriter.create<arith::SubIOp>(loc, srcIdx, outerIvs[d]);
+      }
+      // Subtract minOffset if non-zero.
+      if (d < minOffset.size() && minOffset[d] != 0) {
+        Value minOff = rewriter.create<arith::ConstantIndexOp>(loc, minOffset[d]);
+        tileIdx = rewriter.create<arith::SubIOp>(loc, tileIdx, minOff);
+      }
+      tileIndices.push_back(tileIdx);
+    }
+    rewriter.setInsertionPoint(load);
+    auto newLoad = rewriter.create<memref::LoadOp>(loc, tileMr, tileIndices);
+    load.getResult().replaceAllUsesWith(newLoad.getResult());
+    rewriter.eraseOp(load);
+  });
+}
+
+//===----------------------------------------------------------------------===//
+// Pass
+//===----------------------------------------------------------------------===//
+
 struct PromoteGroupMemoryPass
     : public PassWrapper<PromoteGroupMemoryPass,
                          OperationPass<func::FuncOp>> {
@@ -47,20 +109,132 @@ struct PromoteGroupMemoryPass
   }
 
   void runOnOperation() override {
-    // TODO: implement PromoteGroupMemory
-    // Phase 3 core implementation.
-    //
-    // Skeleton:
-    //   getOperation().walk([&](ForallOp op) {
-    //     if (!isGroupLevel(op)) return;
-    //     auto plan = PromotionPlanAnalysis::compute(op, target);
-    //     for (auto &record : plan.promotions)
-    //       materializePromotion(op, record, rewriter);
-    //   });
+    func::FuncOp func = getOperation();
+    MLIRContext *ctx = &getContext();
+
+    // Collect group-level foralls to process (avoid modifying while walking).
+    SmallVector<ForallOp> groupForalls;
+    func.walk([&](ForallOp forall) {
+      auto mapping = forall->getAttrOfType<LevelAttr>("spmd.mapping");
+      if (mapping && mapping.getValue() == LevelKind::Group)
+        groupForalls.push_back(forall);
+    });
+
+    for (ForallOp groupForall : groupForalls) {
+      // Skip if no_promotion policy.
+      auto policyAttr =
+          groupForall->getAttrOfType<MemoryPolicyAttr>("spmd.memory_policy");
+      if (policyAttr &&
+          policyAttr.getValue() == MemoryPolicyKind::NoPromotion)
+        continue;
+
+      // Only promote if prefer_group is set (or none → let analysis decide).
+      if (policyAttr &&
+          policyAttr.getValue() != MemoryPolicyKind::PreferGroup)
+        continue;
+
+      // Find inner lane forall.
+      ForallOp laneForall = findDirectLaneForall(groupForall);
+      if (!laneForall) {
+        groupForall.emitRemark()
+            << "promote-group-memory: no lane-level forall found; skipping";
+        continue;
+      }
+
+      // Get tile_sizes for footprint computation.
+      auto tileSizesAttr =
+          groupForall->getAttrOfType<DenseI64ArrayAttr>("spmd.tile_sizes");
+      if (!tileSizesAttr)
+        continue;
+      ArrayRef<int64_t> tileSizes = tileSizesAttr.asArrayRef();
+
+      // Run promotion plan analysis.
+      SmallVector<PromotionRecord> plan =
+          computePromotionPlan(groupForall, laneForall, tileSizes);
+
+      if (plan.empty())
+        continue;
+
+      OpBuilder builder(ctx);
+
+      // Process each promotion record.
+      for (auto &rec : plan) {
+        Value globalMr  = rec.globalMemref;
+        auto globalType = cast<MemRefType>(globalMr.getType());
+        Type  elemTy    = globalType.getElementType();
+
+        // a. Allocate tile buffer in group address space before laneForall.
+        builder.setInsertionPoint(laneForall);
+        MemRefType tileType = buildTileType(ctx, elemTy, rec.tileDims);
+        auto tileAlloc = builder.create<memref::AllocOp>(
+            laneForall.getLoc(), tileType);
+        Value tileMr = tileAlloc.getResult();
+
+        // b. Insert cooperative copy lane forall.
+        //    Iterates over the tile dimensions [0, tileDims[d]).
+        SmallVector<Value> copyLbs, copyUbs, copySteps;
+        for (int64_t dim : rec.tileDims) {
+          copyLbs.push_back(
+              builder.create<arith::ConstantIndexOp>(laneForall.getLoc(), 0));
+          copyUbs.push_back(
+              builder.create<arith::ConstantIndexOp>(laneForall.getLoc(), dim));
+          copySteps.push_back(
+              builder.create<arith::ConstantIndexOp>(laneForall.getLoc(), 1));
+        }
+        auto copyForall = builder.create<ForallOp>(
+            laneForall.getLoc(), copyLbs, copyUbs, copySteps);
+        copyForall->setAttr("spmd.mapping",
+                             LevelAttr::get(ctx, LevelKind::Lane));
+
+        // Fill the copy forall body: load from global → store to tile.
+        Block &copyBody = copyForall.getBody().front();
+        builder.setInsertionPoint(copyBody.getTerminator());
+
+        ValueRange copyIvs = copyForall.getInductionVars();
+        ValueRange outerIvs = groupForall.getInductionVars();
+
+        // Global index = outer_iv[d] + copy_iv[d] + minOffset[d]
+        SmallVector<Value> globalIndices;
+        for (unsigned d = 0; d < rec.rank; ++d) {
+          Value idx = builder.create<arith::AddIOp>(
+              laneForall.getLoc(), outerIvs[d], copyIvs[d]);
+          if (rec.minOffset[d] != 0) {
+            Value off = builder.create<arith::ConstantIndexOp>(
+                laneForall.getLoc(), rec.minOffset[d]);
+            idx = builder.create<arith::AddIOp>(laneForall.getLoc(), idx, off);
+          }
+          globalIndices.push_back(idx);
+        }
+        Value loadedVal = builder.create<memref::LoadOp>(
+            laneForall.getLoc(), globalMr, globalIndices);
+
+        // Tile index = copy_iv[d] (minOffset is already accounted for above).
+        SmallVector<Value> tileIndices(copyIvs.begin(), copyIvs.end());
+        builder.create<memref::StoreOp>(
+            laneForall.getLoc(), loadedVal, tileMr, tileIndices);
+
+        // c. Insert spmd.barrier after the copy forall.
+        builder.setInsertionPointAfter(copyForall);
+        auto barrierOp =
+            builder.create<BarrierOp>(laneForall.getLoc());
+        barrierOp->setAttr("spmd.scope",
+                            ScopeAttr::get(ctx, ScopeKind::Group));
+
+        // d. Rewrite compute loads in laneForall to use tile buffer.
+        builder.setInsertionPointToStart(&laneForall.getBody().front());
+        rewriteLoadsToTile(laneForall.getBody().front(), globalMr, tileMr,
+                            rec.minOffset, outerIvs,
+                            laneForall.getInductionVars(), builder);
+      } // for each promotion record
+    } // for each group forall
   }
 };
 } // namespace
 
 std::unique_ptr<Pass> mlir::spmd::createPromoteGroupMemoryPass() {
   return std::make_unique<PromoteGroupMemoryPass>();
+}
+
+void mlir::spmd::registerPromoteGroupMemoryPass() {
+  PassRegistration<PromoteGroupMemoryPass>();
 }
