@@ -133,16 +133,17 @@ Following TDD philosophy, each criterion includes positive and negative tests fo
 <!-- Map each task to its target Acceptance Criterion -->
 | Task | Target AC | Status | Notes |
 |------|-----------|--------|-------|
-| Add `tools/spmd-opt/spmd-opt.cpp` and `tools/spmd-opt/CMakeLists.txt` | AC-1 | pending | Mirror standalone example |
-| Add `add_subdirectory(tools)` to root CMakeLists.txt | AC-1 | pending | |
-| Configure `test/lit.cfg.py` and `test/lit.site.cfg.py.in`; verify `check-spmd` target | AC-1, AC-6 | pending | lit.cfg.py already exists |
-| Add `SPMD_KernelAttr` (UnitAttr) to SPMDAttrs.td; register in dialect | AC-3 | pending | |
-| Remove `hasCustomAssemblyFormat = 1` from ForallOp, IfOp, ReduceOp in SPMDOps.td | AC-4, AC-5 | pending | Use ODS generic format |
-| Complete BarrierOp verifier: typed LevelAttr group-level check | AC-5.3 | pending | Currently TODO in SPMDOps.cpp |
-| Complete ReduceOp verifier: typed ReductionKindAttr check | AC-5.2 | pending | |
-| Complete YieldOp verifier: zero-operand check for ForallOp parent | AC-4 | pending | |
-| Update VerifySPMDKernelSubset to use typed LevelAttr | AC-3 | pending | |
-| Lit tests pass: ops.mlir + invalid.mlir | AC-6 | pending | Depends on build system + IR |
+| Add `tools/spmd-opt/spmd-opt.cpp` and `tools/spmd-opt/CMakeLists.txt` | AC-1 | done | Created, not yet built |
+| Add `add_subdirectory(tools)` to root CMakeLists.txt | AC-1 | done | |
+| Configure `test/lit.cfg.py` and `test/lit.site.cfg.py.in`; verify `check-spmd` target | AC-1, AC-6 | done | Files written; actual run pending build |
+| Add `SPMD_KernelAttr` (UnitAttr) to SPMDAttrs.td; register in dialect | AC-3 | done | Added to attrs.td; registered via tablegen |
+| Remove `hasCustomAssemblyFormat = 1` from ForallOp, IfOp, ReduceOp in SPMDOps.td | AC-4, AC-5 | done | Replaced with assemblyFormat strings |
+| Complete BarrierOp verifier: typed LevelAttr group-level check | AC-5.3 | done | Typed ScopeAttr + LevelAttr ancestor walk |
+| Complete ReduceOp verifier: typed ReductionKindAttr check | AC-5.2 | done | |
+| Complete YieldOp verifier: zero-operand check for ForallOp parent | AC-4 | done | Context-aware parent check |
+| Update VerifySPMDKernelSubset to use typed LevelAttr | AC-3 | done | Uses AddressSpaceAttr typed check |
+| Build project and verify spmd-opt works | AC-1 | pending | Need MLIR build |
+| Lit tests pass: ops.mlir + invalid.mlir | AC-6 | pending | Requires working build |
 | Implement NormalizeSPMD pass | AC-7 | pending | |
 | Implement MaterializeTilingAndMapping pass | AC-7 | pending | |
 | Implement SPMDToSCF conversion (ForallOp→scf.for, IfOp→scf.if, ReduceOp→scf.for+iter_args) | AC-7 | pending | |
