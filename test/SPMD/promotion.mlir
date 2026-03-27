@@ -102,3 +102,49 @@ func.func @no_promote(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 // With no_promotion, no group alloc should be inserted.
 // CHECK-NOT: memref.alloc() : memref<{{.*}}#spmd.addr_space<group>>
 // CHECK-NOT: "spmd.barrier"
+
+// -----
+
+// AC-8.2: End-to-end pipeline: group memory promotion → LLVM IR → object code.
+//
+// RUN: spmd-opt %s --promote-group-memory --convert-spmd-to-scf \
+// RUN:   --convert-scf-to-cf --convert-arith-to-llvm \
+// RUN:   --finalize-memref-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
+// RUN:   --reconcile-unrealized-casts \
+// RUN:   | mlir-translate --mlir-to-llvmir \
+// RUN:   | llc -o /dev/null
+
+// (No FileCheck prefix needed: the pipeline succeeds iff all tools exit 0.)
+
+func.func @stencil_e2e(%A: memref<?xf32>, %B: memref<?xf32>, %N: index)
+    attributes {spmd.kernel} {
+  %c0  = arith.constant 0 : index
+  %c1  = arith.constant 1 : index
+  %c32 = arith.constant 32 : index
+
+  // Outer group forall over tiles of size 32.
+  "spmd.forall"(%c0, %N, %c32) ({
+  ^bb0(%ii: index):
+
+    // Inner lane forall: each lane handles one element within the tile.
+    "spmd.forall"(%c0, %c32, %c1) ({
+    ^bb0(%ti: index):
+      %i  = arith.addi %ii, %ti : index
+      %i1 = arith.addi %i,  %c1 : index
+      %center = memref.load %A[%i ] : memref<?xf32>
+      %right  = memref.load %A[%i1] : memref<?xf32>
+      %out    = arith.addf %center, %right : f32
+      memref.store %out, %B[%i] : memref<?xf32>
+      "spmd.yield"() : () -> ()
+    }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+        "spmd.mapping" = #spmd.level<lane>} : (index, index, index) -> ()
+
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+      "spmd.mapping" = #spmd.level<group>,
+      "spmd.tile_sizes" = array<i64: 32>,
+      "spmd.memory_policy" = #spmd.memory_policy<prefer_group>}
+     : (index, index, index) -> ()
+
+  func.return
+}

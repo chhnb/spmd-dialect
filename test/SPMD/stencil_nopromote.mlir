@@ -1,6 +1,17 @@
 // RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
 // RUN:   --promote-group-memory --convert-spmd-to-scf | FileCheck %s
 
+// Pipeline LLVM: full lowering to LLVM IR.
+// RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
+// RUN:   --promote-group-memory --convert-spmd-to-scf \
+// RUN:   --convert-scf-to-cf --convert-arith-to-llvm \
+// RUN:   --finalize-memref-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
+// RUN:   --reconcile-unrealized-casts \
+// RUN:   | mlir-translate --mlir-to-llvmir \
+// RUN:   | FileCheck %s --check-prefix=LLVM
+
+// LLVM: define
+
 // 1-D stencil with no_promotion policy.
 // PromoteGroupMemory must NOT transform this kernel (no group alloc / barrier).
 // After the full CPU pipeline, only scf ops remain.

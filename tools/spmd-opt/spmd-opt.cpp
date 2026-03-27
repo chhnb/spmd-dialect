@@ -5,14 +5,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "mlir/Dialect/Affine/IR/AffineOps.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Math/IR/Math.h"
-#include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/OpenMP/OpenMPDialect.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Dialect/Vector/IR/VectorOps.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/InitAllDialects.h"
 #include "mlir/InitAllPasses.h"
@@ -26,16 +18,13 @@ int main(int argc, char **argv) {
   mlir::spmd::registerSPMDPasses();
 
   mlir::DialectRegistry registry;
-  // Register spmd dialect and all dialects it depends on
-  registry.insert<mlir::spmd::SPMDDialect,
-                  mlir::affine::AffineDialect,
-                  mlir::arith::ArithDialect,
-                  mlir::func::FuncDialect,
-                  mlir::math::MathDialect,
-                  mlir::memref::MemRefDialect,
-                  mlir::omp::OpenMPDialect,
-                  mlir::scf::SCFDialect,
-                  mlir::vector::VectorDialect>();
+  // Register all upstream MLIR dialects (includes LLVM, CF, SCF, Arith, etc.)
+  // so that full lowering pipelines (--convert-scf-to-cf,
+  // --convert-arith-to-llvm, --finalize-memref-to-llvm, --convert-func-to-llvm,
+  // --reconcile-unrealized-casts) work end-to-end within spmd-opt.
+  mlir::registerAllDialects(registry);
+  // Add the out-of-tree SPMD dialect that is not covered by registerAllDialects.
+  registry.insert<mlir::spmd::SPMDDialect>();
 
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "SPMD dialect optimizer driver\n",

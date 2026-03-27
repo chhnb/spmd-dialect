@@ -118,6 +118,93 @@ struct NormalizeForallBounds : public OpRewritePattern<ForallOp> {
   }
 };
 
+// Pattern: fold dimensions where the iteration count is exactly one (or zero).
+// Requires all three bounds to be compile-time constants. The folded IV is
+// replaced by the constant lower-bound value; the dimension is dropped from
+// the forall's rank.  If every dimension folds, the body is inlined in-place.
+struct FoldSingleIterationDims : public OpRewritePattern<ForallOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ForallOp op,
+                                PatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+    unsigned rank = op.getRank();
+
+    SmallVector<bool>    isSingle(rank, false);
+    SmallVector<int64_t> singleVals(rank, 0);
+    bool hasSingle = false;
+
+    for (unsigned d = 0; d < rank; ++d) {
+      auto lbCst = op.getLowerBounds()[d].getDefiningOp<arith::ConstantIndexOp>();
+      auto ubCst = op.getUpperBounds()[d].getDefiningOp<arith::ConstantIndexOp>();
+      auto stCst = op.getSteps()[d].getDefiningOp<arith::ConstantIndexOp>();
+      if (!lbCst || !ubCst || !stCst)
+        continue;
+      int64_t lb = lbCst.value(), ub = ubCst.value(), step = stCst.value();
+      if (ub <= lb + step) { // at most one iteration: IV == lb always
+        isSingle[d] = true;
+        singleVals[d] = lb;
+        hasSingle = true;
+      }
+    }
+    if (!hasSingle)
+      return failure();
+
+    SmallVector<Value> newLbs, newUbs, newSteps;
+    for (unsigned d = 0; d < rank; ++d) {
+      if (!isSingle[d]) {
+        newLbs.push_back(op.getLowerBounds()[d]);
+        newUbs.push_back(op.getUpperBounds()[d]);
+        newSteps.push_back(op.getSteps()[d]);
+      }
+    }
+
+    Block &oldBody = op.getBody().front();
+
+    if (newLbs.empty()) {
+      // All dims fold: inline body directly before op, with const IVs.
+      SmallVector<Value> constIvs;
+      rewriter.setInsertionPoint(op);
+      for (unsigned d = 0; d < rank; ++d)
+        constIvs.push_back(
+            rewriter.create<arith::ConstantIndexOp>(loc, singleVals[d]));
+      rewriter.inlineBlockBefore(&oldBody, op, constIvs);
+      // Erase the inlined spmd.yield (now just before op).
+      Operation *prev = op->getPrevNode();
+      if (prev && isa<YieldOp>(prev))
+        rewriter.eraseOp(prev);
+      rewriter.eraseOp(op);
+      return success();
+    }
+
+    // Create a lower-rank forall and remap IVs.
+    auto newForall = rewriter.create<ForallOp>(loc, newLbs, newUbs, newSteps);
+    for (auto attr : op->getAttrs())
+      newForall->setAttr(attr.getName(), attr.getValue());
+
+    Block &newBody = newForall.getBody().front();
+    rewriter.setInsertionPointToStart(&newBody);
+
+    unsigned newDimIdx = 0;
+    SmallVector<Value> remappedIvs;
+    for (unsigned d = 0; d < rank; ++d) {
+      if (isSingle[d])
+        remappedIvs.push_back(
+            rewriter.create<arith::ConstantIndexOp>(loc, singleVals[d]));
+      else
+        remappedIvs.push_back(newForall.getInductionVar(newDimIdx++));
+    }
+
+    rewriter.inlineBlockBefore(&oldBody, newBody.getTerminator(), remappedIvs);
+    Operation *inlinedYield = newBody.getTerminator()->getPrevNode();
+    if (inlinedYield && isa<YieldOp>(inlinedYield))
+      rewriter.eraseOp(inlinedYield);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 struct NormalizeSPMDPass
     : public PassWrapper<NormalizeSPMDPass, OperationPass<func::FuncOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(NormalizeSPMDPass)
@@ -130,7 +217,7 @@ struct NormalizeSPMDPass
   void runOnOperation() override {
     func::FuncOp func = getOperation();
     RewritePatternSet patterns(&getContext());
-    patterns.add<NormalizeForallBounds>(&getContext());
+    patterns.add<NormalizeForallBounds, FoldSingleIterationDims>(&getContext());
     if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
       signalPassFailure();
   }

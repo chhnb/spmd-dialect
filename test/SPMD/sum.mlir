@@ -1,6 +1,16 @@
 // RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
 // RUN:   --convert-spmd-to-scf | FileCheck %s
 
+// Pipeline LLVM: full lowering to LLVM IR.
+// RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
+// RUN:   --convert-spmd-to-scf --convert-scf-to-cf --convert-arith-to-llvm \
+// RUN:   --finalize-memref-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
+// RUN:   --reconcile-unrealized-casts \
+// RUN:   | mlir-translate --mlir-to-llvmir \
+// RUN:   | FileCheck %s --check-prefix=LLVM
+
+// LLVM: define
+
 // Parallel reduction: sum all elements of A.
 // After lowering, spmd.reduce becomes scf.for with iter_args for the
 // accumulator, and the combiner (arith.addf) is applied each iteration.

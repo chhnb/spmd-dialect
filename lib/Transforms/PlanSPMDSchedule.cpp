@@ -9,6 +9,7 @@
 //   - A forall whose parent is another forall → mapping=lane.
 //   - Forall ops that already have all three hints are left unchanged.
 
+#include "spmd/Analysis/TargetDescriptor.h"
 #include "spmd/IR/SPMDOps.h"
 #include "spmd/Transforms/SPMDPasses.h"
 
@@ -18,6 +19,8 @@
 
 using namespace mlir;
 using namespace mlir::spmd;
+
+static const TargetDescriptor kTarget = TargetDescriptor::cpuDefault();
 
 namespace {
 struct PlanSPMDSchedulePass
@@ -69,10 +72,11 @@ struct PlanSPMDSchedulePass
                           LevelAttr::get(ctx, LevelKind::Group));
 
         if (!hasTileSizes) {
-          // Default: 32 for the first dim, 8 for subsequent dims.
+          // Default: 4*simdWidth for the first dim, simdWidth for subsequent.
           SmallVector<int64_t> tileSizes;
           for (unsigned d = 0; d < rank; ++d)
-            tileSizes.push_back(d == 0 ? 32 : 8);
+            tileSizes.push_back(d == 0 ? 4 * kTarget.simdWidth
+                                       : kTarget.simdWidth);
           forall->setAttr("spmd.tile_sizes",
                           DenseI64ArrayAttr::get(ctx, tileSizes));
         }

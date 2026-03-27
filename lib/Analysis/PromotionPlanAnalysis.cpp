@@ -14,6 +14,7 @@
 
 #include "spmd/Analysis/AccessSummaryAnalysis.h"
 #include "spmd/Analysis/PromotionPlanAnalysis.h"
+#include "spmd/Analysis/TargetDescriptor.h"
 #include "spmd/IR/SPMDOps.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -25,8 +26,8 @@ using namespace mlir::spmd;
 namespace mlir {
 namespace spmd {
 
-/// Maximum allowed group memory footprint in bytes (48 KB).
-static constexpr int64_t kMaxGroupMemBytes = 48 * 1024;
+/// Default target for the MVP pass (CPU).
+static const TargetDescriptor kDefaultTarget = TargetDescriptor::cpuDefault();
 
 /// Check that there is no memref.store to `mr` inside `laneForall`.
 static bool isReadOnly(Value mr, ForallOp laneForall) {
@@ -96,11 +97,12 @@ computePromotionPlan(ForallOp groupForall, ForallOp laneForall,
     }
 
     // 4. Footprint size check.
-    if (footprintBytes > kMaxGroupMemBytes) {
+    if (footprintBytes > kDefaultTarget.maxGroupMemBytes) {
       groupForall.emitRemark()
           << "promote-group-memory: skipping " << mr
           << " — tile footprint " << footprintBytes
-          << " B exceeds maxGroupMemBytes (" << kMaxGroupMemBytes << " B)";
+          << " B exceeds maxGroupMemBytes (" << kDefaultTarget.maxGroupMemBytes
+          << " B)";
       continue;
     }
 
