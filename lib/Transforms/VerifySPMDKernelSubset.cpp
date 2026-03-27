@@ -1,24 +1,23 @@
 // VerifySPMDKernelSubset.cpp
 //
-// Checks that functions marked with {spmd.kernel} only contain ops
-// from the allowed subset. This is a separate pass from the op verifier
-// because legality depends on context (e.g., which phase we are in).
+// Verifies that func.func ops marked with {spmd.kernel} only contain ops
+// from the allowed S0/S1 subset.
 //
 // Allowed ops (S0/S1):
-//   spmd.{forall, if, reduce, yield}
+//   spmd.{forall, if, reduce, yield}  (barrier is S2-only)
 //   arith.*, math.*
-//   memref.{load, store, subview, cast}
-//   affine.apply
-//   vector.* (optional)
+//   memref.{load, store, subview, cast, alloc}
+//   affine.apply, affine.load, affine.store
+//   vector.*  (optional)
 //   func.return
 //
 // Disallowed in S0/S1:
 //   spmd.barrier
-//   memref with group/private addr space
-//   gpu.*, omp.*
-//   cf.*, scf.while
+//   memrefs with group/private addr space
+//   gpu.*, omp.*, cf.*, scf.while
 //   unknown side-effecting func.call
 
+#include "spmd/IR/SPMDAttrs.h"
 #include "spmd/IR/SPMDOps.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -30,12 +29,15 @@ using namespace mlir::spmd;
 
 namespace {
 struct VerifySPMDKernelSubsetPass
-    : public PassWrapper<VerifySPMDKernelSubsetPass, OperationPass<ModuleOp>> {
+    : public PassWrapper<VerifySPMDKernelSubsetPass,
+                         OperationPass<ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(VerifySPMDKernelSubsetPass)
 
-  StringRef getArgument() const override { return "verify-spmd-kernel-subset"; }
+  StringRef getArgument() const override {
+    return "verify-spmd-kernel-subset";
+  }
   StringRef getDescription() const override {
-    return "Verify that spmd.kernel functions only use the allowed op subset";
+    return "Verify that spmd.kernel functions only use the allowed S0/S1 op subset";
   }
 
   void runOnOperation() override {
@@ -47,23 +49,38 @@ struct VerifySPMDKernelSubsetPass
         return;
 
       func.walk([&](Operation *op) {
-        // spmd.barrier not allowed in S0/S1 — will be added later by passes
+        // spmd.barrier is S2-only; must not appear in S0/S1
         if (isa<BarrierOp>(op)) {
-          op->emitError("spmd.barrier must not appear in S0/S1 kernel; "
-                        "it is inserted by PromoteGroupMemory pass");
+          op->emitError(
+              "spmd.barrier must not appear in S0/S1 kernel; "
+              "it is inserted by PromoteGroupMemory pass");
           failed = true;
+          return;
         }
 
-        // Disallow gpu/omp/cf ops
+        // Disallow gpu, omp, cf dialects
         StringRef dialect = op->getDialect()->getNamespace();
         if (dialect == "gpu" || dialect == "omp" || dialect == "cf") {
-          op->emitError("dialect '") << dialect
-            << "' is not allowed in spmd.kernel (S0/S1)";
+          op->emitError("dialect '")
+              << dialect << "' is not allowed in spmd.kernel (S0/S1)";
           failed = true;
+          return;
         }
 
-        // TODO: check for group/private addr space in S0/S1 memrefs
-        // TODO: check for unknown side-effecting func.call
+        // Disallow memrefs with group/private addr space in S0/S1
+        for (Type ty : op->getResultTypes()) {
+          if (auto mr = dyn_cast<MemRefType>(ty)) {
+            if (auto addrSpace =
+                    dyn_cast_or_null<AddressSpaceAttr>(mr.getMemorySpace())) {
+              if (addrSpace.getValue() != AddressSpaceKind::Global) {
+                op->emitError(
+                    "group/private address space memrefs must not appear "
+                    "in S0/S1 kernels");
+                failed = true;
+              }
+            }
+          }
+        }
       });
     });
 

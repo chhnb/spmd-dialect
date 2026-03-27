@@ -1,6 +1,7 @@
 #include "spmd/IR/SPMDOps.h"
 #include "spmd/IR/SPMDAttrs.h"
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/PatternMatch.h"
@@ -20,8 +21,25 @@ using namespace mlir::spmd;
 //===----------------------------------------------------------------------===//
 
 LogicalResult YieldOp::verify() {
-  // Context-dependent verification is done in the parent op's verifier.
-  // Here we only check that types are valid.
+  Operation *parent = getOperation()->getParentOp();
+
+  if (auto forall = dyn_cast_or_null<ForallOp>(parent)) {
+    if (!getValues().empty())
+      return emitOpError("spmd.yield inside spmd.forall must have no operands");
+    return success();
+  }
+
+  if (auto reduce = dyn_cast_or_null<ReduceOp>(parent)) {
+    if (getValues().size() != 1)
+      return emitOpError(
+          "spmd.yield inside spmd.reduce must yield exactly one value");
+    if (getValues()[0].getType() != reduce.getResult().getType())
+      return emitOpError(
+          "spmd.yield type must match spmd.reduce result type");
+    return success();
+  }
+
+  // For spmd.if, type matching is checked in IfOp::verify; accept here.
   return success();
 }
 
@@ -36,7 +54,8 @@ LogicalResult ForallOp::verify() {
     return emitOpError("rank must be >= 1");
 
   if (getUpperBounds().size() != rank || getSteps().size() != rank)
-    return emitOpError("lowerBounds, upperBounds, and steps must have equal length");
+    return emitOpError(
+        "lowerBounds, upperBounds, and steps must have equal length");
 
   Block &body = getBody().front();
   if (body.getNumArguments() != rank)
@@ -46,7 +65,8 @@ LogicalResult ForallOp::verify() {
     if (!arg.getType().isIndex())
       return emitOpError("all body block args must be of index type");
 
-  if (auto tileSizes = getOperation()->getAttrOfType<DenseI64ArrayAttr>("spmd.tile_sizes")) {
+  if (auto tileSizes =
+          getOperation()->getAttrOfType<DenseI64ArrayAttr>("spmd.tile_sizes")) {
     if ((unsigned)tileSizes.size() != rank)
       return emitOpError("spmd.tile_sizes length must equal rank");
     for (int64_t sz : tileSizes.asArrayRef())
@@ -54,7 +74,8 @@ LogicalResult ForallOp::verify() {
         return emitOpError("spmd.tile_sizes values must be positive");
   }
 
-  if (auto order = getOperation()->getAttrOfType<DenseI64ArrayAttr>("spmd.order")) {
+  if (auto order =
+          getOperation()->getAttrOfType<DenseI64ArrayAttr>("spmd.order")) {
     if ((unsigned)order.size() != rank)
       return emitOpError("spmd.order length must equal rank");
     llvm::SmallVector<bool> seen(rank, false);
@@ -62,17 +83,17 @@ LogicalResult ForallOp::verify() {
       if (d < 0 || (unsigned)d >= rank)
         return emitOpError("spmd.order values must be in [0, rank)");
       if (seen[d])
-        return emitOpError("spmd.order must be a permutation (no duplicates)");
+        return emitOpError(
+            "spmd.order must be a permutation (duplicate entry)");
       seen[d] = true;
     }
   }
 
   // Verify static steps are positive
   for (auto step : getSteps()) {
-    if (auto constOp = step.getDefiningOp<arith::ConstantIndexOp>()) {
-      if (constOp.value() <= 0)
+    if (auto cst = step.getDefiningOp<arith::ConstantIndexOp>())
+      if (cst.value() <= 0)
         return emitOpError("step values must be positive");
-    }
   }
 
   return success();
@@ -80,7 +101,7 @@ LogicalResult ForallOp::verify() {
 
 void ForallOp::getCanonicalizationPatterns(RewritePatternSet &results,
                                             MLIRContext *context) {
-  // TODO: normalize to 0-based unit-step, fold unit-trip-count dims, etc.
+  // TODO: normalize to 0-based unit-step, fold unit-trip-count dims
 }
 
 //===----------------------------------------------------------------------===//
@@ -95,20 +116,23 @@ LogicalResult IfOp::verify() {
     if (getElseRegion().empty())
       return emitOpError("else region required when op has results");
 
-    auto thenYield = cast<YieldOp>(getThenRegion().front().getTerminator());
-    auto elseYield = cast<YieldOp>(getElseRegion().front().getTerminator());
+    auto thenYield =
+        cast<YieldOp>(getThenRegion().front().getTerminator());
+    auto elseYield =
+        cast<YieldOp>(getElseRegion().front().getTerminator());
 
     if (thenYield.getValues().size() != getResults().size())
       return emitOpError("then yield count must match result count");
     if (elseYield.getValues().size() != getResults().size())
       return emitOpError("else yield count must match result count");
 
-    for (auto [res, thenVal, elseVal] :
-         llvm::zip(getResults(), thenYield.getValues(), elseYield.getValues())) {
-      if (thenVal.getType() != res.getType())
-        return emitOpError("then yield type mismatch");
-      if (elseVal.getType() != res.getType())
-        return emitOpError("else yield type mismatch");
+    for (auto [res, tv, ev] : llvm::zip(getResults(),
+                                         thenYield.getValues(),
+                                         elseYield.getValues())) {
+      if (tv.getType() != res.getType())
+        return emitOpError("then yield type does not match result type");
+      if (ev.getType() != res.getType())
+        return emitOpError("else yield type does not match result type");
     }
   }
 
@@ -128,11 +152,15 @@ LogicalResult ReduceOp::verify() {
   if (getInit().getType() != getResult().getType())
     return emitOpError("init type must match result type");
 
-  if (!getOperation()->hasAttr("spmd.kind"))
-    return emitOpError("spmd.kind attribute is required");
+  // Check spmd.kind is present and is a typed ReductionKindAttr
+  auto kindAttr = getOperation()->getAttrOfType<ReductionKindAttr>("spmd.kind");
+  if (!kindAttr)
+    return emitOpError(
+        "spmd.kind attribute is required and must be a #spmd.reduction_kind");
 
   Block &body = getBody().front();
-  if (body.getNumArguments() != 1 || !body.getArgument(0).getType().isIndex())
+  if (body.getNumArguments() != 1 ||
+      !body.getArgument(0).getType().isIndex())
     return emitOpError("body must have exactly one index block arg");
 
   auto yieldOp = cast<YieldOp>(body.getTerminator());
@@ -149,16 +177,23 @@ LogicalResult ReduceOp::verify() {
 //===----------------------------------------------------------------------===//
 
 LogicalResult BarrierOp::verify() {
-  if (!getOperation()->hasAttr("spmd.scope"))
-    return emitOpError("spmd.scope attribute is required");
+  // Check spmd.scope is present and is a typed ScopeAttr
+  auto scopeAttr = getOperation()->getAttrOfType<ScopeAttr>("spmd.scope");
+  if (!scopeAttr)
+    return emitOpError(
+        "spmd.scope attribute is required and must be a #spmd.scope");
+
+  // MVP: only group scope
+  if (scopeAttr.getValue() != ScopeKind::Group)
+    return emitOpError("only group scope is supported in MVP");
 
   // Check that we are nested inside a group-level spmd.forall
   bool foundGroupForall = false;
   Operation *parent = getOperation()->getParentOp();
   while (parent) {
     if (auto forall = dyn_cast<ForallOp>(parent)) {
-      if (auto mapping = forall->getAttr("spmd.mapping")) {
-        // TODO: check that mapping is group-level LevelAttr
+      auto mappingAttr = forall->getAttrOfType<LevelAttr>("spmd.mapping");
+      if (mappingAttr && mappingAttr.getValue() == LevelKind::Group) {
         foundGroupForall = true;
         break;
       }

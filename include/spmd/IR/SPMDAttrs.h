@@ -5,6 +5,9 @@
 
 #include "spmd/IR/SPMDDialect.h"
 
-// Include tablegen-generated attr declarations
+// Tablegen-generated enum declarations (LevelKind, ScopeKind, etc.)
+#include "spmd/IR/SPMDEnums.h.inc"
+
+// Tablegen-generated attr declarations
 #define GET_ATTRDEF_CLASSES
 #include "spmd/IR/SPMDAttrs.h.inc"

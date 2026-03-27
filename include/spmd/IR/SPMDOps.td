@@ -6,7 +6,6 @@
 include "spmd/IR/SPMDDialect.td"
 include "spmd/IR/SPMDAttrs.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
-include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/IR/BuiltinTypes.td"
 include "mlir/IR/OpBase.td"
 
@@ -17,20 +16,18 @@ class SPMD_Op<string mnemonic, list<Trait> traits = []>
 // spmd.yield
 //===----------------------------------------------------------------------===//
 
-def SPMD_YieldOp : SPMD_Op<"yield", [
-    Pure,
-    Terminator,
-    ReturnLike
-  ]> {
+def SPMD_YieldOp : SPMD_Op<"yield", [Pure, Terminator, ReturnLike]> {
   let summary = "Region terminator for spmd ops";
   let description = [{
     Terminates the region of spmd.forall, spmd.if, and spmd.reduce.
 
-    In spmd.forall: must be empty (no operands).
-    In spmd.if:     operands must match the op's result types.
-    In spmd.reduce: exactly one operand matching the result type.
-  }];
+    Context-dependent semantics:
+    - In spmd.forall: must have zero operands
+    - In spmd.if:     operands must match the op's result types
+    - In spmd.reduce: exactly one operand matching the result type
 
+    Context validation is performed by the parent op's verifier.
+  }];
   let arguments = (ins Variadic<AnyType>:$values);
   let assemblyFormat = "attr-dict ($values^ `:` type($values))?";
   let hasVerifier = 1;
@@ -47,17 +44,10 @@ def SPMD_ForallOp : SPMD_Op<"forall", [
   let summary = "Logical parallel iteration domain (SPMD)";
   let description = [{
     Represents a rectangular iteration domain over which all instances
-    execute logically in parallel. The order of execution is unspecified.
+    execute logically in parallel. Execution order is unspecified.
 
     Cross-iteration conflicting accesses not modeled through spmd.reduce
     (or future spmd.atomic_*) are undefined behavior.
-
-    Syntax (full form):
-      spmd.forall (%i, %j) = (%lb0, %lb1) to (%ub0, %ub1) step (%s0, %s1)
-          [attributes {...}] { ... spmd.yield }
-
-    Shorthand (lb=0, step=1):
-      spmd.forall (%i, %j) in (%ub0, %ub1) [attributes {...}] { ... spmd.yield }
 
     Optional schedule attributes:
       spmd.mapping       : #spmd.level<...>
@@ -65,13 +55,13 @@ def SPMD_ForallOp : SPMD_Op<"forall", [
       spmd.order         : DenseI64ArrayAttr (permutation of [0..rank-1])
       spmd.memory_policy : #spmd.memory_policy<...>
 
-    Verifier checks:
-      - lbs/ubs/steps have equal length (rank >= 1)
-      - block args count = rank, all index type
-      - spmd.order, if present, is a valid permutation
-      - spmd.tile_sizes, if present, has length = rank and all-positive values
-      - spmd.mapping, if present, is a valid LevelAttr
-      - steps must be > 0 at runtime (static constants verified statically)
+    Verifier rules:
+    - lbs/ubs/steps have equal length (rank >= 1)
+    - block args count = rank, all index type
+    - spmd.order, if present, is a valid permutation
+    - spmd.tile_sizes, if present, has length = rank and all-positive values
+    - spmd.mapping, if present, is a valid LevelAttr
+    - static steps must be > 0 (dynamic steps guaranteed by caller)
   }];
 
   let arguments = (ins
@@ -82,22 +72,21 @@ def SPMD_ForallOp : SPMD_Op<"forall", [
   let results = (outs);
   let regions = (region SizedRegion<1>:$body);
 
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = [{
+    `(` $lowerBounds `)` `to` `(` $upperBounds `)` `step` `(` $steps `)`
+    attr-dict-with-keyword regions
+  }];
+
   let hasVerifier = 1;
   let hasCanonicalizer = 1;
 
   let extraClassDeclaration = [{
-    // Returns the number of iteration dimensions.
     unsigned getRank() { return getLowerBounds().size(); }
-
-    // Returns the induction variable for dimension i.
-    BlockArgument getInductionVar(unsigned i) {
-      return getBody().front().getArgument(i);
-    }
-
-    // Returns all induction variables.
     Block::BlockArgListType getInductionVars() {
       return getBody().front().getArguments();
+    }
+    BlockArgument getInductionVar(unsigned i) {
+      return getBody().front().getArgument(i);
     }
   }];
 }
@@ -112,7 +101,7 @@ def SPMD_IfOp : SPMD_Op<"if", [
   let summary = "Per-instance conditional branch";
   let description = [{
     Per-SPMD-instance conditional. Different lanes may take different
-    branches; this is legal. Backends may lower to branch or predication.
+    branches. Backends may lower to branch or predication.
 
     Without results:
       spmd.if %cond { ... spmd.yield }
@@ -125,10 +114,10 @@ def SPMD_IfOp : SPMD_Op<"if", [
       }
 
     Verifier:
-      - cond must be i1
-      - if op has results, both then and else regions must be present,
-        and yield types must match result types
-      - if op has no results, else region may be absent
+    - cond must be i1
+    - if op has results, both then and else regions must be present,
+      and yield types must match result types
+    - if op has no results, else region may be absent
   }];
 
   let arguments = (ins I1:$condition);
@@ -136,7 +125,11 @@ def SPMD_IfOp : SPMD_Op<"if", [
   let regions = (region SizedRegion<1>:$thenRegion,
                         AnyRegion:$elseRegion);
 
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = [{
+    $condition attr-dict `:` `(` type($results) `)`
+    $thenRegion (`else` $elseRegion^)?
+  }];
+
   let hasVerifier = 1;
   let hasCanonicalizer = 1;
 }
@@ -152,26 +145,18 @@ def SPMD_ReduceOp : SPMD_Op<"reduce"> {
     specified by spmd.kind. The initial value is init. The body computes
     the contribution for each iteration and yields exactly one value.
 
-    MVP: single-dimension only. Multi-dimensional reductions should be
-    expressed as nested spmd.reduce.
-
-    Syntax:
-      %r = spmd.reduce (%k) = (%lb) to (%ub) step (%step)
-               init(%init)
-               attributes {spmd.kind = #spmd.reduction_kind<add>} {
-        %contrib = ...
-        spmd.yield %contrib : f32
-      }
-
-    Verifier:
-      - spmd.kind must be present and valid
-      - init type == result type
-      - body yields exactly one value matching result type
-      - MVP: body restricted to pure arithmetic + non-volatile loads
-      - Floating-point add/mul: reassociation only valid under fast-math
+    MVP: single-dimension only. Multi-dimensional reductions use nested
+    spmd.reduce.
 
     Execution order is unspecified; combiner must be associative and
     commutative for correct parallel execution.
+
+    Floating-point add/mul: reassociation only valid under fast-math.
+
+    Verifier:
+    - spmd.kind must be present and be a valid ReductionKindAttr
+    - init type == result type
+    - body yields exactly one value matching result type
   }];
 
   let arguments = (ins
@@ -183,7 +168,12 @@ def SPMD_ReduceOp : SPMD_Op<"reduce"> {
   let results = (outs AnyType:$result);
   let regions = (region SizedRegion<1>:$body);
 
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = [{
+    `(` $lowerBound `)` `to` `(` $upperBound `)` `step` `(` $step `)`
+    `init` `(` $init `:` type($init) `)`
+    attr-dict-with-keyword regions `:` type($result)
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -197,17 +187,13 @@ def SPMD_BarrierOp : SPMD_Op<"barrier"> {
     Synchronizes all active lanes in the current group and establishes
     a group-memory visibility fence.
 
-    Syntax:
-      spmd.barrier {spmd.scope = #spmd.scope<group>}
-
     MVP: only group scope is supported.
 
     Verifier:
-      - spmd.scope must be present (MVP: only group)
-      - Must be nested inside a spmd.forall with spmd.mapping = group
+    - spmd.scope must be present and be a valid ScopeAttr with group value
+    - Must be nested inside a spmd.forall with spmd.mapping = #spmd.level<group>
 
-    Usage: not generated by frontends. Inserted by PromoteGroupMemory
-    pass in S2 between cooperative copy and compute phases.
+    Usage: not generated by frontends. Inserted by PromoteGroupMemory pass in S2.
   }];
 
   let arguments = (ins);

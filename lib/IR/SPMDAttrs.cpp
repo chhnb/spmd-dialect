@@ -5,6 +5,9 @@
 using namespace mlir;
 using namespace mlir::spmd;
 
-// Include tablegen-generated attr definitions
+// Tablegen-generated enum definitions
+#include "spmd/IR/SPMDEnums.cpp.inc"
+
+// Tablegen-generated attr definitions
 #define GET_ATTRDEF_CLASSES
 #include "spmd/IR/SPMDAttrs.cpp.inc"

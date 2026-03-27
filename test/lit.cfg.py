@@ -1,15 +1,33 @@
-import lit.formats
+# -*- Python -*-
+
 import os
+import lit.formats
+import lit.util
+from lit.llvm import llvm_config
+from lit.llvm.subst import ToolSubst
 
-config.name = "SPMD Dialect"
+# Configuration file for the 'lit' test runner.
+
+config.name = "SPMD"
 config.test_format = lit.formats.ShTest(not llvm_config.use_lit_shell)
-config.suffixes = ['.mlir']
+config.suffixes = [".mlir"]
 config.test_source_root = os.path.dirname(__file__)
-config.test_exec_root = os.path.join(config.spmd_obj_root, 'test')
+config.test_exec_root = os.path.join(config.spmd_obj_root, "test")
 
-config.substitutions.append(('%PATH%', config.environment['PATH']))
-config.substitutions.append(('%shlibext', config.llvm_shlib_ext))
+config.substitutions.append(("%PATH%", config.environment["PATH"]))
+config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
 
-llvm_config.with_system_environment(['HOME', 'INCLUDE', 'LIB', 'TMP', 'TEMP'])
+llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
 llvm_config.use_default_substitutions()
-llvm_config.add_tool_substitutions(['spmd-opt', 'FileCheck'], config.llvm_tools_dir)
+
+config.excludes = ["Inputs", "CMakeLists.txt", "README.txt"]
+
+config.spmd_tools_dir = os.path.join(config.spmd_obj_root, "bin")
+config.spmd_libs_dir = os.path.join(config.spmd_obj_root, "lib")
+
+llvm_config.with_environment("PATH", config.llvm_tools_dir, append_path=True)
+llvm_config.with_environment("PATH", config.spmd_tools_dir, append_path=True)
+
+tools = ["spmd-opt", "FileCheck", "mlir-opt"]
+tool_dirs = [config.spmd_tools_dir, config.llvm_tools_dir]
+llvm_config.add_tool_substitutions(tools, tool_dirs)

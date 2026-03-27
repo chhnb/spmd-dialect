@@ -1,14 +1,15 @@
 #include "spmd/IR/SPMDDialect.h"
-#include "spmd/IR/SPMDOps.h"
 #include "spmd/IR/SPMDAttrs.h"
+#include "spmd/IR/SPMDOps.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/DialectImplementation.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 using namespace mlir;
 using namespace mlir::spmd;
 
-// Include tablegen-generated dialect definition
+// Tablegen-generated dialect definition
 #include "spmd/IR/SPMDDialect.cpp.inc"
 
 void SPMDDialect::initialize() {
