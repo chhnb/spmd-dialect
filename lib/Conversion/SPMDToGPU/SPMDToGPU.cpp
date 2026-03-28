@@ -13,6 +13,7 @@
 
 #include "spmd/IR/SPMDOps.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -36,6 +37,10 @@ struct SPMDToGPUPass
 };
 } // namespace
 
-std::unique_ptr<Pass> mlir::spmd::createSPMDToGPUPass() {
+namespace mlir {
+namespace spmd {
+std::unique_ptr<Pass> createSPMDToGPUPass() {
   return std::make_unique<SPMDToGPUPass>();
 }
+} // namespace spmd
+} // namespace mlir

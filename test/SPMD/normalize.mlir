@@ -1,4 +1,5 @@
 // RUN: spmd-opt %s --normalize-spmd | FileCheck %s
+// RUN: spmd-opt %s --normalize-spmd --mlir-print-op-generic | FileCheck %s --check-prefix=GENERIC
 
 // Tests for NormalizeSPMD pass:
 //   - NormalizeForallBounds: rewrite lb/step to 0/1 canonical form
@@ -106,6 +107,10 @@ func.func @zero_trip_equal() attributes {spmd.kernel} {
 // CHECK:       spmd.forall(%c0) to(%arg0) step(%c1)
 // The 2-D form should no longer appear.
 // CHECK-NOT:   spmd.forall(%c0, %c0)
+// Generic format positively asserts the rebuilt 1-D segment metadata.
+// GENERIC-LABEL: "func.func"() {{.*}} sym_name = "partial_single_trip"
+// GENERIC:       operandSegmentSizes = array<i32: 1, 1, 1>
+// GENERIC-NOT:   operandSegmentSizes = array<i32: 2, 2, 2>
 func.func @partial_single_trip(%N: index) attributes {spmd.kernel} {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
