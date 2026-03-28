@@ -6,6 +6,7 @@
 include "spmd/IR/SPMDDialect.td"
 include "spmd/IR/SPMDAttrs.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/IR/BuiltinTypes.td"
 include "mlir/IR/OpBase.td"
 
@@ -31,6 +32,8 @@ def SPMD_YieldOp : SPMD_Op<"yield", [Pure, Terminator, ReturnLike]> {
   let arguments = (ins Variadic<AnyType>:$values);
   let assemblyFormat = "attr-dict ($values^ `:` type($values))?";
   let hasVerifier = 1;
+  // Explicit no-arg builder required by SingleBlockImplicitTerminator<YieldOp>.
+  let builders = [OpBuilder<(ins), "build($_builder, $_state, ValueRange{});">];
 }
 
 //===----------------------------------------------------------------------===//
@@ -132,6 +135,39 @@ def SPMD_IfOp : SPMD_Op<"if", [
 
   let hasVerifier = 1;
   let hasCanonicalizer = 1;
+  // Builder: creates thenRegion (always) and elseRegion (if withElse) with
+  // proper single blocks and implicit YieldOp terminators so that callers can
+  // immediately access thenRegion().front() after construction.
+  //
+  // outerGuard is essential: createBlock() moves the OpBuilder's insertion
+  // point into the new block. Without outerGuard the outer OpBuilder::create()
+  // would then insert the IfOp inside its own thenRegion instead of at the
+  // original call site.
+  let builders = [
+    OpBuilder<(ins "TypeRange":$resultTypes, "Value":$condition, "bool":$withElse),
+      [{
+        // Preserve original insertion point so insert(ifOp) goes to the right place.
+        ::mlir::OpBuilder::InsertionGuard outerGuard($_builder);
+        $_state.addTypes(resultTypes);
+        $_state.addOperands(condition);
+        // thenRegion: always one block with YieldOp terminator.
+        Region *thenReg = $_state.addRegion();
+        {
+          ::mlir::Block *thenBlock = $_builder.createBlock(thenReg);
+          ::mlir::OpBuilder::InsertionGuard guard($_builder);
+          $_builder.setInsertionPointToEnd(thenBlock);
+          $_builder.create<YieldOp>($_state.location);
+        }
+        // elseRegion: block with YieldOp only if withElse, else empty region.
+        Region *elseReg = $_state.addRegion();
+        if (withElse) {
+          ::mlir::Block *elseBlock = $_builder.createBlock(elseReg);
+          ::mlir::OpBuilder::InsertionGuard guard($_builder);
+          $_builder.setInsertionPointToEnd(elseBlock);
+          $_builder.create<YieldOp>($_state.location);
+        }
+      }]>
+  ];
 }
 
 //===----------------------------------------------------------------------===//

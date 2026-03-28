@@ -21,8 +21,9 @@ func.func @s0_has_barrier(%N: index) attributes {spmd.kernel} {
 
 // ---- VerifyKernelSubset: group-addr-space operand in S0 ----
 
+// expected-error@+1 {{spmd.kernel function signature has group/private memref argument}}
 func.func @s0_group_memref_operand(
-    %A: memref<?xf32, #spmd.addr_space<group>>, // expected-error {{spmd.kernel function signature has group/private memref argument}}
+    %A: memref<?xf32, #spmd.addr_space<group>>,
     %N: index) attributes {spmd.kernel} {
   func.return
 }

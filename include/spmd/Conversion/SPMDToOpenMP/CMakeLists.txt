@@ -1,1 +1,1 @@
-add_mlir_library(SPMDToOpenMPHeaders INTERFACE)
+add_library(SPMDToOpenMPHeaders INTERFACE)

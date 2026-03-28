@@ -99,7 +99,7 @@ func.func @reduce_type_mismatch(%N: index) {
 // ---- if: condition is not i1 ----
 
 func.func @if_bad_cond(%idx: index) {
-  // expected-error@+1 {{condition must be i1}}
+  // expected-error@+1 {{must be 1-bit signless integer}}
   "spmd.if"(%idx) ({
     "spmd.yield"() : () -> ()
   }, {
@@ -113,7 +113,7 @@ func.func @if_bad_cond(%idx: index) {
 // ---- if: results but no else ----
 
 func.func @if_no_else(%c: i1, %x: f32) {
-  // expected-error@+1 {{else region required when op has results}}
+  // expected-error@+1 {{expected 2 regions}}
   %r = "spmd.if"(%c) ({
     "spmd.yield"(%x) : (f32) -> ()
   }) : (i1) -> f32

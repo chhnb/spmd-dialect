@@ -5,8 +5,8 @@
 // forall that reads from the group-memory tile buffer.
 //
 // The outer forall has tile_sizes=[32,8] and memory_policy=prefer_group.
-// Stencil pattern: loads A[i,j], A[i,j+1], A[i+1,j] → halo = (1,1)
-//   tile buffer size = (32+1+1) × (8+1+1) = 34 × 10
+// Stencil pattern: loads A[i,j], A[i,j+1], A[i+1,j] → maxOffset = (1,1)
+//   tile buffer size = (32+1) × (8+1) = 33 × 9
 
 // CHECK-LABEL: func @stencil2d
 func.func @stencil2d(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
@@ -56,14 +56,14 @@ func.func @stencil2d(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 //   3. spmd.barrier with group scope is inserted.
 //   4. The compute lane forall loads from the tile buffer instead of A.
 
-// CHECK: memref.alloc() : memref<34x10xf32, #spmd.addr_space<group>>
-// CHECK: "spmd.forall"{{.*}}"spmd.mapping" = #spmd.level<lane>
-// CHECK: memref.load %A
-// CHECK: memref.store{{.*}}memref<34x10xf32, #spmd.addr_space<group>>
-// CHECK: "spmd.barrier"() {{"spmd.scope" = #spmd.scope<group>}}
-// CHECK: "spmd.forall"{{.*}}"spmd.mapping" = #spmd.level<lane>
-// CHECK-NOT: memref.load %A
-// CHECK: memref.load{{.*}}memref<34x10xf32, #spmd.addr_space<group>>
+// CHECK: memref.alloc() : memref<33x9xf32, #spmd.addr_space<group>>
+// CHECK: spmd.forall{{.*}}spmd.mapping = #spmd.level<lane>
+// CHECK: memref.load %arg0
+// CHECK: memref.store{{.*}}memref<33x9xf32, #spmd.addr_space<group>>
+// CHECK: spmd.barrier {spmd.scope = #spmd.scope<group>}
+// CHECK: spmd.forall{{.*}}spmd.mapping = #spmd.level<lane>
+// CHECK-NOT: memref.load %arg0
+// CHECK: memref.load{{.*}}memref<33x9xf32, #spmd.addr_space<group>>
 
 // -----
 
@@ -101,7 +101,7 @@ func.func @no_promote(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 
 // With no_promotion, no group alloc should be inserted.
 // CHECK-NOT: memref.alloc() : memref<{{.*}}#spmd.addr_space<group>>
-// CHECK-NOT: "spmd.barrier"
+// CHECK-NOT: spmd.barrier
 
 // -----
 
@@ -117,9 +117,10 @@ func.func @no_promote(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 // RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --promote-group-memory \
 // RUN:   --convert-spmd-to-openmp --convert-spmd-to-scf \
+// RUN:   --spmd-erase-memory-spaces \
 // RUN:   --convert-scf-to-cf --convert-arith-to-llvm \
 // RUN:   --finalize-memref-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
-// RUN:   --reconcile-unrealized-casts \
+// RUN:   --convert-openmp-to-llvm --reconcile-unrealized-casts \
 // RUN:   | mlir-translate --mlir-to-llvmir \
 // RUN:   | llc -o /dev/null
 

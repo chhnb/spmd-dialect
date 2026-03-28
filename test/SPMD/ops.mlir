@@ -7,8 +7,9 @@ func.func @ewise_square(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
                          %N: index, %M: index)
     attributes {spmd.kernel} {
   %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
   // CHECK: spmd.forall
-  "spmd.forall"(%c0, %c0, %N, %M, %c0, %c0) ({
+  "spmd.forall"(%c0, %c0, %N, %M, %c1, %c1) ({
   ^bb0(%i: index, %j: index):
     %x = memref.load %A[%i, %j] : memref<?x?xf32>
     %y = arith.mulf %x, %x : f32

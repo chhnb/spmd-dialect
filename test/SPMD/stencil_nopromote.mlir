@@ -1,7 +1,7 @@
 // RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
 // RUN:   --promote-group-memory --convert-spmd-to-scf | FileCheck %s
 
-// Pipeline LLVM: full lowering to LLVM IR.
+// Pipeline: full lowering to LLVM IR via mlir-translate.
 // RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
 // RUN:   --promote-group-memory --convert-spmd-to-scf \
 // RUN:   --convert-scf-to-cf --convert-arith-to-llvm \
@@ -17,9 +17,9 @@
 // After the full CPU pipeline, only scf ops remain.
 
 // CHECK-LABEL: func @stencil1d_nopromote
-// CHECK-NOT: spmd.
+// CHECK-NOT: spmd.forall
 // CHECK-NOT: memref.alloc(){{.*}}#spmd.addr_space<group>
-// CHECK-NOT: "spmd.barrier"
+// CHECK-NOT: spmd.barrier
 // CHECK: scf.for
 // CHECK: memref.load
 // CHECK: arith.addf

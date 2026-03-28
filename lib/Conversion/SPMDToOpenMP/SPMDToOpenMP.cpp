@@ -132,11 +132,15 @@ struct SPMDToOpenMPPass
            "--convert-spmd-to-scf.";
   }
 
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<omp::OpenMPDialect>();
+  }
+
   void runOnOperation() override {
     func::FuncOp func = getOperation();
     RewritePatternSet patterns(&getContext());
     patterns.add<BarrierToOMPBarrier, GroupForallToOmpParallel>(&getContext());
-    if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
+    if (failed(applyPatternsGreedily(func, std::move(patterns))))
       signalPassFailure();
   }
 };

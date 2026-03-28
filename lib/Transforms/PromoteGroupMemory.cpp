@@ -67,6 +67,9 @@ static void rewriteLoadsToTile(Block &block, Value globalMr, Value tileMr,
     if (load.getMemRef() != globalMr)
       return;
     Location loc = load.getLoc();
+    // Set IP before load first — tileIndex ops must be inserted here too,
+    // so the IP is valid for all creates in this iteration.
+    rewriter.setInsertionPoint(load);
     SmallVector<Value> tileIndices;
     auto srcIndices = load.getIndices();
     for (unsigned d = 0; d < srcIndices.size(); ++d) {
@@ -87,10 +90,9 @@ static void rewriteLoadsToTile(Block &block, Value globalMr, Value tileMr,
       }
       tileIndices.push_back(tileIdx);
     }
-    rewriter.setInsertionPoint(load);
     auto newLoad = rewriter.create<memref::LoadOp>(loc, tileMr, tileIndices);
     load.getResult().replaceAllUsesWith(newLoad.getResult());
-    rewriter.eraseOp(load);
+    load->erase();
   });
 }
 
@@ -186,8 +188,18 @@ struct PromoteGroupMemoryPass
         copyForall->setAttr("spmd.mapping",
                              LevelAttr::get(ctx, LevelKind::Lane));
 
+        // Initialize copy forall body: generated builder leaves region empty.
+        Block *copyBodyPtr = builder.createBlock(&copyForall.getBody());
+        for (unsigned d = 0; d < rec.rank; ++d)
+          copyBodyPtr->addArgument(builder.getIndexType(), laneForall.getLoc());
+        {
+          OpBuilder::InsertionGuard g(builder);
+          builder.setInsertionPointToEnd(copyBodyPtr);
+          builder.create<YieldOp>(laneForall.getLoc());
+        }
+
         // Fill the copy forall body: load from global → store to tile.
-        Block &copyBody = copyForall.getBody().front();
+        Block &copyBody = *copyBodyPtr;
         builder.setInsertionPoint(copyBody.getTerminator());
 
         ValueRange copyIvs = copyForall.getInductionVars();

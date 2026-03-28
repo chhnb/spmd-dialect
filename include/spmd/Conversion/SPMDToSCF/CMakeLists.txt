@@ -1,1 +1,1 @@
-add_mlir_library(SPMDToSCFHeaders INTERFACE)
+add_library(SPMDToSCFHeaders INTERFACE)

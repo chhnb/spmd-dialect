@@ -82,10 +82,17 @@ struct NormalizeForallBounds : public OpRewritePattern<ForallOp> {
       newForall->setAttr(attr.getName(), attr.getValue());
     }
 
+    // The generated builder leaves the body region empty (no block, no args).
+    // Initialize it: one index-typed IV per dimension, plus YieldOp terminator.
+    Block *newBodyPtr = rewriter.createBlock(&newForall.getBody());
+    for (unsigned d = 0; d < rank; ++d)
+      newBodyPtr->addArgument(rewriter.getIndexType(), loc);
+    rewriter.create<YieldOp>(loc); // implicit terminator at end of body
+
     // Inside the new body, add the iv remapping:
     //   original_iv[d] = lb[d] + new_iv[d] * step[d]
     // Then inline the old body.
-    Block &newBody = newForall.getBody().front();
+    Block &newBody = *newBodyPtr;
     rewriter.setInsertionPointToStart(&newBody);
 
     SmallVector<Value> remappedIvs;
@@ -208,7 +215,13 @@ struct FoldSingleIterationDims : public OpRewritePattern<ForallOp> {
       if (attr.getName() != segSizesKey)
         newForall->setAttr(attr.getName(), attr.getValue());
 
-    Block &newBody = newForall.getBody().front();
+    // Initialize body: the generated builder leaves the region empty.
+    unsigned newRank = newLbs.size();
+    Block *newBodyPtr = rewriter.createBlock(&newForall.getBody());
+    for (unsigned d = 0; d < newRank; ++d)
+      newBodyPtr->addArgument(rewriter.getIndexType(), loc);
+    rewriter.create<YieldOp>(loc);
+    Block &newBody = *newBodyPtr;
     rewriter.setInsertionPointToStart(&newBody);
 
     unsigned newDimIdx = 0;
@@ -244,7 +257,7 @@ struct NormalizeSPMDPass
     func::FuncOp func = getOperation();
     RewritePatternSet patterns(&getContext());
     patterns.add<NormalizeForallBounds, FoldSingleIterationDims>(&getContext());
-    if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
+    if (failed(applyPatternsGreedily(func, std::move(patterns))))
       signalPassFailure();
   }
 };

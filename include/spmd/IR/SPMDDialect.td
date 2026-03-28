@@ -34,7 +34,7 @@ def SPMD_Dialect : Dialect {
   }];
 
   let cppNamespace = "::mlir::spmd";
-  let useDefaultTypePrinterParser = 1;
+  // No custom types; base class default parseType/printType handles unknown types.
   let useDefaultAttributePrinterParser = 1;
 }
 

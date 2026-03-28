@@ -52,9 +52,14 @@ struct MaterializeTiledForall : public OpRewritePattern<ForallOp> {
     if (!mappingAttr || mappingAttr.getValue() != LevelKind::Group)
       return failure();
 
+    // Skip if already materialized (prevents infinite loop: outer forall
+    // retains spmd.tile_sizes for PromoteGroupMemory but must not re-fire).
+    if (op->hasAttr("spmd.tiled"))
+      return failure();
+
     Location loc = op.getLoc();
     unsigned rank = op.getRank();
-    MLIRContext *ctx = &getContext();
+    MLIRContext *ctx = getContext();
     ArrayRef<int64_t> tileSizes = tileSizesAttr.asArrayRef();
 
     auto lbs   = op.getLowerBounds();
@@ -85,6 +90,17 @@ struct MaterializeTiledForall : public OpRewritePattern<ForallOp> {
     // Preserve tile_sizes so PromoteGroupMemory can compute footprint dims.
     if (auto ts = op->getAttr("spmd.tile_sizes"))
       outerForall->setAttr("spmd.tile_sizes", ts);
+    // Mark as already materialized to prevent the greedy rewriter from
+    // re-matching this outer forall (which still has spmd.tile_sizes).
+    outerForall->setAttr("spmd.tiled", rewriter.getUnitAttr());
+
+    // Initialize outerForall body: generated builder leaves region empty.
+    {
+      Block *outerBlock = rewriter.createBlock(&outerForall.getBody());
+      for (unsigned d = 0; d < rank; ++d)
+        outerBlock->addArgument(rewriter.getIndexType(), loc);
+      rewriter.create<YieldOp>(loc);
+    }
 
     // Inside outer body, build inner lane forall: [0, tile_size) step 1.
     rewriter.setInsertionPoint(outerForall.getBody().front().getTerminator());
@@ -101,6 +117,14 @@ struct MaterializeTiledForall : public OpRewritePattern<ForallOp> {
                                                   innerSteps);
     innerForall->setAttr("spmd.mapping",
                          LevelAttr::get(ctx, LevelKind::Lane));
+
+    // Initialize innerForall body: generated builder leaves region empty.
+    {
+      Block *innerBlock = rewriter.createBlock(&innerForall.getBody());
+      for (unsigned d = 0; d < rank; ++d)
+        innerBlock->addArgument(rewriter.getIndexType(), loc);
+      rewriter.create<YieldOp>(loc);
+    }
 
     // Inside inner body: compute original IVs as outer_iv + inner_iv,
     // then guard with spmd.if (in-bounds check) and inline original body.
@@ -162,7 +186,7 @@ struct MaterializeTilingAndMappingPass
     func::FuncOp func = getOperation();
     RewritePatternSet patterns(&getContext());
     patterns.add<MaterializeTiledForall>(&getContext());
-    if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
+    if (failed(applyPatternsGreedily(func, std::move(patterns))))
       signalPassFailure();
   }
 };

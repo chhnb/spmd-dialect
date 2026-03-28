@@ -1,1 +1,1 @@
-add_mlir_library(SPMDAnalysisHeaders INTERFACE)
+add_library(SPMDAnalysisHeaders INTERFACE)

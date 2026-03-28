@@ -37,6 +37,9 @@ void registerMaterializeTilingAndMappingPass();
 std::unique_ptr<Pass> createPromoteGroupMemoryPass();
 void registerPromoteGroupMemoryPass();
 
+std::unique_ptr<Pass> createEraseSpmdMemorySpacesPass();
+void registerEraseSpmdMemorySpacesPass();
+
 //===----------------------------------------------------------------------===//
 // Conversion passes (S2 → target dialect)
 //===----------------------------------------------------------------------===//

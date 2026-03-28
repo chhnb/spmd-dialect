@@ -10,6 +10,7 @@ void mlir::spmd::registerSPMDPasses() {
   registerPlanSPMDSchedulePass();
   registerMaterializeTilingAndMappingPass();
   registerPromoteGroupMemoryPass();
+  registerEraseSpmdMemorySpacesPass();
   registerSPMDToSCFPass();
   registerSPMDToOpenMPPass();
 }

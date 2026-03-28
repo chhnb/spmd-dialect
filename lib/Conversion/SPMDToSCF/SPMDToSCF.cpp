@@ -20,9 +20,11 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/DialectConversion.h"
 
 using namespace mlir;
 using namespace mlir::spmd;
@@ -145,7 +147,7 @@ struct IfToSCFIf : public OpRewritePattern<IfOp> {
 struct ReduceToSCFFor : public OpRewritePattern<ReduceOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  Value buildCombine(PatternRewriter &rewriter, Location loc,
+  Value buildCombine(OpBuilder &rewriter, Location loc,
                      ReductionKind kind, Value acc, Value partial,
                      Type type) const {
     bool isFloat = isa<FloatType>(type);
@@ -180,38 +182,31 @@ struct ReduceToSCFFor : public OpRewritePattern<ReduceOp> {
     Type elemType = op.getResult().getType();
     auto kindAttr = op->getAttrOfType<ReductionKindAttr>("spmd.kind");
 
-    // Create scf.for with the init value as iter_arg.
+    // Capture reduce body info before the create call (bodyBuilder may run
+    // while the ForOp's region is not yet attached to any op, so we read
+    // the source block outside the lambda to avoid any lifetime issues).
+    Block &reduceBody   = op.getBody().front();
+    Value  reduceBodyIv = reduceBody.getArgument(0);
+    Value  spmdPartial  = cast<YieldOp>(reduceBody.getTerminator()).getValues()[0];
+
+    // Use a body-builder lambda: clones reduce-body ops directly into the
+    // scf.for body, avoiding inlineBlockBefore and cross-region value uses
+    // that confuse the greedy rewriter's worklist walker.
+    rewriter.setInsertionPoint(op);
     auto forOp = rewriter.create<scf::ForOp>(
         loc, op.getLowerBound(), op.getUpperBound(), op.getStep(),
-        ValueRange{op.getInit()});
-
-    Block *forBody    = forOp.getBody();
-    Value  loopIv     = forOp.getInductionVar();
-    Value  acc        = forOp.getRegionIterArg(0);
-    // The builder creates: scf.yield(%acc) as the body terminator.
-    Operation *forYield = forBody->getTerminator();
-
-    // Inline the reduce body before the scf.yield, mapping the index arg.
-    Block &reduceBody = op.getBody().front();
-    rewriter.inlineBlockBefore(&reduceBody, forYield, {loopIv});
-
-    // After inlining: spmd.yield(%partial) is just before forYield.
-    Operation *spmdYield = forYield->getPrevNode();
-    assert(spmdYield && isa<YieldOp>(spmdYield));
-    auto yieldOp  = cast<YieldOp>(spmdYield);
-    Value partial = yieldOp.getValues()[0];
-
-    // Build the combine op before spmdYield.
-    rewriter.setInsertionPoint(spmdYield);
-    Value combined =
-        buildCombine(rewriter, loc, kindAttr.getValue(), acc, partial, elemType);
-
-    // Replace the old scf.yield (with acc as operand) with one that
-    // yields the combined value.
-    rewriter.setInsertionPoint(forYield);
-    rewriter.create<scf::YieldOp>(loc, ValueRange{combined});
-    rewriter.eraseOp(forYield);
-    rewriter.eraseOp(spmdYield);
+        ValueRange{op.getInit()},
+        [&](OpBuilder &b, Location bodyLoc, Value iv, ValueRange iterArgs) {
+          IRMapping mapping;
+          mapping.map(reduceBodyIv, iv);
+          for (Operation &bodyOp : reduceBody)
+            if (!isa<YieldOp>(bodyOp))
+              b.clone(bodyOp, mapping);
+          Value partial  = mapping.lookupOrDefault(spmdPartial);
+          Value combined = buildCombine(b, bodyLoc, kindAttr.getValue(),
+                                        iterArgs[0], partial, elemType);
+          b.create<scf::YieldOp>(bodyLoc, ValueRange{combined});
+        });
 
     rewriter.replaceOp(op, forOp.getResult(0));
     return success();
@@ -245,13 +240,17 @@ struct SPMDToSCFPass
     return "Lower spmd dialect to scf for sequential CPU execution";
   }
 
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<scf::SCFDialect, arith::ArithDialect>();
+  }
+
   void runOnOperation() override {
     func::FuncOp func = getOperation();
     RewritePatternSet patterns(&getContext());
     patterns.add<ForallToSCFFor, IfToSCFIf, ReduceToSCFFor, BarrierToNoop>(
         &getContext());
 
-    if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
+    if (failed(applyPatternsGreedily(func, std::move(patterns))))
       signalPassFailure();
 
     // Verify no SPMD ops remain.

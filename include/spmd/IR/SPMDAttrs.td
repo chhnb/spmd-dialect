@@ -27,6 +27,7 @@ def SPMD_LevelKind : I32EnumAttr<"LevelKind",
     [SPMD_LevelSeq, SPMD_LevelGrid, SPMD_LevelGroup,
      SPMD_LevelLane, SPMD_LevelVector]> {
   let cppNamespace = "::mlir::spmd";
+  let genSpecializedAttr = 0;
 }
 
 def SPMD_LevelAttr : SPMD_Attr<"Level", "level"> {
@@ -53,6 +54,7 @@ def SPMD_ScopeKind : I32EnumAttr<"ScopeKind",
     "Synchronization scope",
     [SPMD_ScopeGroup]> {
   let cppNamespace = "::mlir::spmd";
+  let genSpecializedAttr = 0;
 }
 
 def SPMD_ScopeAttr : SPMD_Attr<"Scope", "scope"> {
@@ -83,6 +85,7 @@ def SPMD_ReductionKind : I32EnumAttr<"ReductionKind",
      SPMD_ReductionMin, SPMD_ReductionAnd, SPMD_ReductionOr,
      SPMD_ReductionXor]> {
   let cppNamespace = "::mlir::spmd";
+  let genSpecializedAttr = 0;
 }
 
 def SPMD_ReductionKindAttr : SPMD_Attr<"ReductionKind", "reduction_kind"> {
@@ -109,6 +112,7 @@ def SPMD_AddressSpaceKind : I32EnumAttr<"AddressSpaceKind",
     "Abstract memory space",
     [SPMD_AddrSpaceGlobal, SPMD_AddrSpaceGroup, SPMD_AddrSpacePrivate]> {
   let cppNamespace = "::mlir::spmd";
+  let genSpecializedAttr = 0;
 }
 
 def SPMD_AddressSpaceAttr : SPMD_Attr<"AddressSpace", "addr_space"> {
@@ -141,6 +145,7 @@ def SPMD_MemoryPolicyKind : I32EnumAttr<"MemoryPolicyKind",
     [SPMD_PolicyNone, SPMD_PolicyPreferGroup,
      SPMD_PolicyPreferPrivate, SPMD_PolicyNoPromotion]> {
   let cppNamespace = "::mlir::spmd";
+  let genSpecializedAttr = 0;
 }
 
 def SPMD_MemoryPolicyAttr : SPMD_Attr<"MemoryPolicy", "memory_policy"> {

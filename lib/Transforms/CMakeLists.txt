@@ -4,6 +4,7 @@ add_mlir_library(SPMDTransforms
   PlanSPMDSchedule.cpp
   MaterializeTilingAndMapping.cpp
   PromoteGroupMemory.cpp
+  EraseSpmdMemorySpaces.cpp
   SPMDPassRegistration.cpp
 
   LINK_LIBS PUBLIC

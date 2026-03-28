@@ -1,1 +1,1 @@
-add_mlir_library(SPMDPassesHeaders INTERFACE)
+add_library(SPMDPassesHeaders INTERFACE)

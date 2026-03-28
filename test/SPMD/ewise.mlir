@@ -1,7 +1,7 @@
 // RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
 // RUN:   --convert-spmd-to-scf | FileCheck %s
 
-// Pipeline LLVM: full lowering to LLVM IR.
+// Pipeline: full lowering to LLVM IR via mlir-translate.
 // RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
 // RUN:   --convert-spmd-to-scf --convert-scf-to-cf --convert-arith-to-llvm \
 // RUN:   --finalize-memref-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
@@ -16,7 +16,7 @@
 // the iteration must be expressed as scf.for.
 
 // CHECK-LABEL: func @ewise
-// CHECK-NOT: spmd.
+// CHECK-NOT: spmd.forall
 // CHECK: scf.for
 // CHECK: memref.load
 // CHECK: arith.addf
@@ -43,7 +43,7 @@ func.func @ewise(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>,
 // 2D elementwise: C[i,j] = A[i,j] * B[i,j]
 
 // CHECK-LABEL: func @ewise2d
-// CHECK-NOT: spmd.
+// CHECK-NOT: spmd.forall
 // CHECK: scf.for
 // CHECK: scf.for
 

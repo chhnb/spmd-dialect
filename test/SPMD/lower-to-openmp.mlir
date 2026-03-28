@@ -15,7 +15,7 @@
 // RUN:   | FileCheck %s --check-prefix=SCF
 
 // SCF-LABEL: func @ewise_kernel
-// SCF-NOT: spmd.
+// SCF-NOT: spmd.forall
 // SCF: scf.for
 
 // ── Pipeline B: OpenMP ────────────────────────────────────────────────────
@@ -88,7 +88,7 @@ func.func @reduce_sum(%A: memref<?xf32>, %N: index) -> f32
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-openmp \
 // RUN:   --convert-spmd-to-scf --convert-scf-to-cf --convert-arith-to-llvm \
 // RUN:   --finalize-memref-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
-// RUN:   --reconcile-unrealized-casts \
+// RUN:   --convert-openmp-to-llvm --reconcile-unrealized-casts \
 // RUN:   | mlir-translate --mlir-to-llvmir \
 // RUN:   | FileCheck %s --check-prefix=STENCIL_LLVM
 
