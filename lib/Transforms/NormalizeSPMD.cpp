@@ -200,8 +200,13 @@ struct FoldSingleIterationDims : public OpRewritePattern<ForallOp> {
 
     // Create a lower-rank forall and remap IVs.
     auto newForall = rewriter.create<ForallOp>(loc, newLbs, newUbs, newSteps);
+    // Copy user-defined attrs (mapping, tile_sizes, memory_policy, etc.) but
+    // skip operandSegmentSizes — the new op already has the correct value set
+    // by ForallOp::create based on the actual (lower) rank.
+    StringRef segSizesKey = "operandSegmentSizes";
     for (auto attr : op->getAttrs())
-      newForall->setAttr(attr.getName(), attr.getValue());
+      if (attr.getName() != segSizesKey)
+        newForall->setAttr(attr.getName(), attr.getValue());
 
     Block &newBody = newForall.getBody().front();
     rewriter.setInsertionPointToStart(&newBody);
