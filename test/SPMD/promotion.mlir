@@ -146,6 +146,64 @@ func.func @copy_no_reuse(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 
 // -----
 
+// Positive: prefer_group kernel with step=2 (stepped stencil regression).
+//
+// outer forall: step=8 = tile_size(4) * origStep(2)
+// inner forall: [0, 4) step 1 — lane i processes global index outer + i*2
+// Stencil accesses: A[outer+i*2] and A[outer+i*2+1]
+//   minOffset=0, maxOffset=1, step=2, tile_size=4
+//   extent = (tile_size-1)*step + maxOffset - minOffset + 1
+//          = (4-1)*2 + 1 - 0 + 1 = 8
+//
+// After --promote-group-memory the tile buffer must be memref<8xf32, group>
+// (NOT memref<5xf32, group> which the old formula would produce).
+
+// STEP-LABEL: func @stencil1d_stepped
+// CHECK-LABEL: func @stencil1d_stepped
+// CHECK: memref.alloc() : memref<8xf32, #spmd.addr_space<group>>
+// Copy loop covers the full 8-element dense range.
+// CHECK: spmd.forall{{.*}}to(%c8{{[^)]*}})
+// CHECK: spmd.barrier {spmd.scope = #spmd.scope<group>}
+// Compute forall reads from group tile, not from original A.
+// CHECK: spmd.forall{{.*}}spmd.mapping = #spmd.level<lane>
+// CHECK-NOT: memref.load %arg0
+// CHECK: memref.load{{.*}}memref<8xf32, #spmd.addr_space<group>>
+func.func @stencil1d_stepped(%A: memref<?xf32>, %B: memref<?xf32>, %N: index)
+    attributes {spmd.kernel} {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c2 = arith.constant 2 : index
+  %c4 = arith.constant 4 : index
+  %c8 = arith.constant 8 : index
+
+  // Outer group forall: step=8 = tile_size(4) * origStep(2).
+  "spmd.forall"(%c0, %N, %c8) ({
+  ^bb0(%ii: index):
+    // Inner lane forall: [0, 4) step 1; tile element k → global ii + k*2.
+    "spmd.forall"(%c0, %c4, %c1) ({
+    ^bb0(%ti: index):
+      %scaled = arith.muli %ti, %c2 : index
+      %orig   = arith.addi %ii, %scaled : index
+      %orig1  = arith.addi %orig, %c1 : index
+      // Stencil: two loads with offsets 0 and +1 from orig.
+      %a0 = memref.load %A[%orig]  : memref<?xf32>
+      %a1 = memref.load %A[%orig1] : memref<?xf32>
+      %sum = arith.addf %a0, %a1 : f32
+      memref.store %sum, %B[%orig] : memref<?xf32>
+      "spmd.yield"() : () -> ()
+    }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+        "spmd.mapping" = #spmd.level<lane>} : (index, index, index) -> ()
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+      "spmd.mapping" = #spmd.level<group>,
+      "spmd.tile_sizes" = array<i64: 4>,
+      "spmd.memory_policy" = #spmd.memory_policy<prefer_group>}
+     : (index, index, index) -> ()
+  func.return
+}
+
+// -----
+
 // AC-8.2: End-to-end pipeline for a 2-D S0 stencil kernel.
 //
 // Starts from unscheduled S0 IR (no spmd.mapping / tile_sizes / memory_policy)

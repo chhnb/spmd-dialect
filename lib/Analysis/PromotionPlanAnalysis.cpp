@@ -52,7 +52,8 @@ static int64_t elemBytes(MemRefType mrType) {
 /// Compute promotion plan for a (groupForall, laneForall) pair.
 SmallVector<PromotionRecord>
 computePromotionPlan(ForallOp groupForall, ForallOp laneForall,
-                     ArrayRef<int64_t> tileSizes) {
+                     ArrayRef<int64_t> tileSizes,
+                     ArrayRef<int64_t> origSteps) {
   SmallVector<PromotionRecord> plan;
 
   // Only promote when policy = prefer_group.
@@ -85,13 +86,25 @@ computePromotionPlan(ForallOp groupForall, ForallOp laneForall,
       continue;
 
     // 3. Compute tile footprint dimensions.
+    //
+    // Dense-tile layout: tile[k] = A[outer + k + minOffset[d]] for k in
+    //   [0, extent[d]).  For a stepped kernel (original loop step s > 1),
+    //   lane `i` accesses A[outer + i*s + off].  The last lane accesses up
+    //   to outer + (tileSize-1)*s + maxOffset[d], so:
+    //
+    //     extent[d] = (tileSize - 1) * step + maxOffset[d] - minOffset[d] + 1
+    //
+    //   For step == 1 this reduces to the previous formula
+    //   (tileSize + maxOffset - minOffset), since (t-1)*1 + off + 1 = t + off.
     SmallVector<int64_t> tileDims;
     int64_t footprintBytes = elemBytes(mrType);
     for (unsigned d = 0; d < summary.rank; ++d) {
       int64_t tileSize = (d < tileSizes.size()) ? tileSizes[d] : 1;
-      // footprint in dimension d:
-      // from minOffset[d] to tileSize-1 + maxOffset[d]
-      int64_t dim = tileSize + summary.maxOffset[d] - summary.minOffset[d];
+      int64_t step     = (d < origSteps.size() && origSteps[d] > 0)
+                             ? origSteps[d]
+                             : 1;
+      int64_t dim = (tileSize - 1) * step +
+                    summary.maxOffset[d] - summary.minOffset[d] + 1;
       tileDims.push_back(dim);
       footprintBytes *= dim;
     }

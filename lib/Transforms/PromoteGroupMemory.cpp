@@ -150,9 +150,28 @@ struct PromoteGroupMemoryPass
         continue;
       ArrayRef<int64_t> tileSizes = tileSizesAttr.asArrayRef();
 
+      // Derive the per-dimension original loop step from the outer forall's
+      // runtime step: origStep[d] = outerStep[d] / tileSizes[d].
+      // The outer forall step = tileSize * origStep after materialization.
+      // Falls back to 1 for non-constant or non-divisible steps.
+      SmallVector<int64_t> origSteps;
+      auto outerStepVals = groupForall.getSteps();
+      for (unsigned d = 0; d < tileSizes.size(); ++d) {
+        int64_t origStep = 1;
+        if (d < outerStepVals.size()) {
+          if (auto cst =
+                  outerStepVals[d].getDefiningOp<arith::ConstantIndexOp>()) {
+            int64_t outerStepVal = cst.value();
+            if (tileSizes[d] > 0 && outerStepVal % tileSizes[d] == 0)
+              origStep = outerStepVal / tileSizes[d];
+          }
+        }
+        origSteps.push_back(origStep);
+      }
+
       // Run promotion plan analysis.
       SmallVector<PromotionRecord> plan =
-          computePromotionPlan(groupForall, laneForall, tileSizes);
+          computePromotionPlan(groupForall, laneForall, tileSizes, origSteps);
 
       if (plan.empty())
         continue;
