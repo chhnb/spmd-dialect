@@ -11,7 +11,9 @@
 //       Store (min_offset, max_offset) per dimension.
 //
 // Limitation (MVP): only handles affine patterns of the form
-//   outer_iv + inner_iv + arith.constant
+//   outer_iv + inner_iv * step + arith.constant
+// (step == 1 is the common case; step > 1 arises when the original S0 forall
+//  had a non-unit step and was materialized without prior NormalizeSPMD.)
 // More complex index expressions are conservatively recorded as unbounded.
 
 #include "spmd/Analysis/AccessSummaryAnalysis.h"
@@ -27,21 +29,47 @@ using namespace mlir::spmd;
 namespace mlir {
 namespace spmd {
 
-/// Try to decompose `index` as (outer_iv + inner_iv + const).
-/// Returns the constant if successful, std::nullopt otherwise.
+/// Return true if `v` is one of the values in `range`.
+static bool isOneOf(Value v, ValueRange range) {
+  for (auto r : range)
+    if (v == r)
+      return true;
+  return false;
+}
+
+/// Try to recognize `v` as `inner_iv * const_step` and return the step.
+/// Returns 1 if `v` itself is an inner_iv (implicit step=1).
+/// Returns std::nullopt if not recognizable.
+static std::optional<int64_t> getInnerIvStep(Value v, ValueRange innerIvs) {
+  if (isOneOf(v, innerIvs))
+    return 1;
+  if (auto mul = v.getDefiningOp<arith::MulIOp>()) {
+    auto lhsCst = mul.getLhs().getDefiningOp<arith::ConstantIndexOp>();
+    auto rhsCst = mul.getRhs().getDefiningOp<arith::ConstantIndexOp>();
+    if (lhsCst && isOneOf(mul.getRhs(), innerIvs))
+      return lhsCst.value();
+    if (rhsCst && isOneOf(mul.getLhs(), innerIvs))
+      return rhsCst.value();
+  }
+  return std::nullopt;
+}
+
+/// Try to decompose `index` as (outer_iv + inner_iv * step + const).
+/// Returns the constant offset from the tile origin if successful,
+/// std::nullopt otherwise.
+///
+/// Handles both step=1 (the post-NormalizeSPMD common case) and step>1
+/// (when MaterializeTilingAndMapping runs on non-normalized input).
 static std::optional<int64_t>
 getConstOffset(Value index, ValueRange outerIvs, ValueRange innerIvs) {
-  // Case 1: index == inner_iv → offset 0
-  for (auto iv : innerIvs)
-    if (index == iv)
-      return 0;
-  // Case 2: index == outer_iv + inner_iv → from an addi chain
-  // We look for: addi(outer+inner, const) or addi(const, outer+inner)
-  // Try to peel constants from arith.addi chains.
+  // Case 1: index == inner_iv (or inner_iv * step) → offset 0
+  if (getInnerIvStep(index, innerIvs))
+    return 0;
+
+  // Case 2: peel arith.addi constants and look for outer_iv + inner_iv*step.
   int64_t accumulated = 0;
   Value cur = index;
   while (auto add = cur.getDefiningOp<arith::AddIOp>()) {
-    // Check if one operand is a constant.
     auto lhsCst = add.getLhs().getDefiningOp<arith::ConstantIndexOp>();
     auto rhsCst = add.getRhs().getDefiningOp<arith::ConstantIndexOp>();
     if (lhsCst) {
@@ -51,30 +79,23 @@ getConstOffset(Value index, ValueRange outerIvs, ValueRange innerIvs) {
       accumulated += rhsCst.value();
       cur = add.getLhs();
     } else {
-      // Neither operand is constant — might be (outer+inner).
-      // Check if this op is outer_iv + inner_iv.
-      bool lhsIsOuter = false, rhsIsOuter = false;
-      bool lhsIsInner = false, rhsIsInner = false;
-      for (auto iv : outerIvs) {
-        if (add.getLhs() == iv) lhsIsOuter = true;
-        if (add.getRhs() == iv) rhsIsOuter = true;
-      }
-      for (auto iv : innerIvs) {
-        if (add.getLhs() == iv) lhsIsInner = true;
-        if (add.getRhs() == iv) rhsIsInner = true;
-      }
-      if ((lhsIsOuter && rhsIsInner) || (lhsIsInner && rhsIsOuter))
+      // Neither side is a plain constant.
+      // Check for outer_iv + (inner_iv * step) or (inner_iv * step) + outer_iv.
+      bool lhsIsOuter = isOneOf(add.getLhs(), outerIvs);
+      bool rhsIsOuter = isOneOf(add.getRhs(), outerIvs);
+      bool lhsIsScaledInner = getInnerIvStep(add.getLhs(), innerIvs).has_value();
+      bool rhsIsScaledInner = getInnerIvStep(add.getRhs(), innerIvs).has_value();
+
+      if ((lhsIsOuter && rhsIsScaledInner) || (lhsIsScaledInner && rhsIsOuter))
         return accumulated; // offset from tile origin
       // Not decomposable.
       return std::nullopt;
     }
-    // After peeling the constant, check if `cur` is outer+inner sum.
-    for (auto iv : innerIvs)
-      if (cur == iv)
-        return accumulated;
-    for (auto iv : outerIvs)
-      if (cur == iv)
-        return accumulated;
+    // After peeling constant, check if cur is already a terminal.
+    if (isOneOf(cur, innerIvs) || isOneOf(cur, outerIvs))
+      return accumulated;
+    if (getInnerIvStep(cur, innerIvs))
+      return accumulated;
   }
   return std::nullopt;
 }

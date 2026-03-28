@@ -105,6 +105,47 @@ func.func @no_promote(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 
 // -----
 
+// Negative: prefer_group policy but no reuse (simple copy, offset always 0).
+// The reuse/profitability gate must reject promotion because maxOffset ==
+// minOffset == 0 in every dimension — there is no stencil-like element sharing.
+
+// CHECK-LABEL: func @copy_no_reuse
+func.func @copy_no_reuse(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
+                          %N: index, %M: index)
+    attributes {spmd.kernel} {
+  %c0  = arith.constant 0 : index
+  %c1  = arith.constant 1 : index
+  %c8  = arith.constant 8 : index
+  %c32 = arith.constant 32 : index
+
+  "spmd.forall"(%c0, %c0, %N, %M, %c32, %c8) ({
+  ^bb0(%ii: index, %jj: index):
+    "spmd.forall"(%c0, %c0, %c32, %c8, %c1, %c1) ({
+    ^bb0(%ti: index, %tj: index):
+      %i = arith.addi %ii, %ti : index
+      %j = arith.addi %jj, %tj : index
+      // Simple copy: each lane reads A[i,j] (offset 0 in both dims) — no reuse.
+      %v = memref.load %A[%i, %j] : memref<?x?xf32>
+      memref.store %v, %B[%i, %j] : memref<?x?xf32>
+      "spmd.yield"() : () -> ()
+    }) {operandSegmentSizes = array<i32: 2, 2, 2>,
+        "spmd.mapping" = #spmd.level<lane>} : (index, index, index, index, index, index) -> ()
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 2, 2, 2>,
+      "spmd.mapping" = #spmd.level<group>,
+      "spmd.tile_sizes" = array<i64: 32, 8>,
+      "spmd.memory_policy" = #spmd.memory_policy<prefer_group>}
+     : (index, index, index, index, index, index) -> ()
+
+  func.return
+}
+
+// No-reuse: PromoteGroupMemory must not insert a group alloc or barrier.
+// CHECK-NOT: memref.alloc() : memref<{{.*}}#spmd.addr_space<group>>
+// CHECK-NOT: spmd.barrier
+
+// -----
+
 // AC-8.2: End-to-end pipeline for a 2-D S0 stencil kernel.
 //
 // Starts from unscheduled S0 IR (no spmd.mapping / tile_sizes / memory_policy)

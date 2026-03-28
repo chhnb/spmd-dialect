@@ -12,11 +12,11 @@
 //     body(%i)
 //   }
 //   =>
-//   spmd.forall (lb,) to (ub,) step (T,) {mapping=group} {
+//   spmd.forall (lb,) to (ub,) step (T*s,) {mapping=group} {
 //   ^bb0(%ii: index):
 //     spmd.forall (0,) to (T,) step (1,) {mapping=lane} {
 //     ^bb0(%ti: index):
-//       %i = ii + ti
+//       %i = ii + ti * s          // tile element k maps to global ii + k*s
 //       spmd.if (%i < ub) : () { body(%i)  spmd.yield } else {}
 //       spmd.yield
 //     }
@@ -126,8 +126,10 @@ struct MaterializeTiledForall : public OpRewritePattern<ForallOp> {
       rewriter.create<YieldOp>(loc);
     }
 
-    // Inside inner body: compute original IVs as outer_iv + inner_iv,
+    // Inside inner body: compute original IVs as outer_iv + inner_iv * step,
     // then guard with spmd.if (in-bounds check) and inline original body.
+    // When original step == 1 (the common case after NormalizeSPMD) we skip
+    // the multiply to keep the IR clean.
     rewriter.setInsertionPoint(
         innerForall.getBody().front().getTerminator());
 
@@ -135,7 +137,16 @@ struct MaterializeTiledForall : public OpRewritePattern<ForallOp> {
     for (unsigned d = 0; d < rank; ++d) {
       Value outerIv = outerForall.getInductionVar(d);
       Value innerIv = innerForall.getInductionVar(d);
-      Value origIv  = rewriter.create<arith::AddIOp>(loc, outerIv, innerIv);
+      // Scale inner IV by the original step so that tile element k maps to
+      // global offset k * original_step from the tile origin.
+      Value scaledInner;
+      if (auto cst = steps[d].getDefiningOp<arith::ConstantIndexOp>();
+          cst && cst.value() == 1) {
+        scaledInner = innerIv; // no-op: step is 1
+      } else {
+        scaledInner = rewriter.create<arith::MulIOp>(loc, innerIv, steps[d]);
+      }
+      Value origIv = rewriter.create<arith::AddIOp>(loc, outerIv, scaledInner);
       origIvs.push_back(origIv);
     }
 

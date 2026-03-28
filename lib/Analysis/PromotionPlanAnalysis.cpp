@@ -106,9 +106,22 @@ computePromotionPlan(ForallOp groupForall, ForallOp laneForall,
       continue;
     }
 
-    // 5. Reuse check: always satisfied when maxOffset > 0 in any dim
-    //    (stencil pattern) or when the tile is accessed by multiple lanes.
-    //    For MVP: always promote if bounds are satisfied.
+    // 5. Reuse / profitability check.
+    //    Only promote when at least one dimension has a non-trivial access
+    //    footprint (maxOffset > minOffset).  This is the "stencil pattern"
+    //    indicator: different lanes touch the same tile element, so there is
+    //    genuine data reuse.  A simple copy kernel (every lane reads exactly
+    //    one distinct element, all offsets == 0) has no reuse and must not
+    //    be promoted — promotion would only add overhead.
+    bool hasReuse = false;
+    for (unsigned d = 0; d < summary.rank; ++d) {
+      if (summary.maxOffset[d] > summary.minOffset[d]) {
+        hasReuse = true;
+        break;
+      }
+    }
+    if (!hasReuse)
+      continue;
 
     PromotionRecord rec;
     rec.globalMemref = mr;
