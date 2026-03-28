@@ -105,46 +105,50 @@ func.func @no_promote(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 
 // -----
 
-// AC-8.2: End-to-end pipeline: group memory promotion → LLVM IR → object code.
+// AC-8.2: End-to-end pipeline for a 2-D S0 stencil kernel.
 //
-// RUN: spmd-opt %s --promote-group-memory --convert-spmd-to-scf \
+// Starts from unscheduled S0 IR (no spmd.mapping / tile_sizes / memory_policy)
+// and runs the complete CPU pipeline:
+//   normalize → plan → materialize → promote → convert-to-openmp →
+//   convert-to-scf → [LLVM lowering] → mlir-translate → llc
+//
+// Pipeline succeeds iff all tools exit 0 (no FileCheck prefix needed).
+//
+// RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --promote-group-memory \
+// RUN:   --convert-spmd-to-openmp --convert-spmd-to-scf \
 // RUN:   --convert-scf-to-cf --convert-arith-to-llvm \
 // RUN:   --finalize-memref-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
 // RUN:   --reconcile-unrealized-casts \
 // RUN:   | mlir-translate --mlir-to-llvmir \
 // RUN:   | llc -o /dev/null
 
-// (No FileCheck prefix needed: the pipeline succeeds iff all tools exit 0.)
-
-func.func @stencil_e2e(%A: memref<?xf32>, %B: memref<?xf32>, %N: index)
+// 2-D S0 stencil: B[i,j] = A[i,j] + A[i,j+1] + A[i+1,j]
+// Loops over interior: i in [0, N-1), j in [0, M-1).
+// PlanSPMDSchedule assigns the outer forall mapping=group and tile_sizes,
+// MaterializeTilingAndMapping splits it, PromoteGroupMemory promotes A reads.
+func.func @stencil2d_e2e(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
+                          %N: index, %M: index)
     attributes {spmd.kernel} {
   %c0  = arith.constant 0 : index
   %c1  = arith.constant 1 : index
-  %c32 = arith.constant 32 : index
+  %Nm1 = arith.subi %N, %c1 : index
+  %Mm1 = arith.subi %M, %c1 : index
 
-  // Outer group forall over tiles of size 32.
-  "spmd.forall"(%c0, %N, %c32) ({
-  ^bb0(%ii: index):
-
-    // Inner lane forall: each lane handles one element within the tile.
-    "spmd.forall"(%c0, %c32, %c1) ({
-    ^bb0(%ti: index):
-      %i  = arith.addi %ii, %ti : index
-      %i1 = arith.addi %i,  %c1 : index
-      %center = memref.load %A[%i ] : memref<?xf32>
-      %right  = memref.load %A[%i1] : memref<?xf32>
-      %out    = arith.addf %center, %right : f32
-      memref.store %out, %B[%i] : memref<?xf32>
-      "spmd.yield"() : () -> ()
-    }) {operandSegmentSizes = array<i32: 1, 1, 1>,
-        "spmd.mapping" = #spmd.level<lane>} : (index, index, index) -> ()
-
+  // Pure S0: a single flat forall over all interior points.
+  "spmd.forall"(%c0, %c0, %Nm1, %Mm1, %c1, %c1) ({
+  ^bb0(%i: index, %j: index):
+    %j1 = arith.addi %j, %c1 : index
+    %i1 = arith.addi %i, %c1 : index
+    %center = memref.load %A[%i,  %j ] : memref<?x?xf32>
+    %right  = memref.load %A[%i,  %j1] : memref<?x?xf32>
+    %down   = memref.load %A[%i1, %j ] : memref<?x?xf32>
+    %t0 = arith.addf %center, %right : f32
+    %t1 = arith.addf %t0,     %down  : f32
+    memref.store %t1, %B[%i, %j] : memref<?x?xf32>
     "spmd.yield"() : () -> ()
-  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
-      "spmd.mapping" = #spmd.level<group>,
-      "spmd.tile_sizes" = array<i64: 32>,
-      "spmd.memory_policy" = #spmd.memory_policy<prefer_group>}
-     : (index, index, index) -> ()
+  }) {operandSegmentSizes = array<i32: 2, 2, 2>}
+     : (index, index, index, index, index, index) -> ()
 
   func.return
 }

@@ -118,10 +118,15 @@ struct NormalizeForallBounds : public OpRewritePattern<ForallOp> {
   }
 };
 
-// Pattern: fold dimensions where the iteration count is exactly one (or zero).
-// Requires all three bounds to be compile-time constants. The folded IV is
-// replaced by the constant lower-bound value; the dimension is dropped from
-// the forall's rank.  If every dimension folds, the body is inlined in-place.
+// Pattern: fold or eliminate dimensions with known iteration counts.
+//
+// Two sub-cases, both requiring compile-time constant bounds/step:
+//   Zero-trip  (ub <= lb)             : body never executes → erase the forall.
+//   Single-trip (lb < ub <= lb+step)  : body executes once with IV = lb →
+//                                       replace IV with constant, drop dim.
+//
+// Zero-trip check is done first: if ANY dimension has ub <= lb, the entire
+// N-D forall executes zero times and can be erased outright (body not inlined).
 struct FoldSingleIterationDims : public OpRewritePattern<ForallOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -130,6 +135,21 @@ struct FoldSingleIterationDims : public OpRewritePattern<ForallOp> {
     Location loc = op.getLoc();
     unsigned rank = op.getRank();
 
+    // Pass 1: detect zero-trip dimensions.
+    // If any constant-bound dimension has ub <= lb the forall body never runs.
+    for (unsigned d = 0; d < rank; ++d) {
+      auto lbCst = op.getLowerBounds()[d].getDefiningOp<arith::ConstantIndexOp>();
+      auto ubCst = op.getUpperBounds()[d].getDefiningOp<arith::ConstantIndexOp>();
+      if (!lbCst || !ubCst)
+        continue;
+      if (ubCst.value() <= lbCst.value()) {
+        // Zero-trip: erase forall without executing the body.
+        rewriter.eraseOp(op);
+        return success();
+      }
+    }
+
+    // Pass 2: detect single-trip dimensions (lb < ub && ub <= lb + step).
     SmallVector<bool>    isSingle(rank, false);
     SmallVector<int64_t> singleVals(rank, 0);
     bool hasSingle = false;
@@ -141,7 +161,8 @@ struct FoldSingleIterationDims : public OpRewritePattern<ForallOp> {
       if (!lbCst || !ubCst || !stCst)
         continue;
       int64_t lb = lbCst.value(), ub = ubCst.value(), step = stCst.value();
-      if (ub <= lb + step) { // at most one iteration: IV == lb always
+      // lb < ub already guaranteed by pass 1 for constant dims.
+      if (ub <= lb + step) { // exactly one iteration: IV == lb
         isSingle[d] = true;
         singleVals[d] = lb;
         hasSingle = true;
