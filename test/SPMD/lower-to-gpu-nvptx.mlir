@@ -2,15 +2,18 @@
 //
 // REQUIRES: nvptx-registered-target
 //
-// RUN 3 (AC-5): non-promoted elementwise — pipeline exits 0; PTX kernel entry
-// is generated (assembly attribute with .visible .entry present).
+// RUN 3 (AC-5): non-promoted elementwise — device-side pipeline through
+// --spmd-extract-gpu-module | mlir-translate --mlir-to-llvmir |
+// llc --march=nvptx64 -filetype=asm exits 0 and produces a kernel entry.
 // RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
 // RUN:   --gpu-kernel-outlining "--nvvm-attach-target=chip=sm_80" \
 // RUN:   | mlir-opt --convert-gpu-to-nvvm \
 // RUN:   --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
 // RUN:   --convert-index-to-llvm --reconcile-unrealized-casts \
-// RUN:   "--gpu-module-to-binary=format=isa" \
+// RUN:   | spmd-opt --spmd-extract-gpu-module \
+// RUN:   | mlir-translate --mlir-to-llvmir \
+// RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
 // RUN:   | FileCheck %s --check-prefix=SMOKE
 //
 // RUN 5 (AC-6 negative): non-promoted ewise must NOT emit .shared PTX.
@@ -20,11 +23,12 @@
 // RUN:   | mlir-opt --convert-gpu-to-nvvm \
 // RUN:   --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
 // RUN:   --convert-index-to-llvm --reconcile-unrealized-casts \
-// RUN:   "--gpu-module-to-binary=format=isa" \
+// RUN:   | spmd-opt --spmd-extract-gpu-module \
+// RUN:   | mlir-translate --mlir-to-llvmir \
+// RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
 // RUN:   | FileCheck %s --check-prefix=NOSHARED
 
 // ─── SMOKE checks (RUN 3, AC-5) ──────────────────────────────────────────────
-// SMOKE: assembly =
 // SMOKE: .visible .entry
 
 // ─── NOSHARED checks (RUN 5, AC-6 negative) ──────────────────────────────────

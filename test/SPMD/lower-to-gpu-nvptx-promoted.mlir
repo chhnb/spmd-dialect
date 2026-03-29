@@ -2,10 +2,12 @@
 //
 // REQUIRES: nvptx-registered-target
 //
-// RUN 4 (AC-6): promoted stencil — PTX must contain .shared (workgroup memory)
+// RUN 4 (AC-6): promoted stencil — device-side PTX via
+// --spmd-extract-gpu-module | mlir-translate --mlir-to-llvmir |
+// llc --march=nvptx64 -filetype=asm must contain .shared (workgroup memory)
 // and .visible .entry (exported kernel entry point).
-// --promote-group-memory runs BEFORE --convert-spmd-to-gpu; no materialize step
-// because materialization wraps barriers inside scf.if which violates the
+// --promote-group-memory runs BEFORE --convert-spmd-to-gpu; no materialize
+// step because materialization nests barriers inside scf.if, violating the
 // gpu.barrier-at-launch-body-level invariant.
 // RUN: spmd-opt %s --promote-group-memory \
 // RUN:   --convert-spmd-to-gpu \
@@ -13,11 +15,12 @@
 // RUN:   | mlir-opt --convert-gpu-to-nvvm \
 // RUN:   --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
 // RUN:   --convert-index-to-llvm --reconcile-unrealized-casts \
-// RUN:   "--gpu-module-to-binary=format=isa" \
+// RUN:   | spmd-opt --spmd-extract-gpu-module \
+// RUN:   | mlir-translate --mlir-to-llvmir \
+// RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
 // RUN:   | FileCheck %s --check-prefix=PTX
 
 // ─── PTX checks (RUN 4, AC-6) ────────────────────────────────────────────────
-// PTX: assembly =
 // PTX: .visible .entry
 // PTX: .shared
 
