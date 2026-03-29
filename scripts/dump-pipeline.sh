@@ -9,12 +9,12 @@
 # Options:
 #   --outdir <dir>   Output directory (default: /tmp/spmd-pipeline-dump)
 #   --stage <name>   Dump only a specific stage and exit.
-#                    Valid: normalize, materialize, promote, gpu, outline, nvvm
+#                    Valid: plan, materialize, promote, gpu, outline, nvvm
 #   --sm <level>     SM level for NVVM stage (default: sm_80)
 #   --help           Print this message
 #
 # Output files:
-#   <outdir>/01-after-normalize.mlir
+#   <outdir>/01-after-plan.mlir        (normalize + plan-spmd-schedule)
 #   <outdir>/02-after-materialize.mlir
 #   <outdir>/03-after-promote.mlir
 #   <outdir>/04-after-gpu.mlir
@@ -57,10 +57,14 @@ done
 # Validate stage filter.
 if [[ -n "$STAGE_FILTER" ]]; then
   case "$STAGE_FILTER" in
-    normalize|materialize|promote|gpu|outline|nvvm) ;;
+    plan|materialize|promote|gpu|outline|nvvm) ;;
+    normalize)
+      # Backward-compat alias: 'normalize' maps to 'plan' (both passes run together).
+      STAGE_FILTER="plan" ;;
     *)
       echo "ERROR: unknown stage '${STAGE_FILTER}'" >&2
-      echo "       Valid stages: normalize, materialize, promote, gpu, outline, nvvm" >&2
+      echo "       Valid stages: plan, materialize, promote, gpu, outline, nvvm" >&2
+      echo "       Note: stage 'plan' runs both --normalize-spmd and --plan-spmd-schedule" >&2
       exit 1 ;;
   esac
 fi
@@ -97,8 +101,11 @@ dump_stage() {
   fi
 }
 
-# ── Stage 1: after normalize ──────────────────────────────────────────────────
-dump_stage "normalize" "01" \
+# ── Stage 1: after normalize + plan-spmd-schedule ────────────────────────────
+# Both passes are run together: NormalizeSPMD transforms flat foralls to
+# (group, lane) pairs; PlanSPMDSchedule assigns tile_sizes and memory_policy.
+# Dumped as "plan" because the output reflects the full planning decision.
+dump_stage "plan" "01" \
   --normalize-spmd --plan-spmd-schedule
 
 # ── Stage 2: after materialize ────────────────────────────────────────────────

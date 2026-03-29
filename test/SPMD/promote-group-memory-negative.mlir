@@ -20,6 +20,7 @@ func.func @nonaffine_index(%A: memref<?xf32>, %B: memref<?xf32>, %N: index)
   %c1  = arith.constant 1 : index
   %c32 = arith.constant 32 : index
 
+  // expected-remark@+1 {{promote-group-memory: skipping}}
   "spmd.forall"(%c0, %N, %c32) ({
   ^bb0(%ii: index):
     "spmd.forall"(%c0, %c32, %c1) ({
@@ -59,6 +60,7 @@ func.func @write_conflict(%A: memref<?x?xf32>, %N: index, %M: index)
   %c8  = arith.constant 8 : index
   %c32 = arith.constant 32 : index
 
+  // expected-remark@+1 {{promote-group-memory: skipping}}
   "spmd.forall"(%c0, %c0, %N, %M, %c32, %c8) ({
   ^bb0(%ii: index, %jj: index):
     "spmd.forall"(%c0, %c0, %c32, %c8, %c1, %c1) ({

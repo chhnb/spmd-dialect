@@ -2,7 +2,7 @@
 //
 // Lit tests for --verify-spmd-gpu-ready.
 //
-// RUN: spmd-opt %s --split-input-file --verify-spmd-gpu-ready \
+// RUN: (spmd-opt %s --split-input-file --verify-spmd-gpu-ready; true) \
 // RUN:   | FileCheck %s --check-prefix=GPUREADY
 // RUN: spmd-opt %s --split-input-file --verify-spmd-gpu-ready \
 // RUN:   -verify-diagnostics
@@ -56,6 +56,52 @@ func.func @barrier_in_scf_if(%A: memref<?xf32>, %N: index, %cond: i1)
       "spmd.mapping" = #spmd.level<group>,
       "spmd.tile_sizes" = array<i64: 32>}
      : (index, index, index) -> ()
+  func.return
+}
+
+// -----
+
+// Test 2b: negative -- spmd.forall inside a gpu.launch body (partial lowering).
+// The outer group forall was converted to gpu.launch but the inner lane forall
+// was accidentally left behind — an illegal mixed-dialect state.
+func.func @spmd_forall_in_launch(%A: memref<?xf32>, %N: index) {
+  %c0  = arith.constant 0 : index
+  %c1  = arith.constant 1 : index
+  %c32 = arith.constant 32 : index
+  %gx  = arith.ceildivui %N, %c32 : index
+  gpu.launch blocks(%bx, %by, %bz) in (%gbx = %gx, %gby = %c1, %gbz = %c1)
+             threads(%tx, %ty, %tz) in (%tbx = %c32, %tby = %c1, %tbz = %c1) {
+    %ii = arith.muli %bx, %c32 : index
+    // expected-error@+1 {{spmd.forall found inside gpu.launch body}}
+    "spmd.forall"(%c0, %c32, %c1) ({
+    ^bb0(%ti: index):
+      %i = arith.addi %ii, %ti : index
+      %v = memref.load %A[%i] : memref<?xf32>
+      memref.store %v, %A[%i] : memref<?xf32>
+      "spmd.yield"() : () -> ()
+    }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+        "spmd.mapping" = #spmd.level<lane>} : (index, index, index) -> ()
+    gpu.terminator
+  }
+  func.return
+}
+
+// -----
+
+// Test 2c: negative -- group-space alloc inside a gpu.launch body (stale state).
+// A group-space alloc should be allocated OUTSIDE the launch, not inside it.
+func.func @group_alloc_in_launch(%N: index) {
+  %c1   = arith.constant 1 : index
+  %c32  = arith.constant 32 : index
+  %zero = arith.constant 0.0 : f32
+  %gx   = arith.ceildivui %N, %c32 : index
+  gpu.launch blocks(%bx, %by, %bz) in (%gbx = %gx, %gby = %c1, %gbz = %c1)
+             threads(%tx, %ty, %tz) in (%tbx = %c32, %tby = %c1, %tbz = %c1) {
+    // expected-error@+1 {{group-address-space memref.alloc found inside gpu.launch body}}
+    %tile = memref.alloc() : memref<32xf32, #spmd.addr_space<group>>
+    memref.store %zero, %tile[%tx] : memref<32xf32, #spmd.addr_space<group>>
+    gpu.terminator
+  }
   func.return
 }
 

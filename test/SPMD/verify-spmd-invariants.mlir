@@ -2,7 +2,7 @@
 //
 // Lit tests for --verify-spmd-promotion-invariant.
 //
-// RUN: spmd-opt %s --split-input-file --verify-spmd-promotion-invariant \
+// RUN: (spmd-opt %s --split-input-file --verify-spmd-promotion-invariant; true) \
 // RUN:   | FileCheck %s --check-prefix=PROM
 // RUN: spmd-opt %s --split-input-file --verify-spmd-promotion-invariant \
 // RUN:   -verify-diagnostics
@@ -43,8 +43,52 @@ func.func @stale_group_alloc(%A: memref<?xf32>, %N: index) {
   %tile = memref.alloc() : memref<32xf32, #spmd.addr_space<group>>
   gpu.launch blocks(%bx, %by, %bz) in (%gbx = %gx, %gby = %c1, %gbz = %c1)
              threads(%tx, %ty, %tz) in (%tbx = %c32, %tby = %c1, %tbz = %c1) {
+    // expected-error@+1 {{memref.load uses a group-address-space memref after convert-spmd-to-gpu}}
     %v = memref.load %tile[%tx] : memref<32xf32, #spmd.addr_space<group>>
+    // expected-error@+1 {{memref.store uses a group-address-space memref after convert-spmd-to-gpu}}
     memref.store %v, %tile[%tx] : memref<32xf32, #spmd.addr_space<group>>
+    gpu.terminator
+  }
+  func.return
+}
+
+// -----
+
+// Test 2b: negative -- dangling group-space load (alloc was partially erased
+// but the load still references the group-space type).
+func.func @dangling_group_load(%A: memref<?xf32>, %N: index) {
+  %c0  = arith.constant 0 : index
+  %c1  = arith.constant 1 : index
+  %c32 = arith.constant 32 : index
+  %gx  = arith.ceildivui %N, %c32 : index
+  // A group-space alloc that was NOT erased (partial conversion).
+  %tile = memref.alloc() : memref<32xf32, #spmd.addr_space<group>>
+  // expected-error@-1 {{group-address-space memref.alloc should not exist after convert-spmd-to-gpu}}
+  gpu.launch blocks(%bx, %by, %bz) in (%gbx = %gx, %gby = %c1, %gbz = %c1)
+             threads(%tx, %ty, %tz) in (%tbx = %c32, %tby = %c1, %tbz = %c1) {
+    // Load from the group-space tile — dangling use.
+    // expected-error@+1 {{memref.load uses a group-address-space memref after convert-spmd-to-gpu}}
+    %v = memref.load %tile[%tx] : memref<32xf32, #spmd.addr_space<group>>
+    gpu.terminator
+  }
+  func.return
+}
+
+// -----
+
+// Test 2c: negative -- dangling group-space store.
+func.func @dangling_group_store(%N: index) {
+  %c0   = arith.constant 0 : index
+  %c1   = arith.constant 1 : index
+  %c32  = arith.constant 32 : index
+  %zero = arith.constant 0.0 : f32
+  %gx   = arith.ceildivui %N, %c32 : index
+  // expected-error@+1 {{group-address-space memref.alloc should not exist after convert-spmd-to-gpu}}
+  %tile = memref.alloc() : memref<32xf32, #spmd.addr_space<group>>
+  gpu.launch blocks(%bx, %by, %bz) in (%gbx = %gx, %gby = %c1, %gbz = %c1)
+             threads(%tx, %ty, %tz) in (%tbx = %c32, %tby = %c1, %tbz = %c1) {
+    // expected-error@+1 {{memref.store uses a group-address-space memref after convert-spmd-to-gpu}}
+    memref.store %zero, %tile[%tx] : memref<32xf32, #spmd.addr_space<group>>
     gpu.terminator
   }
   func.return

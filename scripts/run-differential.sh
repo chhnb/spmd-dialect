@@ -71,13 +71,61 @@ run_harness() {
   fi
 }
 
-# ── Helper: compile and run CPU serial via lli ────────────────────────────────
-# For simplicity, the CPU serial reference is computed in Python (numpy).
-# The differential comparison happens in the existing harness scripts which
-# already compare GPU output against numpy reference.
-# We reuse the harness --cpu-only flag pattern if available, else mark SKIP.
-cpu_result() {
-  echo "SKIP"  # CPU serial reference is embedded in the harness as numpy
+# ── Helper: compile a kernel through the CPU-serial (SCF) pipeline ──────────
+# Compiles the given MLIR file through SCF→CF→LLVM dialect and emits LLVM IR.
+# Returns "COMPILE_OK" if compilation succeeds, "ERROR" otherwise.
+# NOTE: Execution requires a test-harness main() not yet available.
+# TODO: integrate mlir-cpu-runner once a driver harness is added.
+compile_cpu_serial() {
+  local mlir_file="$1"
+  local out_ll="$2"
+  local err
+  err=$(
+    "$SPMD_BIN/spmd-opt" "$mlir_file" \
+        --normalize-spmd --plan-spmd-schedule \
+        --materialize-spmd-tiling --convert-spmd-to-scf \
+    | "$LLVM_BIN/mlir-opt" \
+        --convert-scf-to-cf --convert-cf-to-llvm \
+        --convert-arith-to-llvm --convert-index-to-llvm \
+        --reconcile-unrealized-casts \
+    | "$LLVM_BIN/mlir-translate" --mlir-to-llvmir \
+        -o "$out_ll" 2>&1
+  ) || true
+  if [[ -f "$out_ll" && -s "$out_ll" ]]; then
+    echo "COMPILE_OK"
+  else
+    echo "ERROR: $err" >&2
+    echo "ERROR"
+  fi
+}
+
+# ── Helper: compile a kernel through the OpenMP (OMP) pipeline ───────────────
+# Compiles through OMP→SCF→CF→LLVM dialect and emits LLVM IR.
+# Returns "COMPILE_OK" if compilation succeeds, "ERROR" otherwise.
+# NOTE: Execution requires OpenMP runtime linking; not yet implemented.
+# TODO: integrate lli --extra-module=<openmp_bc> once driver harness is added.
+compile_omp() {
+  local mlir_file="$1"
+  local out_ll="$2"
+  local err
+  err=$(
+    "$SPMD_BIN/spmd-opt" "$mlir_file" \
+        --normalize-spmd --plan-spmd-schedule \
+        --materialize-spmd-tiling \
+        --convert-spmd-to-openmp --convert-spmd-to-scf \
+    | "$LLVM_BIN/mlir-opt" \
+        --convert-openmp-to-llvm --convert-scf-to-cf \
+        --convert-cf-to-llvm --convert-arith-to-llvm \
+        --convert-index-to-llvm --reconcile-unrealized-casts \
+    | "$LLVM_BIN/mlir-translate" --mlir-to-llvmir \
+        -o "$out_ll" 2>&1
+  ) || true
+  if [[ -f "$out_ll" && -s "$out_ll" ]]; then
+    echo "COMPILE_OK"
+  else
+    echo "ERROR: $err" >&2
+    echo "ERROR"
+  fi
 }
 
 # ── Helper: print table row ───────────────────────────────────────────────────
@@ -89,6 +137,26 @@ print_row() {
 print_row "kernel" "size" "tile" "cpu_ok" "omp_ok" "gpu_ok" "err_metric"
 print_row "------" "----" "----" "------" "------" "------" "----------"
 
+# ── Compile CPU serial and OpenMP paths ──────────────────────────────────────
+EWISE_MLIR="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx.mlir"
+CPU_EWISE_LL="/tmp/diff_cpu_ewise.ll"
+OMP_EWISE_LL="/tmp/diff_omp_ewise.ll"
+CPU_REDUCTION_LL="/tmp/diff_cpu_reduction.ll"
+REDUCTION_MLIR="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-reduction.mlir"
+
+if [[ -x "$SPMD_BIN/spmd-opt" && -x "$LLVM_BIN/mlir-opt" ]]; then
+  CPU_EWISE=$(compile_cpu_serial "$EWISE_MLIR" "$CPU_EWISE_LL")
+  OMP_EWISE=$(compile_omp "$EWISE_MLIR" "$OMP_EWISE_LL")
+  CPU_REDUCTION=$(compile_cpu_serial "$REDUCTION_MLIR" "$CPU_REDUCTION_LL")
+  echo "CPU serial ewise:   $CPU_EWISE"
+  echo "OMP ewise:          $OMP_EWISE"
+  echo "CPU serial reduction: $CPU_REDUCTION"
+else
+  CPU_EWISE="SKIP"
+  OMP_EWISE="SKIP"
+  CPU_REDUCTION="SKIP"
+fi
+
 # ── Generate PTX for GPU ──────────────────────────────────────────────────────
 if [[ -n "$SM" ]]; then
   EWISE_PTX="/tmp/diff_ewise_${SM}.ptx"
@@ -96,7 +164,7 @@ if [[ -n "$SM" ]]; then
   REDUCTION_PTX="/tmp/diff_reduction_${SM}.ptx"
 
   bash "${SCRIPT_DIR}/gen-ptx.sh" \
-      "${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx.mlir" \
+      "$EWISE_MLIR" \
       ewise "$EWISE_PTX" "$SM" >/dev/null 2>&1
 
   bash "${SCRIPT_DIR}/gen-ptx.sh" \
@@ -104,7 +172,7 @@ if [[ -n "$SM" ]]; then
       promoted "$STENCIL_PTX" "$SM" >/dev/null 2>&1
 
   bash "${SCRIPT_DIR}/gen-ptx.sh" \
-      "${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-reduction.mlir" \
+      "$REDUCTION_MLIR" \
       ewise "$REDUCTION_PTX" "$SM" >/dev/null 2>&1
   GPU_AVAILABLE=1
 else
@@ -112,11 +180,11 @@ else
 fi
 
 # ── Kernel 1: ewise N=1024 ────────────────────────────────────────────────────
-# CPU/OMP reference: numpy (embedded in harness, always SKIP for serial)
-# GPU: run_ewise.py validates against numpy
+# cpu/omp: compilation verification (execution requires test-harness driver)
+# gpu: run_ewise.py validates against numpy reference
 {
-  cpu="SKIP"
-  omp="SKIP"
+  cpu="$CPU_EWISE"
+  omp="$OMP_EWISE"
   if [[ $GPU_AVAILABLE -eq 1 ]]; then
     gpu=$(run_harness "${REPO_ROOT}/harness/run_ewise.py" \
         --ptx "$EWISE_PTX" --sizes 1024)
@@ -124,14 +192,16 @@ fi
     gpu="SKIP"
   fi
   err="N/A"
+  [[ "$cpu" == "ERROR" ]] && FAIL=$((FAIL+1))
+  [[ "$omp" == "ERROR" ]] && FAIL=$((FAIL+1))
   [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "ewise" "N=1024" "tile=256" "$cpu" "$omp" "$gpu" "$err"
+  print_row "ewise" "N=1024" "tile=32" "$cpu" "$omp" "$gpu" "$err"
 }
 
 # ── Kernel 1: ewise N=1M ──────────────────────────────────────────────────────
 {
-  cpu="SKIP"
-  omp="SKIP"
+  cpu="$CPU_EWISE"
+  omp="$OMP_EWISE"
   if [[ $GPU_AVAILABLE -eq 1 ]]; then
     gpu=$(run_harness "${REPO_ROOT}/harness/run_ewise.py" \
         --ptx "$EWISE_PTX" --sizes 1048576)
@@ -139,12 +209,13 @@ fi
     gpu="SKIP"
   fi
   [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "ewise" "N=1048576" "tile=256" "$cpu" "$omp" "$gpu" "N/A"
+  print_row "ewise" "N=1048576" "tile=32" "$cpu" "$omp" "$gpu" "N/A"
 }
 
 # ── Kernel 2: promoted stencil 128x128 ───────────────────────────────────────
+# Note: stencil kernel uses a separate promoted pipeline; OMP path not compiled.
 {
-  cpu="SKIP"
+  cpu="SKIP"  # promoted stencil CPU path not yet compiled separately
   omp="SKIP"
   if [[ $GPU_AVAILABLE -eq 1 ]]; then
     gpu=$(run_harness "${REPO_ROOT}/harness/run_promoted_stencil.py" \
@@ -172,21 +243,22 @@ fi
 
 # ── Kernel 3: reduction N=65536 ──────────────────────────────────────────────
 {
-  cpu="SKIP"
-  omp="SKIP"
+  cpu="$CPU_REDUCTION"
+  omp="SKIP"  # OMP reduction uses a different lowering pattern; not yet compiled
   if [[ $GPU_AVAILABLE -eq 1 ]]; then
     gpu=$(run_harness "${REPO_ROOT}/harness/run_reduction.py" \
         --ptx "$REDUCTION_PTX" --sizes 65536)
   else
     gpu="SKIP"
   fi
+  [[ "$cpu" == "ERROR" ]] && FAIL=$((FAIL+1))
   [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
   print_row "reduction" "N=65536" "tile=256" "$cpu" "$omp" "$gpu" "N/A"
 }
 
 # ── Kernel 3: reduction N=1M ─────────────────────────────────────────────────
 {
-  cpu="SKIP"
+  cpu="$CPU_REDUCTION"
   omp="SKIP"
   if [[ $GPU_AVAILABLE -eq 1 ]]; then
     gpu=$(run_harness "${REPO_ROOT}/harness/run_reduction.py" \

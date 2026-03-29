@@ -1,7 +1,7 @@
 // lower-to-gpu-negative-2.mlir — five new negative/boundary tests for --convert-spmd-to-gpu.
 //
 // RUN: spmd-opt %s -verify-diagnostics -split-input-file --convert-spmd-to-gpu
-// RUN: spmd-opt %s -split-input-file --convert-spmd-to-gpu 2>&1 | FileCheck %s --check-prefix=NOERR
+// RUN: (spmd-opt %s -split-input-file --convert-spmd-to-gpu; true) 2>&1 | FileCheck %s --check-prefix=NOERR
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test 1: spmd.barrier nested inside spmd.if (divergent control flow).
@@ -131,6 +131,38 @@ func.func @dynamic_multidim_lane(%A: memref<?x?xf32>, %N: index, %M: index) {
 // This is a positive correctness check (no error expected).
 // The delinearized indices must appear as divui/remui in the output.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 5b: 2D lane forall with 256×256 threads = 65,536 total — well above the
+// CUDA maximum of 1024 threads/block. This verifies the blockDim overflow
+// check for multi-dimensional lane foralls (flattened total exceeds limit).
+// ─────────────────────────────────────────────────────────────────────────────
+
+func.func @blockdim_2d_overflow(%A: memref<?x?xf32>, %N: index, %M: index) {
+  %c0   = arith.constant 0   : index
+  %c1   = arith.constant 1   : index
+  %c256 = arith.constant 256 : index
+
+  // 256 × 256 = 65,536 threads → exceeds CUDA max of 1024.
+  // expected-error@+1 {{computed blockDim 65536 exceeds CUDA maximum of 1024}}
+  "spmd.forall"(%c0, %c1, %c1) ({
+  ^bb0(%ii: index):
+    "spmd.forall"(%c0, %c0, %c256, %c256, %c1, %c1) ({
+    ^bb0(%ti: index, %tj: index):
+      %v = memref.load %A[%ti, %tj] : memref<?x?xf32>
+      memref.store %v, %A[%ti, %tj] : memref<?x?xf32>
+      "spmd.yield"() : () -> ()
+    }) {operandSegmentSizes = array<i32: 2, 2, 2>,
+        "spmd.mapping" = #spmd.level<lane>} : (index, index, index, index, index, index) -> ()
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+      "spmd.mapping" = #spmd.level<group>,
+      "spmd.tile_sizes" = array<i64: 1>}
+     : (index, index, index) -> ()
+  func.return
+}
+
+// -----
 
 // NOERR-LABEL: func @lane_2d_delinearize
 // NOERR: arith.divui

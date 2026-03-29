@@ -59,7 +59,41 @@ append_row() {
   echo "$1,$2,$3,$4,$5,$6,$7,$8,$9" >> "$CSV"
 }
 
+# ── Harness output format note ─────────────────────────────────────────────────
+# The harnesses output tabular data, NOT key=value pairs.
+# Correctness line format: "    N   max_err   PASS|FAIL"
+# Performance line format: "    N   t_cpu   t_gpu   speedup"
+# These helpers parse columns by position from the tabular output.
+
+# Extract the max_err field from the first correctness data row.
+_parse_rel_err() {
+  echo "$1" | grep -E '^\s+[0-9]+\s+[0-9eE.+\-]+\s+(PASS|FAIL)' \
+    | head -1 | awk '{print $2}' || echo "N/A"
+}
+
+# Extract t_cpu (column 2 of the first perf data row).
+_parse_cpu_ms() {
+  echo "$1" | grep -E '^\s+[0-9]+\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+' \
+    | head -1 | awk '{print $2}' || echo "N/A"
+}
+
+# Extract t_gpu (column 3 of the first perf data row).
+_parse_gpu_ms() {
+  echo "$1" | grep -E '^\s+[0-9]+\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+' \
+    | head -1 | awk '{print $3}' || echo "N/A"
+}
+
+# Extract speedup (column 4, strip trailing 'x').
+_parse_speedup() {
+  echo "$1" | grep -E '^\s+[0-9]+\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+' \
+    | head -1 | awk '{gsub(/x$/,"",$4); print $4}' || echo "N/A"
+}
+
 # Helper: run ewise and parse result.
+# NOTE: The tile_size baked into the PTX is fixed at compile time (TILE=32 in
+# harness/run_ewise.py).  The tile column records the config label for
+# documentation; each tile config should ideally use a separately compiled PTX.
+# TODO: generate PTX per tile config when parameterized MLIR sources are available.
 run_ewise() {
   local ptx="$1" size="$2" tile="$3"
   local out
@@ -71,10 +105,10 @@ run_ewise() {
   else
     ok="FAIL"
   fi
-  rel=$(echo "$out" | grep -oP 'rel_err=\K[0-9eE+\-.]+' | head -1 || echo "N/A")
-  cpu=$(echo "$out" | grep -oP 'cpu_ms=\K[0-9.]+' | head -1 || echo "N/A")
-  gpu=$(echo "$out" | grep -oP 'gpu_ms=\K[0-9.]+' | head -1 || echo "N/A")
-  spd=$(echo "$out" | grep -oP 'speedup=\K[0-9.]+' | head -1 || echo "N/A")
+  rel=$(_parse_rel_err "$out")
+  cpu=$(_parse_cpu_ms  "$out")
+  gpu=$(_parse_gpu_ms  "$out")
+  spd=$(_parse_speedup "$out")
   append_row "ewise" "$size" "$tile" "no" "$ok" "$rel" "$cpu" "$gpu" "$spd"
 }
 
@@ -90,10 +124,10 @@ run_stencil() {
   else
     ok="FAIL"
   fi
-  rel=$(echo "$out" | grep -oP 'rel_err=\K[0-9eE+\-.]+' | head -1 || echo "N/A")
-  cpu=$(echo "$out" | grep -oP 'cpu_ms=\K[0-9.]+' | head -1 || echo "N/A")
-  gpu=$(echo "$out" | grep -oP 'gpu_ms=\K[0-9.]+' | head -1 || echo "N/A")
-  spd=$(echo "$out" | grep -oP 'speedup=\K[0-9.]+' | head -1 || echo "N/A")
+  rel=$(_parse_rel_err "$out")
+  cpu=$(_parse_cpu_ms  "$out")
+  gpu=$(_parse_gpu_ms  "$out")
+  spd=$(_parse_speedup "$out")
   append_row "stencil" "$shape" "$tile" "yes" "$ok" "$rel" "$cpu" "$gpu" "$spd"
 }
 
@@ -109,7 +143,7 @@ run_reduction() {
   else
     ok="FAIL"
   fi
-  rel=$(echo "$out" | grep -oP 'rel_err=\K[0-9eE+\-.]+' | head -1 || echo "N/A")
+  rel=$(_parse_rel_err "$out")
   append_row "reduction" "$size" "$tile" "no" "$ok" "$rel" "N/A" "N/A" "N/A"
 }
 

@@ -78,12 +78,22 @@ computePromotionPlan(ForallOp groupForall, ForallOp laneForall,
         break;
       }
     }
-    if (!bounded)
+    if (!bounded) {
+      groupForall.emitRemark()
+          << "promote-group-memory: skipping " << mr
+          << " — non-affine or unbounded access pattern; promotion requires "
+             "statically decomposable indices (outer_iv + inner_iv * step + const)";
       continue;
+    }
 
     // 2. Read-only check.
-    if (!isReadOnly(mr, laneForall))
+    if (!isReadOnly(mr, laneForall)) {
+      groupForall.emitRemark()
+          << "promote-group-memory: skipping " << mr
+          << " — write-back conflict: tile body stores to this memref, "
+             "read-write memrefs cannot be safely staged into group memory";
       continue;
+    }
 
     // 3. Compute tile footprint dimensions.
     //
@@ -133,8 +143,13 @@ computePromotionPlan(ForallOp groupForall, ForallOp laneForall,
         break;
       }
     }
-    if (!hasReuse)
+    if (!hasReuse) {
+      groupForall.emitRemark()
+          << "promote-group-memory: skipping " << mr
+          << " — no data reuse across lanes (all offsets identical); "
+             "promotion would only add overhead without bandwidth benefit";
       continue;
+    }
 
     PromotionRecord rec;
     rec.globalMemref = mr;

@@ -76,7 +76,52 @@ if [[ $SKIP_GPU -eq 0 ]]; then
   bash "${SCRIPT_DIR}/run-differential.sh" ${SM_FLAG}
 else
   echo ""
-  echo "── Steps 2-3: GPU parts skipped (--no-gpu) ─────────"
+  echo "── Steps 2-4: GPU parts skipped (--no-gpu) ─────────"
+fi
+
+# Step 4: promotion ablation (runs without GPU — compares promoted vs
+# no-promotion pipeline output at the MLIR level to verify that promote-group-
+# memory actually inserts group-space buffers when expected and leaves the no-
+# promotion path unchanged).
+echo ""
+echo "── Step 4: promotion ablation (MLIR level) ─────────"
+ABLATION_PASS=0
+
+SPMD_BUILD="${SPMD_BUILD:-${REPO_ROOT}/build}"
+SPMD_OPT="${SPMD_BUILD}/bin/spmd-opt"
+
+if [[ ! -x "$SPMD_OPT" ]]; then
+  echo "  SKIP (spmd-opt not found at $SPMD_OPT)"
+else
+  # 4a: Stencil with prefer_group — promotion must insert group-space alloc.
+  ABLATION_OUT=$(
+    "$SPMD_OPT" "${REPO_ROOT}/test/SPMD/promote-group-memory-fullpipeline.mlir" \
+        --promote-group-memory 2>&1 || true
+  )
+  if echo "$ABLATION_OUT" | grep -q "addr_space<group>"; then
+    echo "  PASS: prefer_group stencil — group-space alloc present after promotion"
+  else
+    echo "  FAIL: prefer_group stencil — expected group-space alloc after promotion"
+    ABLATION_PASS=1
+  fi
+
+  # 4b: No-promotion stencil — promote pass must leave the kernel unchanged.
+  ABLATION_NOPROMOTE=$(
+    "$SPMD_OPT" "${REPO_ROOT}/test/SPMD/cross-pipeline-regression.mlir" \
+        --normalize-spmd --plan-spmd-schedule \
+        --materialize-spmd-tiling --promote-group-memory 2>&1 || true
+  )
+  if echo "$ABLATION_NOPROMOTE" | grep -q "addr_space<group>"; then
+    echo "  FAIL: no-promotion stencil — unexpected group-space alloc after promotion"
+    ABLATION_PASS=1
+  else
+    echo "  PASS: no-promotion stencil — no group-space alloc (correct ablation)"
+  fi
+fi
+
+if [[ $ABLATION_PASS -ne 0 ]]; then
+  echo "  Promotion ablation FAILED"
+  exit 1
 fi
 
 echo ""
