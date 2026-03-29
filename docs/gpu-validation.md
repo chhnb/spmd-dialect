@@ -217,6 +217,13 @@ ptr.free()                       # cuMemFree
         1024    0.00e+00  PASS
        10000    0.00e+00  PASS
      1000000    0.00e+00  PASS
+
+=== Performance (wall-clock, no data transfer) ===
+
+           N    cpu_ms    gpu_ms   speedup
+      100000     0.024     0.019       1.3x
+     1000000     0.453     0.020      22.1x
+    10000000    10.881     0.206      52.8x
 ```
 
 ### run_promoted_stencil.py
@@ -234,7 +241,34 @@ ptr.free()                       # cuMemFree
 ( 128, 128)       0.00e+00  PASS
 ( 512, 512)       0.00e+00  PASS
 (1024,1024)       0.00e+00  PASS
+
+=== Performance ===
+
+         shape    cpu_ms    gpu_ms   speedup
+( 512, 512)        0.330     0.024      13.8x
+(1024,1024)        2.817     0.044      63.5x
+(2048,2048)       11.317     0.112     101.0x
+(4096,4096)       46.883     0.285     164.7x
 ```
+
+### run_reduction.py
+
+```bash
+.venv/bin/python harness/run_reduction.py --ptx /tmp/reduction_sm100.ptx
+.venv/bin/python harness/run_reduction.py --ptx /tmp/reduction_sm100.ptx --perf
+```
+
+实际输出（B200, sm_100, 2026-03-29）：
+```
+=== Correctness ===
+           N         gpu_sum         ref_sum     rel_err  result
+        1024      527.198730      527.198608    2.32e-07  PASS
+       65536    32708.308594    32708.339844    9.55e-07  PASS
+     1048576   524550.687500   524541.875000    1.68e-05  PASS
+```
+
+注：`atomic_sum_kernel` 使用全局原子加法，性能不及 CPU numpy（后者使用 SIMD 向量化）。
+此 kernel 的目标是**正确性验证**，而非性能竞争。
 
 ---
 
@@ -291,10 +325,13 @@ spmd-dialect/
     detect-gpu.py          ← GPU SM 级别检测
     gen-ptx.sh             ← PTX 生成（支持 SM 参数）
     run-validation.sh      ← 一键验证脚本
+  test/SPMD/
+    lower-to-gpu-nvptx-reduction.mlir ← atomic sum kernel source
   harness/
-    cuda_driver.py         ← ctypes CUDA Driver API 封装
+    cuda_driver.py         ← ctypes CUDA Driver API 封装（含 memset）
     run_ewise.py           ← ewise correctness + perf
     run_promoted_stencil.py← stencil correctness + perf
+    run_reduction.py       ← atomic sum correctness + perf
   docs/
     gpu-validation.md      ← 本文档
 ```

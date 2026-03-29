@@ -11,6 +11,7 @@ Public API:
     alloc(n_bytes) -> DevicePtr       — allocate device memory
     memcpy_h2d(dst, src_np)           — host numpy → device
     memcpy_d2h(dst_np, src)           — device → host numpy
+    memset(dst, value, n_bytes)       — fill device memory with a byte value
     launch(fn, grid, block, *args)    — launch kernel
     synchronize()                     — wait for all work to complete
     free(ptr)                         — free device memory
@@ -71,6 +72,7 @@ _cuLaunchKernel      = _fn("cuLaunchKernel",      _i32,
                             _p(_vp))              # extra
 _cuCtxSynchronize    = _fn("cuCtxSynchronize",    _i32)
 _cuMemFree           = _fn("cuMemFree_v2",        _i32, _u64)
+_cuMemsetD8          = _fn("cuMemsetD8_v2",       _i32, _u64, ctypes.c_ubyte, _sz)
 
 # ── High-level helpers ─────────────────────────────────────────────────────────
 
@@ -188,6 +190,11 @@ def launch(fn, grid: Tuple[int,int,int], block: Tuple[int,int,int],
         param_arr,
         None,        # extra: not used
     )
+
+
+def memset(dst: "DevicePtr", value: int, n_bytes: int):
+    """Fill the first n_bytes of dst with the byte value (0..255)."""
+    _cuMemsetD8(dst.addr, value, n_bytes)
 
 
 def synchronize():

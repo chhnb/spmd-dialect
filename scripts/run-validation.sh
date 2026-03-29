@@ -61,6 +61,10 @@ bash "${SCRIPT_DIR}/gen-ptx.sh" \
     "${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-promoted.mlir" \
     promoted /tmp/stencil_${SM}.ptx "${SM}"
 
+bash "${SCRIPT_DIR}/gen-ptx.sh" \
+    "${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-reduction.mlir" \
+    ewise /tmp/reduction_${SM}.ptx "${SM}"
+
 echo ""
 
 # ── Step 2: correctness harness ──────────────────────────────────────────────
@@ -76,6 +80,13 @@ echo "── Step 3: promoted_stencil_kernel correctness ─────"
 "$PYTHON" "${HARNESS}/run_promoted_stencil.py" \
     --ptx "/tmp/stencil_${SM}.ptx" \
     --shapes "64x64,128x128,512x512,1024x1024" \
+    ${PERF_FLAG:+--perf}
+
+echo ""
+echo "── Step 4: atomic_sum_kernel correctness ────────────"
+"$PYTHON" "${HARNESS}/run_reduction.py" \
+    --ptx "/tmp/reduction_${SM}.ptx" \
+    --sizes "1024,65536,1048576" \
     ${PERF_FLAG:+--perf}
 
 echo ""
