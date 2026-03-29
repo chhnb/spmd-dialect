@@ -391,7 +391,7 @@ struct ConvertSPMDToGPUPass
     OpBuilder b(ctx);
     bool hadError = false;
 
-    // ── Phase 1: lower group foralls → gpu.launch ──────────────────────────
+    // Lower group foralls → gpu.launch.
     //
     // Collect top-level group foralls only (not nested inside another forall).
     // Walking post-order: avoid adding inner group foralls that the outer will
@@ -495,9 +495,12 @@ struct ConvertSPMDToGPUPass
       for (unsigned i = 0; i < groupAllocs.size(); ++i)
         groupAllocs[i].getResult().replaceAllUsesWith(wgAttrs[i]);
 
-      // Erase group alloc ops (no uses remain after replaceAllUsesWith).
-      for (auto allocOp : groupAllocs)
+      // Erase group alloc ops — assert zero uses after replaceAllUsesWith.
+      for (auto allocOp : groupAllocs) {
+        assert(allocOp->use_empty() &&
+               "group alloc still has uses after workgroup rebinding");
         allocOp.erase();
+      }
 
       // Move remaining ops from group body to before the terminator.
       Block &groupBody = groupForall.getBody().front();
@@ -510,7 +513,7 @@ struct ConvertSPMDToGPUPass
         op->moveBefore(gpuTerminator);
       }
 
-      // ── Phase 2: lower lane foralls inside the launch ───────────────────
+      // Lower lane foralls inside the launch.
       //
       // Collect lane foralls (in program order; walk visits post-order for
       // nested ops, so innermost are handled first — correct for surgery).
@@ -523,7 +526,7 @@ struct ConvertSPMDToGPUPass
         if (failed(lowerLaneForallInLaunch(laneForall, launchOp)))
           hadError = true;
 
-      // ── Phase 3: lower spmd.barrier → gpu.barrier ──────────────────────
+      // Lower spmd.barrier → gpu.barrier.
       bool hasWorkgroupMem = !groupAllocs.empty();
       SmallVector<BarrierOp> barriers;
       launchOp.walk([&](BarrierOp barrier) {
@@ -563,7 +566,7 @@ struct ConvertSPMDToGPUPass
       groupForall.erase();
     }
 
-    // ── Phase 4: lower spmd.if / spmd.reduce via greedy patterns ──────────
+    // Lower spmd.if / spmd.reduce via greedy patterns.
     RewritePatternSet patterns(ctx);
     patterns.add<IfToSCFIfGPU, ReduceToSCFForGPU>(ctx);
     if (failed(applyPatternsGreedily(module, std::move(patterns))))

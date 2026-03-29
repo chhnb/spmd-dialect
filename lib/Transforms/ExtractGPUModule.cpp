@@ -56,7 +56,7 @@ struct ExtractGPUModulePass
     // Move device ops (llvm.func, llvm.mlir.global, …) from gpu.module body
     // to the enclosing module, placing them just before the gpu.module op.
     SmallVector<Operation *> deviceOps;
-    for (auto &op : gpuMod.getBody().front())
+    for (Operation &op : *gpuMod.getBody())
       if (!op.hasTrait<OpTrait::IsTerminator>())
         deviceOps.push_back(&op);
     for (Operation *op : deviceOps)
