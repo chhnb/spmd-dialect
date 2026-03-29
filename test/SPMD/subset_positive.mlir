@@ -1,6 +1,6 @@
 // RUN: spmd-opt %s --verify-spmd-kernel-subset | FileCheck %s
 
-// AC-3 positive: a legal spmd.kernel function using only the S0/S1 allowed
+// Positive: a legal spmd.kernel function using only the S0/S1 allowed
 // op subset (spmd.*, arith.*, memref.load/store, func.return) must pass
 // --verify-spmd-kernel-subset without any diagnostic.
 

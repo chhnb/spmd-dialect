@@ -1,7 +1,7 @@
 // RUN: spmd-opt %s | FileCheck %s
 // RUN: spmd-opt %s --mlir-print-op-generic | FileCheck %s --check-prefix=GENERIC
 
-// AC-2: All 5 custom attrs must survive generic round-trip (ops in generic
+// All 5 custom attrs must survive generic round-trip (ops in generic
 // form, attrs unchanged).  These global GENERIC checks confirm presence
 // in output order: @sum (reduction_kind), then @attr_check body ops
 // (addr_space in memref.load type, scope in spmd.barrier attrs), then the

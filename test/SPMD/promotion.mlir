@@ -344,7 +344,7 @@ func.func @stencil2d_oversized(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 
 // -----
 
-// AC-8.2: End-to-end pipeline for a 2-D S0 stencil kernel.
+// End-to-end pipeline for a 2-D S0 stencil kernel.
 //
 // Starts from unscheduled S0 IR (no spmd.mapping / tile_sizes / memory_policy)
 // and runs the complete CPU pipeline:

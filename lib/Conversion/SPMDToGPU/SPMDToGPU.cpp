@@ -9,7 +9,7 @@
 //   group addr space memref  -> shared memory (GPU-specific addr space)
 //   private addr space memref-> per-thread registers / local memory
 //
-// Phase 4 implementation target.
+// GPU backend (outside MVP scope; stub only).
 
 #include "spmd/IR/SPMDOps.h"
 
@@ -32,7 +32,7 @@ struct SPMDToGPUPass
   }
 
   void runOnOperation() override {
-    // TODO: implement Phase 4
+    // TODO: implement GPU backend lowering
   }
 };
 } // namespace

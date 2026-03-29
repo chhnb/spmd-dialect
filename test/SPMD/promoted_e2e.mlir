@@ -1,7 +1,7 @@
-// AC-8.1 + AC-8.2: promoted stencil IR correctness and end-to-end executability.
+// Promoted stencil: IR correctness and end-to-end executability.
 //
-// RUN line 1 (AC-8.1): promote and lower to SCF; FileCheck verifies the IR
-// transformations required by the plan:
+// RUN line 1: promote and lower to SCF; FileCheck verifies the IR
+// transformations required by group-memory promotion:
 //   - group-memory alloc is inserted
 //   - spmd.barrier is inserted between copy and compute foralls
 //   - the compute forall loads from the tile buffer, not the original global memref
@@ -10,7 +10,7 @@
 // RUN:   --convert-spmd-to-openmp --convert-spmd-to-scf \
 // RUN:   | FileCheck %s
 //
-// RUN line 2 (AC-8.2): full pipeline to object file via llc -filetype=obj.
+// RUN line 2: full pipeline to object file via llc -filetype=obj.
 // Succeeds iff all tools exit 0 (promoted kernel compiles to native code).
 //
 // RUN: spmd-opt %s --promote-group-memory \
