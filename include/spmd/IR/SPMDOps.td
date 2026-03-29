@@ -123,13 +123,13 @@ def SPMD_IfOp : SPMD_Op<"if", [
     - if op has no results, else region may be absent
   }];
 
-  let arguments = (ins I1:$condition);
+  let arguments = (ins AnyType:$condition);
   let results = (outs Variadic<AnyType>:$results);
   let regions = (region SizedRegion<1>:$thenRegion,
                         AnyRegion:$elseRegion);
 
   let assemblyFormat = [{
-    $condition attr-dict `:` `(` type($results) `)`
+    $condition `:` type($condition) attr-dict `:` `(` type($results) `)`
     $thenRegion (`else` $elseRegion^)?
   }];
 

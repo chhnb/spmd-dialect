@@ -118,16 +118,12 @@ void ForallOp::getCanonicalizationPatterns(RewritePatternSet &results,
 //===----------------------------------------------------------------------===//
 
 LogicalResult IfOp::verify() {
-  // Defense-in-depth: ODS type constraint on $condition catches non-i1 at
-  // parse time with "must be 1-bit signless integer", so this branch is only
-  // reachable via programmatic op construction that bypasses the parser.
+  // ODS uses AnyType for $condition so verifyInvariantsImpl() does not check
+  // the type; this verifier is the sole enforcer of the i1 requirement.
   if (!getCondition().getType().isInteger(1))
     return emitOpError("condition must be i1");
 
   if (!getResults().empty()) {
-    // Defense-in-depth: the MLIR parser requires the declared region count
-    // (2 for spmd.if) to be present, so "else region required" is only
-    // reachable via programmatic op construction.
     if (getElseRegion().empty())
       return emitOpError("else region required when op has results");
 

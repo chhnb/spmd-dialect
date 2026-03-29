@@ -97,13 +97,13 @@ func.func @reduce_type_mismatch(%N: index) {
 // -----
 
 // ---- if: condition is not i1 ----
-// Note: ODS type constraint on $condition fires at parse time with
-// "must be 1-bit signless integer", before the IfOp verifier check
-// ("condition must be i1") can run.  Both enforce the same invariant;
-// this test exercises the user-visible diagnostic path.
+// IfOp::verify() is the sole enforcer (ODS uses AnyType for $condition so
+// verifyInvariantsImpl() does not check the type).  Use generic format so the
+// parser accepts the index-typed operand; verification then fires the custom
+// verifier which emits "condition must be i1".
 
 func.func @if_bad_cond(%idx: index) {
-  // expected-error@+1 {{must be 1-bit signless integer}}
+  // expected-error@+1 {{condition must be i1}}
   "spmd.if"(%idx) ({
     "spmd.yield"() : () -> ()
   }, {
@@ -115,15 +115,15 @@ func.func @if_bad_cond(%idx: index) {
 // -----
 
 // ---- if: results but no else ----
-// Note: the MLIR parser requires the op to declare exactly the number of
-// regions its ODS regionList specifies (2 for spmd.if).  "expected 2 regions"
-// fires at parse time, before the IfOp verifier ("else region required when
-// op has results") can run.  Both enforce the same invariant.
+// Provide an empty else region ({}) so the generic-format parser accepts two
+// regions.  The verifier then checks the else-region invariant and emits
+// "else region required when op has results".
 
 func.func @if_no_else(%c: i1, %x: f32) {
-  // expected-error@+1 {{expected 2 regions}}
+  // expected-error@+1 {{else region required when op has results}}
   %r = "spmd.if"(%c) ({
     "spmd.yield"(%x) : (f32) -> ()
+  }, {
   }) : (i1) -> f32
   func.return
 }
