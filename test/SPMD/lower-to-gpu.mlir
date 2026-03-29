@@ -55,7 +55,13 @@
 // WG:       gpu.launch
 // WG-SAME:  workgroup({{.*}}#gpu.address_space<workgroup>
 // WG:       scf.if
-// WG:       gpu.barrier memfence [#gpu.address_space<workgroup>]
+// WG:       memref.store {{.*}}#gpu.address_space<workgroup>
+// Barrier must be at gpu.launch body level (NOT nested in scf.if):
+// after the inner memref.store the next 2 lines close the two scf.ifs, then
+// gpu.barrier appears unconditionally at the top-level launch body.
+// WG-NEXT:  }
+// WG-NEXT:  }
+// WG-NEXT:  gpu.barrier memfence [#gpu.address_space<workgroup>]
 // WG:       scf.if
 // WG-NOT:   memref.alloc
 // WG:       gpu.terminator

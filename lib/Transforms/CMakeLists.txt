@@ -5,7 +5,7 @@ add_mlir_library(SPMDTransforms
   MaterializeTilingAndMapping.cpp
   PromoteGroupMemory.cpp
   EraseSpmdMemorySpaces.cpp
-  ConvertGpuMemorySpacesToNumeric.cpp
+  ExtractGPUModule.cpp
   SPMDPassRegistration.cpp
 
   LINK_LIBS PUBLIC

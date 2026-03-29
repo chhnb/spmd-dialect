@@ -10,7 +10,7 @@ void mlir::spmd::registerSPMDPasses() {
   registerMaterializeTilingAndMappingPass();
   registerPromoteGroupMemoryPass();
   registerEraseSpmdMemorySpacesPass();
-  registerConvertGpuMemorySpacesToNumericPass();
+  registerExtractGPUModulePass();
   registerSPMDToSCFPass();
   registerSPMDToOpenMPPass();
   registerConvertSPMDToGPUPass();
