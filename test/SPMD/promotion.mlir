@@ -361,7 +361,7 @@ func.func @stencil2d_oversized(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 // RUN:   --finalize-memref-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
 // RUN:   --convert-openmp-to-llvm --reconcile-unrealized-casts \
 // RUN:   | mlir-translate --mlir-to-llvmir \
-// RUN:   | llc -o /dev/null
+// RUN:   | llc -filetype=obj -o /dev/null
 
 // 2-D S0 stencil: B[i,j] = A[i,j] + A[i,j+1] + A[i+1,j]
 // Loops over interior: i in [0, N-1), j in [0, M-1).
