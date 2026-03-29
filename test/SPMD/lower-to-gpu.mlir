@@ -1,43 +1,49 @@
 // lower-to-gpu.mlir — lit tests for --convert-spmd-to-gpu (IR checks only)
 //
-// RUN 1: elementwise kernel GPU IR check (non-promoted path).
+// Elementwise kernel: verify launch geometry, block-arg thread mapping,
+// in-bounds guards, and no gpu.thread_id (non-promoted path).
 // RUN: spmd-opt %s --split-input-file --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
 // RUN:   | FileCheck %s --check-prefix=GPU
 //
-// RUN 2: promoted stencil workgroup memory + barrier check.
+// Promoted stencil: verify workgroup memory attribution, barrier placement
+// at gpu.launch body level, and no residual memref.alloc.
 // RUN: spmd-opt %s --split-input-file --promote-group-memory \
 // RUN:   --convert-spmd-to-gpu \
 // RUN:   | FileCheck %s --check-prefix=WG
 //
-// RUN 3: spmd.if + spmd.reduce inside GPU kernel (AC-3).
+// spmd.if + spmd.reduce: verify both are lowered to scf.if / scf.for
+// inside the gpu.launch region with no residual spmd ops.
 // RUN: spmd-opt %s --split-input-file --convert-spmd-to-gpu \
 // RUN:   | FileCheck %s --check-prefix=IFRED
 //
-// RUN 4: NVVM IR check — outline + convert-gpu-to-nvvm (AC-5, no NVPTX needed).
+// NVVM IR check: verify gpu-kernel-outlining produces nvvm.kernel attribute
+// and uses PTX sreg intrinsics for block/thread ids (no NVPTX target needed).
 // RUN: spmd-opt %s --split-input-file --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
 // RUN:   --gpu-kernel-outlining "--nvvm-attach-target=chip=sm_80" \
 // RUN:   --convert-gpu-to-nvvm \
 // RUN:   | FileCheck %s --check-prefix=NVVM
 //
-// RUN 5: AC-3 negative — convert-spmd-to-scf then convert-spmd-to-gpu: no crash.
+// Negative: convert-spmd-to-scf before convert-spmd-to-gpu must not crash;
+// all spmd ops are gone before the GPU pass runs.
 // RUN: spmd-opt %s --split-input-file --convert-spmd-to-scf \
 // RUN:   --convert-spmd-to-gpu \
 // RUN:   | FileCheck %s --check-prefix=SCFGPU
 //
-// RUN 6: AC-5 negative — pre-outline mlir-translate fails on gpu.launch module.
+// Negative: mlir-translate on a module with gpu.launch (before outlining)
+// must fail, confirming the device pipeline requires outlining first.
 // RUN: spmd-opt %s --split-input-file --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
 // RUN:   | not mlir-translate --mlir-to-llvmir 2>&1 \
 // RUN:   | FileCheck %s --check-prefix=PREOUTLINE
 //
-// RUN 7: AC-1 negative — gpu-kernel-outlining without --convert-spmd-to-gpu
-//         leaves spmd.forall intact and produces no gpu.launch.
+// Negative: gpu-kernel-outlining without --convert-spmd-to-gpu leaves
+// spmd.forall intact and produces no gpu.launch.
 // RUN: spmd-opt %s --split-input-file --gpu-kernel-outlining \
 // RUN:   | FileCheck %s --check-prefix=NOCONV
 
-// ─── GPU checks (RUN 1): launch geometry + thread mapping (AC-2) ─────────────
+// ─── GPU checks: launch geometry + block-arg thread mapping ──────────────────
 // GPU:       gpu.container_module
 // GPU-LABEL: func @ewise
 // GPU:       arith.ceildivui
@@ -50,7 +56,7 @@
 // GPU:       gpu.terminator
 // GPU-NOT:   spmd.forall
 
-// ─── WG checks (RUN 2): workgroup memory, barrier ordering, use-rebinding ─────
+// ─── WG checks: workgroup memory attribution, barrier ordering, use-rebinding ─
 // WG-LABEL: func @promoted_stencil
 // WG:       gpu.launch
 // WG-SAME:  workgroup({{.*}}#gpu.address_space<workgroup>
@@ -66,7 +72,7 @@
 // WG-NOT:   memref.alloc
 // WG:       gpu.terminator
 
-// ─── IFRED checks (RUN 3): spmd.if → scf.if, spmd.reduce → scf.for ──────────
+// ─── IFRED checks: spmd.if → scf.if, spmd.reduce → scf.for ──────────────────
 // IFRED-LABEL: func @if_reduce_kernel
 // IFRED:        gpu.launch
 // IFRED-NOT:    spmd.if
@@ -75,7 +81,7 @@
 // IFRED:        scf.for
 // IFRED:        gpu.terminator
 
-// ─── NVVM checks (RUN 4): outline → nvvm IR structure (AC-5) ─────────────────
+// ─── NVVM checks: outline → nvvm IR structure ────────────────────────────────
 // NVVM:         gpu.container_module
 // NVVM-LABEL:   func @ewise
 // NVVM:         gpu.launch_func
@@ -85,18 +91,18 @@
 // NVVM:         nvvm.read.ptx.sreg.ctaid.x
 // NVVM:         nvvm.read.ptx.sreg.tid.x
 
-// ─── SCFGPU checks (RUN 5): no spmd ops after both passes, no crash ──────────
+// ─── SCFGPU checks: no spmd ops remain after both passes, no crash ───────────
 // SCFGPU-LABEL: func @ewise
 // SCFGPU-NOT:   spmd.forall
 // SCFGPU-NOT:   spmd.if
 // SCFGPU-NOT:   spmd.reduce
 
-// ─── PREOUTLINE checks (RUN 6): pre-outline translation fails (AC-5 negative)─
+// ─── PREOUTLINE checks: pre-outline translation fails as expected ─────────────
 // Module with gpu.launch (before outlining+gpu-to-llvm) fails mlir-translate
 // because the host func.func / scf / memref dialect ops are not LLVM-translatable.
 // PREOUTLINE: error:
 
-// ─── NOCONV checks (RUN 7): AC-1 negative — no gpu.launch without pass ────────
+// ─── NOCONV checks: spmd.forall persists when conversion pass is absent ───────
 // Without --convert-spmd-to-gpu, gpu-kernel-outlining is a no-op: spmd.forall
 // remains and no gpu.launch is generated.
 // NOCONV-LABEL: func @ewise
@@ -132,8 +138,7 @@ func.func @ewise(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>,
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test function 2: 2D stencil (promoted path — has group-addr-space alloc +
-// spmd.barrier after --promote-group-memory).
-// Used by RUN 2 (WG checks).
+// spmd.barrier after --promote-group-memory). Used by WG checks.
 // ─────────────────────────────────────────────────────────────────────────────
 
 func.func @promoted_stencil(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
@@ -176,10 +181,10 @@ func.func @promoted_stencil(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 // -----
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test function 3: spmd.if + spmd.reduce inside a GPU kernel (AC-3).
+// Test function 3: spmd.if + spmd.reduce inside a GPU kernel.
 // --convert-spmd-to-gpu must lower these via the greedy pattern rewrite
 // (IfToSCFIfGPU, ReduceToSCFForGPU) without needing any pre-pass.
-// Used by RUN 3 (IFRED checks).
+// Used by IFRED checks.
 // ─────────────────────────────────────────────────────────────────────────────
 
 func.func @if_reduce_kernel(%A: memref<?xf32>, %out: memref<f32>,

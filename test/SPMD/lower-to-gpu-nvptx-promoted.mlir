@@ -2,10 +2,9 @@
 //
 // REQUIRES: nvptx-registered-target
 //
-// RUN 4 (AC-6): promoted stencil — device-side PTX via
-// --spmd-extract-gpu-module | mlir-translate --mlir-to-llvmir |
-// llc --march=nvptx64 -filetype=asm must contain .shared (workgroup memory)
-// and .visible .entry (exported kernel entry point).
+// PTX content check for the promoted stencil: the device PTX must contain
+// .shared (workgroup memory demoted to PTX shared space) and .visible .entry
+// (exported kernel entry point).
 // --promote-group-memory runs BEFORE --convert-spmd-to-gpu; no materialize
 // step because materialization nests barriers inside scf.if, violating the
 // gpu.barrier-at-launch-body-level invariant.
@@ -20,7 +19,7 @@
 // RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
 // RUN:   | FileCheck %s --check-prefix=PTX
 
-// ─── PTX checks (RUN 4, AC-6) ────────────────────────────────────────────────
+// ─── PTX checks ───────────────────────────────────────────────────────────────
 // PTX: .visible .entry
 // PTX: .shared
 
