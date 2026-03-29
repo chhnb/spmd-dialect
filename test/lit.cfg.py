@@ -38,7 +38,7 @@ _llc_path = os.path.join(config.llvm_tools_dir, "llc")
 try:
     result = subprocess.run(
         [_llc_path, "--version"], capture_output=True, text=True)
-    if "NVPTX" in result.stdout:
+    if "nvptx64" in result.stdout.lower():
         config.available_features.add("nvptx-registered-target")
 except Exception:
     pass

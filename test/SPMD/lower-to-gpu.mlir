@@ -31,19 +31,32 @@
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
 // RUN:   | not mlir-translate --mlir-to-llvmir 2>&1 \
 // RUN:   | FileCheck %s --check-prefix=PREOUTLINE
+//
+// RUN 7: AC-1 negative — gpu-kernel-outlining without --convert-spmd-to-gpu
+//         leaves spmd.forall intact and produces no gpu.launch.
+// RUN: spmd-opt %s --split-input-file --gpu-kernel-outlining \
+// RUN:   | FileCheck %s --check-prefix=NOCONV
 
-// ─── GPU checks (RUN 1): basic IR structure + gpu.container_module ───────────
+// ─── GPU checks (RUN 1): launch geometry + thread mapping (AC-2) ─────────────
 // GPU:       gpu.container_module
 // GPU-LABEL: func @ewise
+// GPU:       arith.ceildivui
 // GPU:       gpu.launch
+// GPU-SAME:  threads({{.*}}) in (%{{.*}} = %c32
+// GPU-NOT:   gpu.thread_id
+// GPU:       scf.if
+// GPU:       scf.if
+// GPU:       memref.load
 // GPU:       gpu.terminator
 // GPU-NOT:   spmd.forall
 
-// ─── WG checks (RUN 2): workgroup memory and barrier ─────────────────────────
+// ─── WG checks (RUN 2): workgroup memory, barrier ordering, use-rebinding ─────
 // WG-LABEL: func @promoted_stencil
 // WG:       gpu.launch
 // WG-SAME:  workgroup({{.*}}#gpu.address_space<workgroup>
-// WG:       gpu.barrier{{.*}}#gpu.address_space<workgroup>
+// WG:       scf.if
+// WG:       gpu.barrier memfence [#gpu.address_space<workgroup>]
+// WG:       scf.if
 // WG-NOT:   memref.alloc
 // WG:       gpu.terminator
 
@@ -76,6 +89,13 @@
 // Module with gpu.launch (before outlining+gpu-to-llvm) fails mlir-translate
 // because the host func.func / scf / memref dialect ops are not LLVM-translatable.
 // PREOUTLINE: error:
+
+// ─── NOCONV checks (RUN 7): AC-1 negative — no gpu.launch without pass ────────
+// Without --convert-spmd-to-gpu, gpu-kernel-outlining is a no-op: spmd.forall
+// remains and no gpu.launch is generated.
+// NOCONV-LABEL: func @ewise
+// NOCONV:       spmd.forall
+// NOCONV-NOT:   gpu.launch
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test function 1: elementwise add (1D, non-promoted).

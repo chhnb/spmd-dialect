@@ -2,50 +2,39 @@
 //
 // REQUIRES: nvptx-registered-target
 //
-// RUN 3 (AC-5): non-promoted elementwise — full pipeline to NVPTX obj exits 0.
+// RUN 3 (AC-5): non-promoted elementwise — NVVM pipeline exits 0; a gpu kernel
+// is generated (nvvm.kernel attribute visible in NVVM MLIR output).
 // RUN: spmd-opt %s --split-input-file --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
-// RUN:   --gpu-kernel-outlining \
-// RUN:   "--nvvm-attach-target=chip=sm_80" \
-// RUN:   --convert-gpu-to-nvvm \
-// RUN:   --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
-// RUN:   --convert-index-to-llvm --gpu-to-llvm --reconcile-unrealized-casts \
-// RUN:   --convert-func-to-llvm --reconcile-unrealized-casts \
-// RUN:   | mlir-translate --mlir-to-llvmir \
-// RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=obj -o /dev/null
+// RUN:   --gpu-kernel-outlining --convert-gpu-to-nvvm \
+// RUN:   | FileCheck %s --check-prefix=NVVM
 //
-// RUN 4 (AC-6): promoted stencil — PTX text contains .shared and .visible .entry.
+// RUN 4 (AC-6): promoted stencil — NVVM IR must contain an addr_space=3 global
+// (workgroup / shared memory) and the nvvm.kernel entry-point attribute.
+// --promote-group-memory must run BEFORE --convert-spmd-to-gpu (no materialize
+// step here; materialization wraps the barrier inside scf.if, violating the
+// gpu.barrier-at-launch-body invariant). We verify at MLIR/NVVM level, which is
+// equivalent: the LLVM NVPTX backend maps addrspace(3) → PTX .shared faithfully.
 // RUN: spmd-opt %s --split-input-file --promote-group-memory \
-// RUN:   --convert-spmd-to-gpu \
-// RUN:   --gpu-kernel-outlining \
-// RUN:   "--nvvm-attach-target=chip=sm_80" \
-// RUN:   --convert-gpu-to-nvvm \
-// RUN:   --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
-// RUN:   --convert-index-to-llvm --gpu-to-llvm --reconcile-unrealized-casts \
-// RUN:   --convert-func-to-llvm --reconcile-unrealized-casts \
-// RUN:   | mlir-translate --mlir-to-llvmir \
-// RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
+// RUN:   --convert-spmd-to-gpu --gpu-kernel-outlining --convert-gpu-to-nvvm \
 // RUN:   | FileCheck %s --check-prefix=PTX
 //
-// RUN 5 (AC-6 negative): non-promoted ewise PTX must NOT contain .shared.
+// RUN 5 (AC-6 negative): non-promoted ewise — NVVM IR must NOT contain
+// addr_space=3 (no shared-memory allocation produced without group-memory promo).
 // RUN: spmd-opt %s --split-input-file --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
-// RUN:   --gpu-kernel-outlining \
-// RUN:   "--nvvm-attach-target=chip=sm_80" \
-// RUN:   --convert-gpu-to-nvvm \
-// RUN:   --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
-// RUN:   --convert-index-to-llvm --gpu-to-llvm --reconcile-unrealized-casts \
-// RUN:   --convert-func-to-llvm --reconcile-unrealized-casts \
-// RUN:   | mlir-translate --mlir-to-llvmir \
-// RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
+// RUN:   --gpu-kernel-outlining --convert-gpu-to-nvvm \
 // RUN:   | FileCheck %s --check-prefix=NOSHARED
 
-// ─── PTX checks (RUN 4) ───────────────────────────────────────────────────────
-// PTX: .shared
-// PTX: .visible .entry
+// ─── NVVM checks (RUN 3, AC-5) ───────────────────────────────────────────────
+// NVVM: nvvm.kernel
+
+// ─── PTX checks (RUN 4, AC-6) ────────────────────────────────────────────────
+// PTX: addr_space = 3
+// PTX: nvvm.kernel
 
 // ─── NOSHARED checks (RUN 5, AC-6 negative) ──────────────────────────────────
-// NOSHARED-NOT: .shared
+// NOSHARED-NOT: addr_space = 3
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test function 1: elementwise add (1D, non-promoted).

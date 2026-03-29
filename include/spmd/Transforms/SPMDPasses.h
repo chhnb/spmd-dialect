@@ -40,6 +40,9 @@ void registerPromoteGroupMemoryPass();
 std::unique_ptr<Pass> createEraseSpmdMemorySpacesPass();
 void registerEraseSpmdMemorySpacesPass();
 
+std::unique_ptr<Pass> createConvertGpuMemorySpacesToNumericPass();
+void registerConvertGpuMemorySpacesToNumericPass();
+
 //===----------------------------------------------------------------------===//
 // Conversion passes (S2 → target dialect)
 //===----------------------------------------------------------------------===//
