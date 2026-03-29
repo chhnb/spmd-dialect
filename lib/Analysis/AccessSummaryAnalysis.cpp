@@ -58,46 +58,58 @@ static std::optional<int64_t> getInnerIvStep(Value v, ValueRange innerIvs) {
 /// Returns the constant offset from the tile origin if successful,
 /// std::nullopt otherwise.
 ///
-/// Handles both step=1 (the post-NormalizeSPMD common case) and step>1
-/// (when MaterializeTilingAndMapping runs on non-normalized input).
+/// Handles:
+///   - step=1 (post-NormalizeSPMD) and step>1 (non-normalized S1 input)
+///   - both arith.addi and arith.subi of constants (negative halos)
 static std::optional<int64_t>
 getConstOffset(Value index, ValueRange outerIvs, ValueRange innerIvs) {
   // Case 1: index == inner_iv (or inner_iv * step) → offset 0
   if (getInnerIvStep(index, innerIvs))
     return 0;
 
-  // Case 2: peel arith.addi constants and look for outer_iv + inner_iv*step.
+  // Case 2: peel arith.addi / arith.subi constants and look for
+  //   outer_iv + inner_iv * step.
+  // arith.subi(lhs, const) is treated as addi(lhs, -const).
   int64_t accumulated = 0;
   Value cur = index;
-  while (auto add = cur.getDefiningOp<arith::AddIOp>()) {
-    auto lhsCst = add.getLhs().getDefiningOp<arith::ConstantIndexOp>();
-    auto rhsCst = add.getRhs().getDefiningOp<arith::ConstantIndexOp>();
-    if (lhsCst) {
-      accumulated += lhsCst.value();
-      cur = add.getRhs();
-    } else if (rhsCst) {
-      accumulated += rhsCst.value();
-      cur = add.getLhs();
+  while (true) {
+    if (auto add = cur.getDefiningOp<arith::AddIOp>()) {
+      auto lhsCst = add.getLhs().getDefiningOp<arith::ConstantIndexOp>();
+      auto rhsCst = add.getRhs().getDefiningOp<arith::ConstantIndexOp>();
+      if (lhsCst) {
+        accumulated += lhsCst.value();
+        cur = add.getRhs();
+      } else if (rhsCst) {
+        accumulated += rhsCst.value();
+        cur = add.getLhs();
+      } else {
+        // Neither side is constant — check for outer + scaled_inner.
+        bool lhsIsOuter = isOneOf(add.getLhs(), outerIvs);
+        bool rhsIsOuter = isOneOf(add.getRhs(), outerIvs);
+        bool lhsIsScaledInner =
+            getInnerIvStep(add.getLhs(), innerIvs).has_value();
+        bool rhsIsScaledInner =
+            getInnerIvStep(add.getRhs(), innerIvs).has_value();
+        if ((lhsIsOuter && rhsIsScaledInner) || (lhsIsScaledInner && rhsIsOuter))
+          return accumulated;
+        return std::nullopt;
+      }
+    } else if (auto sub = cur.getDefiningOp<arith::SubIOp>()) {
+      // sub(lhs, rhsConst) == addi(lhs, -rhsConst)
+      auto rhsCst = sub.getRhs().getDefiningOp<arith::ConstantIndexOp>();
+      if (!rhsCst)
+        return std::nullopt;
+      accumulated -= rhsCst.value();
+      cur = sub.getLhs();
     } else {
-      // Neither side is a plain constant.
-      // Check for outer_iv + (inner_iv * step) or (inner_iv * step) + outer_iv.
-      bool lhsIsOuter = isOneOf(add.getLhs(), outerIvs);
-      bool rhsIsOuter = isOneOf(add.getRhs(), outerIvs);
-      bool lhsIsScaledInner = getInnerIvStep(add.getLhs(), innerIvs).has_value();
-      bool rhsIsScaledInner = getInnerIvStep(add.getRhs(), innerIvs).has_value();
-
-      if ((lhsIsOuter && rhsIsScaledInner) || (lhsIsScaledInner && rhsIsOuter))
-        return accumulated; // offset from tile origin
-      // Not decomposable.
       return std::nullopt;
     }
-    // After peeling constant, check if cur is already a terminal.
+    // After each step: check if cur is already a terminal value.
     if (isOneOf(cur, innerIvs) || isOneOf(cur, outerIvs))
       return accumulated;
     if (getInnerIvStep(cur, innerIvs))
       return accumulated;
   }
-  return std::nullopt;
 }
 
 /// Compute access summaries for all global memrefs loaded inside the inner
@@ -127,11 +139,21 @@ computeAccessSummaries(ForallOp groupForall, ForallOp laneForall) {
     if (mapIt == memrefToIdx.end()) {
       idx = result.size();
       memrefToIdx[mr] = idx;
+      // Use sentinel values so the first decomposable offset correctly seeds
+      // the bounding box.  Initializing to 0 would zero-clamp asymmetric
+      // halos: e.g. a stencil reading only A[i+1],A[i+2] would get minOffset=0
+      // instead of 1, and a negative-only halo would get maxOffset=0 instead
+      // of the true (negative) max.
+      //
+      // kUnbounded is also used by the else-branch below, so the PromotionPlan
+      // bounded-check (>= INT64_MAX/4) correctly rejects dims that have no
+      // decomposable access at all.
+      static const int64_t kSentinel = INT64_MAX / 2;
       AccessSummary s;
       s.memref = mr;
       s.rank   = ndim;
-      s.minOffset.assign(ndim, 0);
-      s.maxOffset.assign(ndim, 0);
+      s.minOffset.assign(ndim,  kSentinel);  // will be min()'d to first offset
+      s.maxOffset.assign(ndim, -kSentinel);  // will be max()'d to first offset
       result.push_back(std::move(s));
     } else {
       idx = mapIt->second;

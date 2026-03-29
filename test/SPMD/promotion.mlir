@@ -204,6 +204,95 @@ func.func @stencil1d_stepped(%A: memref<?xf32>, %B: memref<?xf32>, %N: index)
 
 // -----
 
+// Positive-only halo: reads A[i+1] and A[i+2] — no access at A[i].
+//
+// minOffset must be 1 (not 0), maxOffset must be 2.
+// With tile_size=4, step=1:
+//   extent = (4-1)*1 + 2 - 1 + 1 = 5  →  memref<5xf32, group>
+// Old zero-clamped code: minOffset=0, maxOffset=2, extent=4+2-0=6  →  wrong!
+
+// CHECK-LABEL: func @stencil_pos_halo
+// CHECK: memref.alloc() : memref<5xf32, #spmd.addr_space<group>>
+// CHECK: spmd.barrier {spmd.scope = #spmd.scope<group>}
+// CHECK-NOT: memref.load %arg0
+// CHECK: memref.load{{.*}}memref<5xf32, #spmd.addr_space<group>>
+func.func @stencil_pos_halo(%A: memref<?xf32>, %B: memref<?xf32>, %N: index)
+    attributes {spmd.kernel} {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c2 = arith.constant 2 : index
+  %c4 = arith.constant 4 : index
+
+  "spmd.forall"(%c0, %N, %c4) ({
+  ^bb0(%ii: index):
+    "spmd.forall"(%c0, %c4, %c1) ({
+    ^bb0(%ti: index):
+      %base = arith.addi %ii, %ti : index
+      %p1   = arith.addi %base, %c1 : index
+      %p2   = arith.addi %base, %c2 : index
+      %a1 = memref.load %A[%p1] : memref<?xf32>
+      %a2 = memref.load %A[%p2] : memref<?xf32>
+      %s  = arith.addf %a1, %a2 : f32
+      memref.store %s, %B[%base] : memref<?xf32>
+      "spmd.yield"() : () -> ()
+    }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+        "spmd.mapping" = #spmd.level<lane>} : (index, index, index) -> ()
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+      "spmd.mapping" = #spmd.level<group>,
+      "spmd.tile_sizes" = array<i64: 4>,
+      "spmd.memory_policy" = #spmd.memory_policy<prefer_group>}
+     : (index, index, index) -> ()
+  func.return
+}
+
+// -----
+
+// Negative-only halo: reads A[i-2] and A[i-1] — no access at A[i] or positive.
+//
+// minOffset must be -2 (not -2 was already correct for min, but max must be -1
+// not 0 as the zero-clamped init would produce).
+// With tile_size=4, step=1:
+//   extent = (4-1)*1 + (-1) - (-2) + 1 = 5  →  memref<5xf32, group>
+// Old zero-clamped code: minOffset=-2, maxOffset=0, extent=4+0-(-2)=6  →  wrong!
+
+// CHECK-LABEL: func @stencil_neg_halo
+// CHECK: memref.alloc() : memref<5xf32, #spmd.addr_space<group>>
+// CHECK: spmd.barrier {spmd.scope = #spmd.scope<group>}
+// CHECK-NOT: memref.load %arg0
+// CHECK: memref.load{{.*}}memref<5xf32, #spmd.addr_space<group>>
+func.func @stencil_neg_halo(%A: memref<?xf32>, %B: memref<?xf32>, %N: index)
+    attributes {spmd.kernel} {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  %c2 = arith.constant 2 : index
+  %c4 = arith.constant 4 : index
+
+  "spmd.forall"(%c0, %N, %c4) ({
+  ^bb0(%ii: index):
+    "spmd.forall"(%c0, %c4, %c1) ({
+    ^bb0(%ti: index):
+      %base = arith.addi %ii, %ti : index
+      %m1   = arith.subi %base, %c1 : index
+      %m2   = arith.subi %base, %c2 : index
+      %a1 = memref.load %A[%m1] : memref<?xf32>
+      %a2 = memref.load %A[%m2] : memref<?xf32>
+      %s  = arith.addf %a1, %a2 : f32
+      memref.store %s, %B[%base] : memref<?xf32>
+      "spmd.yield"() : () -> ()
+    }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+        "spmd.mapping" = #spmd.level<lane>} : (index, index, index) -> ()
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+      "spmd.mapping" = #spmd.level<group>,
+      "spmd.tile_sizes" = array<i64: 4>,
+      "spmd.memory_policy" = #spmd.memory_policy<prefer_group>}
+     : (index, index, index) -> ()
+  func.return
+}
+
+// -----
+
 // AC-8.2: End-to-end pipeline for a 2-D S0 stencil kernel.
 //
 // Starts from unscheduled S0 IR (no spmd.mapping / tile_sizes / memory_policy)

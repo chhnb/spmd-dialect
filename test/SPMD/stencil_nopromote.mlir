@@ -1,8 +1,10 @@
-// RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
+// RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling \
 // RUN:   --promote-group-memory --convert-spmd-to-scf | FileCheck %s
 
 // Pipeline: full lowering to LLVM IR via mlir-translate.
-// RUN: spmd-opt %s --normalize-spmd --materialize-spmd-tiling \
+// RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling \
 // RUN:   --promote-group-memory --convert-spmd-to-scf \
 // RUN:   --convert-scf-to-cf --convert-arith-to-llvm \
 // RUN:   --finalize-memref-to-llvm --convert-func-to-llvm --convert-cf-to-llvm \
