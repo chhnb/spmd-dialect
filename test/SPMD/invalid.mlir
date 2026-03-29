@@ -130,11 +130,48 @@ func.func @if_no_else(%c: i1, %x: f32) {
 
 // -----
 
+// ---- reduce: yield type does not match result type ----
+// init type matches result type (both i32), but the body yields f32 — wrong.
+
+func.func @reduce_yield_type_mismatch(%N: index) {
+  %c0    = arith.constant 0 : index
+  %c1    = arith.constant 1 : index
+  %izero = arith.constant 0 : i32
+  %fzero = arith.constant 0.0 : f32
+  // expected-error@+1 {{yielded type must match result type}}
+  %r = "spmd.reduce"(%c0, %N, %c1, %izero) ({
+  ^bb0(%k: index):
+    "spmd.yield"(%fzero) : (f32) -> ()
+  }) {"spmd.kind" = #spmd.reduction_kind<add>} : (index, index, index, i32) -> i32
+  func.return
+}
+
+// -----
+
 // ---- barrier: outside group forall ----
 
 func.func @barrier_no_group() {
   // expected-error@+1 {{spmd.barrier must be nested inside a spmd.forall with spmd.mapping = #spmd.level<group>}}
   "spmd.barrier"() {"spmd.scope" = #spmd.scope<group>} : () -> ()
+  func.return
+}
+
+// -----
+
+// ---- barrier: nested inside lane-level forall only (no enclosing group) ----
+// BarrierOp::verify() walks up the parent chain; a lane-level forall without
+// an outer group forall must fail with the same diagnostic.
+
+func.func @barrier_lane_only(%N: index) {
+  %c0 = arith.constant 0 : index
+  %c1 = arith.constant 1 : index
+  "spmd.forall"(%c0, %N, %c1) ({
+  ^bb0(%i: index):
+    // expected-error@+1 {{spmd.barrier must be nested inside a spmd.forall with spmd.mapping = #spmd.level<group>}}
+    "spmd.barrier"() {"spmd.scope" = #spmd.scope<group>} : () -> ()
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+      "spmd.mapping" = #spmd.level<lane>} : (index, index, index) -> ()
   func.return
 }
 

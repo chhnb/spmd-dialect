@@ -1,4 +1,16 @@
 // RUN: spmd-opt %s | FileCheck %s
+// RUN: spmd-opt %s --mlir-print-op-generic | FileCheck %s --check-prefix=GENERIC
+
+// AC-2: All 5 custom attrs must survive generic round-trip (ops in generic
+// form, attrs unchanged).  These global GENERIC checks confirm presence
+// in output order: @sum (reduction_kind), then @attr_check body ops
+// (addr_space in memref.load type, scope in spmd.barrier attrs), then the
+// forall closing "})" which carries level and memory_policy.
+// GENERIC: #spmd.reduction_kind<add>
+// GENERIC: #spmd.addr_space<global>
+// GENERIC: #spmd.scope<group>
+// GENERIC: #spmd.level<group>
+// GENERIC: #spmd.memory_policy<prefer_group>
 
 // ---- S0: elementwise ----
 
@@ -28,6 +40,7 @@ func.func @sum(%A: memref<?xf32>, %out: memref<1xf32>, %N: index)
   %c1   = arith.constant 1 : index
   %zero = arith.constant 0.0 : f32
   // CHECK: spmd.reduce
+  // CHECK: #spmd.reduction_kind<add>
   %sum = "spmd.reduce"(%c0, %N, %c1, %zero) ({
   ^bb0(%k: index):
     %x = memref.load %A[%k] : memref<?xf32>
@@ -38,14 +51,22 @@ func.func @sum(%A: memref<?xf32>, %out: memref<1xf32>, %N: index)
 }
 
 // ---- Attributes round-trip ----
+// All 5 custom attrs are exercised here and in @sum above.
 
 // CHECK-LABEL: func @attr_check
-func.func @attr_check(%N: index) {
+// Attrs appear in output order: forall attrs first (level, memory_policy),
+// then memref type (addr_space), then barrier (scope).
+// CHECK: #spmd.level<group>
+// CHECK: #spmd.memory_policy<prefer_group>
+// CHECK: #spmd.addr_space<global>
+// CHECK: #spmd.scope<group>
+func.func @attr_check(%A: memref<?xf32, #spmd.addr_space<global>>, %N: index) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
-  // CHECK: #spmd.level<group>
   "spmd.forall"(%c0, %N, %c1) ({
   ^bb0(%i: index):
+    %v = memref.load %A[%i] : memref<?xf32, #spmd.addr_space<global>>
+    "spmd.barrier"() {"spmd.scope" = #spmd.scope<group>} : () -> ()
     "spmd.yield"() : () -> ()
   }) {operandSegmentSizes = array<i32: 1, 1, 1>,
       "spmd.mapping" = #spmd.level<group>,
