@@ -127,8 +127,11 @@ struct PromoteGroupMemoryPass
       auto policyAttr =
           groupForall->getAttrOfType<MemoryPolicyAttr>("spmd.memory_policy");
       if (policyAttr &&
-          policyAttr.getValue() == MemoryPolicyKind::NoPromotion)
+          policyAttr.getValue() == MemoryPolicyKind::NoPromotion) {
+        groupForall.emitRemark()
+            << "promote-group-memory: skipping, memory_policy=no_promotion";
         continue;
+      }
 
       // Only promote if prefer_group is set (or none → let analysis decide).
       if (policyAttr &&
@@ -175,6 +178,21 @@ struct PromoteGroupMemoryPass
 
       if (plan.empty())
         continue;
+
+      // Emit remark describing the promotion decision for the first record.
+      {
+        int64_t totalFootprint = 1;
+        for (auto &rec : plan) {
+          int64_t fp = 4; // default 4 bytes per element
+          for (int64_t d : rec.tileDims)
+            fp *= d;
+          totalFootprint += fp;
+        }
+        groupForall.emitRemark()
+            << "promote-group-memory: promoting " << plan.size()
+            << " memref(s), footprint ~" << totalFootprint
+            << " B, memory_policy=prefer_group";
+      }
 
       OpBuilder builder(ctx);
 

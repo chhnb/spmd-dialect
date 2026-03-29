@@ -441,6 +441,20 @@ struct ConvertSPMDToGPUPass
         continue;
       }
 
+      // Emit remark with launch configuration for diagnostics.
+      {
+        bool has2DFlatten = false;
+        groupForall.getBody().front().walk([&](ForallOp lf) {
+          if (isLaneLevel(lf) && lf.getRank() > 1)
+            has2DFlatten = true;
+        });
+        auto remark = groupForall.emitRemark();
+        remark << "convert-spmd-to-gpu: blockDim=" << blockDimTotal
+               << " workgroupBuffers=" << groupAllocs.size();
+        if (has2DFlatten)
+          remark << " 2DLaneFlattening=true";
+      }
+
       Value c1       = b.create<arith::ConstantIndexOp>(loc, 1);
       Value blockX   = b.create<arith::ConstantIndexOp>(loc, blockDimTotal);
       Value gx = gridDims[0], gy = gridDims[1], gz = gridDims[2];

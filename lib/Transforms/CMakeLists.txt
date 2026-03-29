@@ -1,5 +1,6 @@
 add_mlir_library(SPMDTransforms
   VerifySPMDKernelSubset.cpp
+  VerifySPMDInvariants.cpp
   NormalizeSPMD.cpp
   PlanSPMDSchedule.cpp
   MaterializeTilingAndMapping.cpp

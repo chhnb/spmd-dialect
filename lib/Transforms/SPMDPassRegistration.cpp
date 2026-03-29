@@ -5,6 +5,8 @@
 
 void mlir::spmd::registerSPMDPasses() {
   registerVerifySPMDKernelSubsetPass();
+  registerVerifySPMDPromotionInvariantPass();
+  registerVerifySPMDGPUReadyPass();
   registerNormalizeSPMDPass();
   registerPlanSPMDSchedulePass();
   registerMaterializeTilingAndMappingPass();

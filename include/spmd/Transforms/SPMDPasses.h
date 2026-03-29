@@ -21,6 +21,12 @@ namespace spmd {
 std::unique_ptr<Pass> createVerifySPMDKernelSubsetPass();
 void registerVerifySPMDKernelSubsetPass();
 
+std::unique_ptr<Pass> createVerifySPMDPromotionInvariantPass();
+void registerVerifySPMDPromotionInvariantPass();
+
+std::unique_ptr<Pass> createVerifySPMDGPUReadyPass();
+void registerVerifySPMDGPUReadyPass();
+
 //===----------------------------------------------------------------------===//
 // Transform passes (S0 → S1 → S2)
 //===----------------------------------------------------------------------===//
