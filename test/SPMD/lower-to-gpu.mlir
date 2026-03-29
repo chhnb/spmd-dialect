@@ -9,6 +9,10 @@
 // RUN: spmd-opt %s --split-input-file --promote-group-memory \
 // RUN:   --convert-spmd-to-gpu \
 // RUN:   | FileCheck %s --check-prefix=WG
+//
+// RUN 3: spmd.if + spmd.reduce inside GPU kernel (AC-3).
+// RUN: spmd-opt %s --split-input-file --convert-spmd-to-gpu \
+// RUN:   | FileCheck %s --check-prefix=IFRED
 
 // ─── GPU checks (RUN 1): basic IR structure ──────────────────────────────────
 // GPU-LABEL: func @ewise
@@ -23,6 +27,15 @@
 // WG:       gpu.barrier{{.*}}#gpu.address_space<workgroup>
 // WG-NOT:   memref.alloc
 // WG:       gpu.terminator
+
+// ─── IFRED checks (RUN 3): spmd.if → scf.if, spmd.reduce → scf.for ──────────
+// IFRED-LABEL: func @if_reduce_kernel
+// IFRED:        gpu.launch
+// IFRED-NOT:    spmd.if
+// IFRED-NOT:    spmd.reduce
+// IFRED:        scf.if
+// IFRED:        scf.for
+// IFRED:        gpu.terminator
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test function 1: elementwise add (1D, non-promoted).
@@ -90,6 +103,58 @@ func.func @promoted_stencil(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
       "spmd.tile_sizes" = array<i64: 32, 8>,
       "spmd.memory_policy" = #spmd.memory_policy<prefer_group>}
      : (index, index, index, index, index, index) -> ()
+
+  func.return
+}
+
+// -----
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test function 3: spmd.if + spmd.reduce inside a GPU kernel (AC-3).
+// --convert-spmd-to-gpu must lower these via the greedy pattern rewrite
+// (IfToSCFIfGPU, ReduceToSCFForGPU) without needing any pre-pass.
+// Used by RUN 3 (IFRED checks).
+// ─────────────────────────────────────────────────────────────────────────────
+
+func.func @if_reduce_kernel(%A: memref<?xf32>, %out: memref<f32>,
+                             %N: index, %threshold: f32)
+    attributes {spmd.kernel} {
+  %c0    = arith.constant 0 : index
+  %c1    = arith.constant 1 : index
+  %c32   = arith.constant 32 : index
+  %zero  = arith.constant 0.0 : f32
+
+  "spmd.forall"(%c0, %N, %c32) ({
+  ^bb0(%ii: index):
+
+    "spmd.forall"(%c0, %c32, %c1) ({
+    ^bb0(%ti: index):
+      %i = arith.addi %ii, %ti : index
+      %v = memref.load %A[%i] : memref<?xf32>
+      %cond = arith.cmpf ogt, %v, %threshold : f32
+      "spmd.if"(%cond) ({
+        memref.store %threshold, %A[%i] : memref<?xf32>
+        "spmd.yield"() : () -> ()
+      }, {
+        "spmd.yield"() : () -> ()
+      }) : (i1) -> ()
+      "spmd.yield"() : () -> ()
+    }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+        "spmd.mapping" = #spmd.level<lane>} : (index, index, index) -> ()
+
+    // spmd.reduce: compute per-group sum over 32 elements.
+    %sum = "spmd.reduce"(%c0, %c32, %c1, %zero) ({
+    ^bb0(%k: index):
+      %v = memref.load %A[%k] : memref<?xf32>
+      "spmd.yield"(%v) : (f32) -> ()
+    }) {"spmd.kind" = #spmd.reduction_kind<add>} : (index, index, index, f32) -> f32
+    memref.store %sum, %out[] : memref<f32>
+
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+      "spmd.mapping" = #spmd.level<group>,
+      "spmd.tile_sizes" = array<i64: 32>}
+     : (index, index, index) -> ()
 
   func.return
 }

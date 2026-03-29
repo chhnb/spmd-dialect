@@ -27,6 +27,7 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/Support/MathExtras.h"
 
 using namespace mlir;
 using namespace mlir::spmd;
@@ -83,6 +84,7 @@ computeGridDim(ForallOp groupForall, OpBuilder &b) {
 }
 
 // Compute the maximum linearized blockDim across all lane foralls in the body.
+// Uses trip counts ceildiv(ub[d]-lb[d], step[d]) per dim, not raw UBs.
 // Returns 1 if no lane forall is found.
 static int64_t computeMaxLinearBlockDim(ForallOp groupForall) {
   int64_t maxBlock = 1;
@@ -90,10 +92,15 @@ static int64_t computeMaxLinearBlockDim(ForallOp groupForall) {
     if (!isLaneLevel(laneForall))
       return;
     int64_t prod = 1;
-    for (Value ub : laneForall.getUpperBounds()) {
-      auto cstOp = ub.getDefiningOp<arith::ConstantIndexOp>();
-      if (!cstOp) { prod = -1; return; } // non-constant: can't compute
-      prod *= cstOp.value();
+    auto lbs   = laneForall.getLowerBounds();
+    auto ubs   = laneForall.getUpperBounds();
+    auto steps = laneForall.getSteps();
+    for (unsigned d = 0; d < laneForall.getRank(); ++d) {
+      auto ubCst   = ubs[d].getDefiningOp<arith::ConstantIndexOp>();
+      auto lbCst   = lbs[d].getDefiningOp<arith::ConstantIndexOp>();
+      auto stepCst = steps[d].getDefiningOp<arith::ConstantIndexOp>();
+      if (!ubCst || !lbCst || !stepCst) { prod = -1; return; }
+      prod *= llvm::divideCeil(ubCst.value() - lbCst.value(), stepCst.value());
     }
     if (prod > maxBlock)
       maxBlock = prod;
@@ -110,44 +117,45 @@ static int64_t computeMaxLinearBlockDim(ForallOp groupForall) {
   return maxBlock;
 }
 
-// Delinearize a 1D thread index `tx` into per-dim IVs using constant lane UBs.
-// For rank 1: {tx}.
-// For rank 2 with ubs=[R, C]: {tx/C, tx%C} (row-major).
-// For rank N (general): row-major delinearization.
-// Returns empty on non-constant UBs.
+// Delinearize a 1D thread index `tx` into per-dim 0-based indices using
+// constant trip counts ceildiv(ub[d]-lb[d], step[d]) as row-major strides.
+// Returns empty on non-constant bounds (caller must handle).
+// Note: returns 0-based indices — caller reconstructs iv = lb + idx * step.
 static SmallVector<Value>
 delinearizeTx(Value tx, ForallOp laneForall, OpBuilder &b) {
   Location loc = laneForall.getLoc();
   unsigned rank = laneForall.getRank();
-  if (rank == 1)
-    return {tx};
 
-  // Collect constant upper bounds.
-  SmallVector<int64_t> ubConsts(rank);
+  // Collect constant trip counts per dim.
+  auto lbs   = laneForall.getLowerBounds();
+  auto ubs   = laneForall.getUpperBounds();
+  auto steps = laneForall.getSteps();
+  SmallVector<int64_t> tripConsts(rank);
   for (unsigned d = 0; d < rank; ++d) {
-    Value ub = laneForall.getUpperBounds()[d];
-    auto cstOp = ub.getDefiningOp<arith::ConstantIndexOp>();
-    if (!cstOp)
-      return {}; // non-constant: fallback needed
-    ubConsts[d] = cstOp.value();
+    auto ubCst   = ubs[d].getDefiningOp<arith::ConstantIndexOp>();
+    auto lbCst   = lbs[d].getDefiningOp<arith::ConstantIndexOp>();
+    auto stepCst = steps[d].getDefiningOp<arith::ConstantIndexOp>();
+    if (!ubCst || !lbCst || !stepCst)
+      return {}; // non-constant: caller handles
+    tripConsts[d] = llvm::divideCeil(ubCst.value() - lbCst.value(), stepCst.value());
   }
 
-  // Row-major delinearization: stride[d] = product of ubConsts[d+1..]
-  SmallVector<Value> ivs;
+  // Row-major delinearization: stride[d] = product of tripConsts[d+1..]
+  SmallVector<Value> idxs;
   Value remainder = tx;
   for (unsigned d = 0; d < rank; ++d) {
     int64_t stride = 1;
     for (unsigned j = d + 1; j < rank; ++j)
-      stride *= ubConsts[j];
+      stride *= tripConsts[j];
     if (d + 1 < rank) {
       Value strideVal = b.create<arith::ConstantIndexOp>(loc, stride);
-      ivs.push_back(b.create<arith::DivUIOp>(loc, remainder, strideVal));
+      idxs.push_back(b.create<arith::DivUIOp>(loc, remainder, strideVal));
       remainder = b.create<arith::RemUIOp>(loc, remainder, strideVal);
     } else {
-      ivs.push_back(remainder);
+      idxs.push_back(remainder);
     }
   }
-  return ivs;
+  return idxs; // 0-based indices
 }
 
 //===----------------------------------------------------------------------===//
@@ -262,43 +270,79 @@ struct ReduceToSCFForGPU : public OpRewritePattern<ReduceOp> {
 //===----------------------------------------------------------------------===//
 
 // Lower a lane-level forall in the launch body:
-//   1. Compute per-dim thread IVs from threadIdx.x (with delinearization).
-//   2. Add a bounds check: scf.if (tx < lane_ub_product) { body }.
-//   3. Replace lane IVs, move body ops into the scf.if, erase the forall.
-static void lowerLaneForallInLaunch(ForallOp laneForall,
-                                     gpu::LaunchOp launch) {
+//   1. Compute trip counts ceildiv(ub[d]-lb[d], step[d]) per dim.
+//   2. For multi-dim with non-constant bounds: emit error (unsupported).
+//   3. For rank-1 with dynamic bounds: use tx as 0-based index; guard via
+//      runtime ceildivui(ub-lb, step).
+//   4. For constant bounds: delinearize tx using trip-count strides.
+//   5. Reconstruct IVs as iv[d] = lb[d] + idx[d] * step[d].
+//   6. Wrap body in scf.if(tx < trip_product) and move ops in.
+static LogicalResult lowerLaneForallInLaunch(ForallOp laneForall,
+                                              gpu::LaunchOp launch) {
   Location loc = laneForall.getLoc();
   OpBuilder b(laneForall);
 
   Value tx = launch.getThreadIds().x;
   unsigned rank = laneForall.getRank();
+  auto lbs   = laneForall.getLowerBounds();
+  auto ubs   = laneForall.getUpperBounds();
+  auto steps = laneForall.getSteps();
 
-  // Compute per-dim IVs.
-  SmallVector<Value> threadIVs = delinearizeTx(tx, laneForall, b);
-  if (threadIVs.empty()) {
-    // Fallback for non-constant UBs: use tx for every dim.
-    for (unsigned i = 0; i < rank; ++i)
-      threadIVs.push_back(tx);
-  }
-
-  // Compute the product of lane UBs (for the bounds check).
-  int64_t laneUBProduct = 1;
+  // Compute per-dim trip counts. Detect non-constant dims.
+  SmallVector<int64_t> tripConsts(rank, -1);
   bool allConst = true;
-  for (Value ub : laneForall.getUpperBounds()) {
-    auto cstOp = ub.getDefiningOp<arith::ConstantIndexOp>();
-    if (!cstOp) { allConst = false; break; }
-    laneUBProduct *= cstOp.value();
+  for (unsigned d = 0; d < rank; ++d) {
+    auto ubCst   = ubs[d].getDefiningOp<arith::ConstantIndexOp>();
+    auto lbCst   = lbs[d].getDefiningOp<arith::ConstantIndexOp>();
+    auto stepCst = steps[d].getDefiningOp<arith::ConstantIndexOp>();
+    if (!ubCst || !lbCst || !stepCst) { allConst = false; break; }
+    tripConsts[d] = llvm::divideCeil(ubCst.value() - lbCst.value(), stepCst.value());
   }
 
-  // Wrap body in scf.if(tx < lane_ub_product) for correctness when
-  // blockDim > lane_ub_product (e.g., promoted path with copy vs compute tiles).
-  // This check is trivially true when blockDim == lane_ub_product.
-  Value laneUBVal = b.create<arith::ConstantIndexOp>(loc, laneUBProduct);
-  Value inBounds   = b.create<arith::CmpIOp>(
-      loc, arith::CmpIPredicate::ult, tx, laneUBVal);
+  // Multi-dim with non-constant bounds is unsupported.
+  if (!allConst && rank > 1) {
+    laneForall->emitError(
+        "dynamic multi-dim lane forall is not supported for GPU lowering");
+    return failure();
+  }
+
+  // Compute the guard value (trip product) and 0-based indices.
+  Value guardVal;
+  SmallVector<Value> idxs;
+
+  if (allConst) {
+    // Delinearize tx using trip-count strides.
+    if (rank == 1) {
+      idxs.push_back(tx);
+    } else {
+      idxs = delinearizeTx(tx, laneForall, b);
+      assert(!idxs.empty() && "delinearizeTx failed with all-const bounds");
+    }
+    int64_t tripProd = 1;
+    for (int64_t t : tripConsts) tripProd *= t;
+    guardVal = b.create<arith::ConstantIndexOp>(loc, tripProd);
+  } else {
+    // rank == 1, dynamic: 0-based index is tx; guard = ceildivui(ub-lb, step).
+    idxs.push_back(tx);
+    Value range = b.create<arith::SubIOp>(loc, ubs[0], lbs[0]);
+    guardVal = b.create<arith::CeilDivUIOp>(loc, range, steps[0]);
+  }
+
+  // Reconstruct per-dim IVs: iv[d] = lb[d] + idx[d] * step[d].
+  SmallVector<Value> threadIVs;
+  for (unsigned d = 0; d < rank; ++d) {
+    Value iv = b.create<arith::MulIOp>(loc, idxs[d], steps[d]);
+    iv = b.create<arith::AddIOp>(loc, iv, lbs[d]);
+    threadIVs.push_back(iv);
+  }
+
+  // Wrap body in scf.if(tx < trip_product) for correctness when
+  // blockDim > trip_product (e.g., promoted path with copy vs compute tiles).
+  Value inBounds = b.create<arith::CmpIOp>(
+      loc, arith::CmpIPredicate::ult, tx, guardVal);
   auto ifOp = b.create<scf::IfOp>(loc, TypeRange{}, inBounds,
                                     /*withElse=*/false);
-  // Clear the auto-generated scf.yield from the then block so we can fill it.
+  // Clear the auto-generated scf.yield so we can fill the then block.
   ifOp.getThenRegion().front().clear();
 
   // Replace lane IVs with computed thread IVs.
@@ -316,11 +360,12 @@ static void lowerLaneForallInLaunch(ForallOp laneForall,
     }
     op->moveBefore(&thenBlock, thenBlock.end());
   }
-  // Add scf.yield to terminate the then block.
+  // Terminate the then block.
   OpBuilder thenBuilder(&thenBlock, thenBlock.end());
   thenBuilder.create<scf::YieldOp>(loc);
 
   laneForall.erase();
+  return success();
 }
 
 //===----------------------------------------------------------------------===//
@@ -348,16 +393,28 @@ struct ConvertSPMDToGPUPass
 
     // ── Phase 1: lower group foralls → gpu.launch ──────────────────────────
     //
-    // Collect first to avoid iterator invalidation during surgery.
+    // Collect top-level group foralls only (not nested inside another forall).
+    // Walking post-order: avoid adding inner group foralls that the outer will
+    // catch and error on — otherwise the inner one gets processed first.
     SmallVector<ForallOp> groupForalls;
     module.walk([&](ForallOp op) {
-      if (isGroupLevel(op))
-        groupForalls.push_back(op);
+      if (!isGroupLevel(op)) return;
+      // Skip if this group forall is nested inside another forall.
+      if (op->getParentOfType<ForallOp>()) return;
+      groupForalls.push_back(op);
     });
 
     for (ForallOp groupForall : groupForalls) {
       Location loc = groupForall.getLoc();
       b.setInsertionPoint(groupForall);
+
+      // Validate: rank must be ≤ 3 (GPU has 3D grid).
+      if (groupForall.getRank() > 3) {
+        groupForall->emitError("group forall rank > 3 is not supported for "
+                               "GPU lowering (max 3D grid)");
+        hadError = true;
+        continue;
+      }
 
       // Validate: no nested group foralls allowed.
       bool hasNestedGroup = false;
@@ -423,13 +480,9 @@ struct ConvertSPMDToGPUPass
       auto steps = groupForall.getSteps();
       SmallVector<Value> groupIVs;
       for (unsigned d = 0; d < groupForall.getRank(); ++d) {
-        // gi[d] = blockIdx[d] * step[d] + lb[d]
+        // gi[d] = blockIdx[d] * step[d] + lb[d]  (always add lb, even if 0)
         Value gi = b.create<arith::MulIOp>(loc, blockIdVals[d], steps[d]);
-        // Check for non-zero lb
-        Value lb = lbs[d];
-        if (auto cst = lb.getDefiningOp<arith::ConstantIndexOp>())
-          if (cst.value() != 0)
-            gi = b.create<arith::AddIOp>(loc, gi, lb);
+        gi = b.create<arith::AddIOp>(loc, gi, lbs[d]);
         groupIVs.push_back(gi);
       }
 
@@ -467,7 +520,8 @@ struct ConvertSPMDToGPUPass
           laneForalls.push_back(lf);
       });
       for (ForallOp laneForall : laneForalls)
-        lowerLaneForallInLaunch(laneForall, launchOp);
+        if (failed(lowerLaneForallInLaunch(laneForall, launchOp)))
+          hadError = true;
 
       // ── Phase 3: lower spmd.barrier → gpu.barrier ──────────────────────
       bool hasWorkgroupMem = !groupAllocs.empty();

@@ -31,3 +31,14 @@ llvm_config.with_environment("PATH", config.spmd_tools_dir, append_path=True)
 tools = ["spmd-opt", "FileCheck", "mlir-opt", "mlir-translate", "llc"]
 tool_dirs = [config.spmd_tools_dir, config.llvm_tools_dir]
 llvm_config.add_tool_substitutions(tools, tool_dirs)
+
+# Detect whether the NVPTX backend is available in llc.
+import subprocess
+try:
+    result = subprocess.run(
+        ["llc", "--version"], capture_output=True, text=True,
+        cwd=config.llvm_tools_dir)
+    if "NVPTX" in result.stdout:
+        config.available_features.add("nvptx-registered-target")
+except Exception:
+    pass
