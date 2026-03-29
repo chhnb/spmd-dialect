@@ -34,10 +34,10 @@ llvm_config.add_tool_substitutions(tools, tool_dirs)
 
 # Detect whether the NVPTX backend is available in llc.
 import subprocess
+_llc_path = os.path.join(config.llvm_tools_dir, "llc")
 try:
     result = subprocess.run(
-        ["llc", "--version"], capture_output=True, text=True,
-        cwd=config.llvm_tools_dir)
+        [_llc_path, "--version"], capture_output=True, text=True)
     if "NVPTX" in result.stdout:
         config.available_features.add("nvptx-registered-target")
 except Exception:

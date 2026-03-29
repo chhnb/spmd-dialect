@@ -6,9 +6,11 @@
 // RUN: spmd-opt %s --split-input-file --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
 // RUN:   --gpu-kernel-outlining \
-// RUN:   --nvvm-attach-target="module=ewise_kernel chip=sm_80 O=3" \
-// RUN:   --gpu.module(convert-gpu-to-nvvm,convert-nvvm-to-llvm) \
-// RUN:   --gpu-to-llvm \
+// RUN:   "--nvvm-attach-target=chip=sm_80" \
+// RUN:   --convert-gpu-to-nvvm \
+// RUN:   --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
+// RUN:   --convert-index-to-llvm --gpu-to-llvm --reconcile-unrealized-casts \
+// RUN:   --convert-func-to-llvm --reconcile-unrealized-casts \
 // RUN:   | mlir-translate --mlir-to-llvmir \
 // RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=obj -o /dev/null
 //
@@ -16,20 +18,38 @@
 // RUN: spmd-opt %s --split-input-file --promote-group-memory \
 // RUN:   --convert-spmd-to-gpu \
 // RUN:   --gpu-kernel-outlining \
-// RUN:   --nvvm-attach-target="module=promoted_stencil_kernel chip=sm_80 O=3" \
-// RUN:   --gpu.module(convert-gpu-to-nvvm,convert-nvvm-to-llvm) \
-// RUN:   --gpu-to-llvm \
+// RUN:   "--nvvm-attach-target=chip=sm_80" \
+// RUN:   --convert-gpu-to-nvvm \
+// RUN:   --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
+// RUN:   --convert-index-to-llvm --gpu-to-llvm --reconcile-unrealized-casts \
+// RUN:   --convert-func-to-llvm --reconcile-unrealized-casts \
 // RUN:   | mlir-translate --mlir-to-llvmir \
 // RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
 // RUN:   | FileCheck %s --check-prefix=PTX
+//
+// RUN 5 (AC-6 negative): non-promoted ewise PTX must NOT contain .shared.
+// RUN: spmd-opt %s --split-input-file --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
+// RUN:   --gpu-kernel-outlining \
+// RUN:   "--nvvm-attach-target=chip=sm_80" \
+// RUN:   --convert-gpu-to-nvvm \
+// RUN:   --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
+// RUN:   --convert-index-to-llvm --gpu-to-llvm --reconcile-unrealized-casts \
+// RUN:   --convert-func-to-llvm --reconcile-unrealized-casts \
+// RUN:   | mlir-translate --mlir-to-llvmir \
+// RUN:   | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
+// RUN:   | FileCheck %s --check-prefix=NOSHARED
 
 // ─── PTX checks (RUN 4) ───────────────────────────────────────────────────────
 // PTX: .shared
 // PTX: .visible .entry
 
+// ─── NOSHARED checks (RUN 5, AC-6 negative) ──────────────────────────────────
+// NOSHARED-NOT: .shared
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Test function 1: elementwise add (1D, non-promoted).
-// Processed by RUN 3.
+// Processed by RUN 3 (obj smoke check) and RUN 5 (no .shared check).
 // ─────────────────────────────────────────────────────────────────────────────
 
 func.func @ewise(%A: memref<?xf32>, %B: memref<?xf32>, %C: memref<?xf32>,

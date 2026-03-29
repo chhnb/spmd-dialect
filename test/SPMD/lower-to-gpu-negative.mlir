@@ -51,3 +51,32 @@ func.func @rank4_group(%A: memref<f32>, %N: index) {
         index, index, index, index) -> ()
   func.return
 }
+
+// -----
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 3: computed blockDim > 1024 — CUDA maximum is 1024 threads per block.
+// Lane forall has 33×32 = 1056 trip count → exceeds limit.
+// ─────────────────────────────────────────────────────────────────────────────
+
+func.func @blockdim_overflow(%A: memref<?xf32>) {
+  %c0  = arith.constant 0 : index
+  %c1  = arith.constant 1 : index
+  %c33 = arith.constant 33 : index
+  %c32 = arith.constant 32 : index
+
+  // expected-error@+1 {{computed blockDim 1056 exceeds CUDA maximum of 1024}}
+  "spmd.forall"(%c0, %c1, %c1) ({
+  ^bb0(%ii: index):
+    "spmd.forall"(%c0, %c0, %c33, %c32, %c1, %c1) ({
+    ^bb0(%ti: index, %tj: index):
+      "spmd.yield"() : () -> ()
+    }) {operandSegmentSizes = array<i32: 2, 2, 2>,
+        "spmd.mapping" = #spmd.level<lane>} : (index, index, index, index, index, index) -> ()
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 1, 1, 1>,
+      "spmd.mapping" = #spmd.level<group>,
+      "spmd.tile_sizes" = array<i64: 1>}
+     : (index, index, index) -> ()
+  func.return
+}

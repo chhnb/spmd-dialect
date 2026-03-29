@@ -48,19 +48,19 @@ static bool isLaneLevel(ForallOp op) {
   return attr && attr.getValue() == LevelKind::Lane;
 }
 
-// Collect group-address-space memref.alloc ops in the top-level of the body.
+// Collect all group-address-space memref.alloc ops in the group forall body.
+// Walks the full body (not just top-level ops) to match any allocs that the
+// promote-group-memory pass may have inserted at any nesting depth.
+// In practice these are always at the top level, but a full walk is more robust.
 static SmallVector<memref::AllocOp>
 collectGroupAllocs(ForallOp groupForall) {
   SmallVector<memref::AllocOp> result;
-  for (Operation &op : groupForall.getBody().front()) {
-    auto allocOp = dyn_cast<memref::AllocOp>(&op);
-    if (!allocOp)
-      continue;
+  groupForall.getBody().front().walk([&](memref::AllocOp allocOp) {
     auto memTy = cast<MemRefType>(allocOp.getType());
     auto addrSpace = dyn_cast_or_null<AddressSpaceAttr>(memTy.getMemorySpace());
     if (addrSpace && addrSpace.getValue() == AddressSpaceKind::Group)
       result.push_back(allocOp);
-  }
+  });
   return result;
 }
 

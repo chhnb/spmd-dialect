@@ -13,8 +13,27 @@
 // RUN 3: spmd.if + spmd.reduce inside GPU kernel (AC-3).
 // RUN: spmd-opt %s --split-input-file --convert-spmd-to-gpu \
 // RUN:   | FileCheck %s --check-prefix=IFRED
+//
+// RUN 4: NVVM IR check — outline + convert-gpu-to-nvvm (AC-5, no NVPTX needed).
+// RUN: spmd-opt %s --split-input-file --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
+// RUN:   --gpu-kernel-outlining "--nvvm-attach-target=chip=sm_80" \
+// RUN:   --convert-gpu-to-nvvm \
+// RUN:   | FileCheck %s --check-prefix=NVVM
+//
+// RUN 5: AC-3 negative — convert-spmd-to-scf then convert-spmd-to-gpu: no crash.
+// RUN: spmd-opt %s --split-input-file --convert-spmd-to-scf \
+// RUN:   --convert-spmd-to-gpu \
+// RUN:   | FileCheck %s --check-prefix=SCFGPU
+//
+// RUN 6: AC-5 negative — pre-outline mlir-translate fails on gpu.launch module.
+// RUN: spmd-opt %s --split-input-file --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
+// RUN:   | not mlir-translate --mlir-to-llvmir 2>&1 \
+// RUN:   | FileCheck %s --check-prefix=PREOUTLINE
 
-// ─── GPU checks (RUN 1): basic IR structure ──────────────────────────────────
+// ─── GPU checks (RUN 1): basic IR structure + gpu.container_module ───────────
+// GPU:       gpu.container_module
 // GPU-LABEL: func @ewise
 // GPU:       gpu.launch
 // GPU:       gpu.terminator
@@ -36,6 +55,27 @@
 // IFRED:        scf.if
 // IFRED:        scf.for
 // IFRED:        gpu.terminator
+
+// ─── NVVM checks (RUN 4): outline → nvvm IR structure (AC-5) ─────────────────
+// NVVM:         gpu.container_module
+// NVVM-LABEL:   func @ewise
+// NVVM:         gpu.launch_func
+// NVVM:         gpu.module {{.*}} [#nvvm.target
+// NVVM:         llvm.func
+// NVVM-SAME:    nvvm.kernel
+// NVVM:         nvvm.read.ptx.sreg.ctaid.x
+// NVVM:         nvvm.read.ptx.sreg.tid.x
+
+// ─── SCFGPU checks (RUN 5): no spmd ops after both passes, no crash ──────────
+// SCFGPU-LABEL: func @ewise
+// SCFGPU-NOT:   spmd.forall
+// SCFGPU-NOT:   spmd.if
+// SCFGPU-NOT:   spmd.reduce
+
+// ─── PREOUTLINE checks (RUN 6): pre-outline translation fails (AC-5 negative)─
+// Module with gpu.launch (before outlining+gpu-to-llvm) fails mlir-translate
+// because the host func.func / scf / memref dialect ops are not LLVM-translatable.
+// PREOUTLINE: error:
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Test function 1: elementwise add (1D, non-promoted).
