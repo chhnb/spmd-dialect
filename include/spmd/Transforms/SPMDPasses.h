@@ -50,6 +50,9 @@ void registerSPMDToSCFPass();
 std::unique_ptr<Pass> createSPMDToOpenMPPass();
 void registerSPMDToOpenMPPass();
 
+std::unique_ptr<Pass> createSPMDToGPUPass();
+void registerConvertSPMDToGPUPass();
+
 //===----------------------------------------------------------------------===//
 // Combined registration
 //===----------------------------------------------------------------------===//

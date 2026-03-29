@@ -5,6 +5,9 @@ add_mlir_conversion_library(SPMDToGPU
     SPMDDialect
     MLIRGPUDialect
     MLIRArithDialect
+    MLIRSCFDialect
+    MLIRMemRefDialect
+    MLIRTransforms
     MLIRIR
     MLIRPass
 )

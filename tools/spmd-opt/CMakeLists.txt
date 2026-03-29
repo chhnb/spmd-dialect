@@ -4,6 +4,7 @@ set(LIBS
   SPMDAnalysis
   SPMDToSCF
   SPMDToOpenMP
+  SPMDToGPU
   MLIRAffineDialect
   MLIRArithDialect
   MLIRFuncDialect

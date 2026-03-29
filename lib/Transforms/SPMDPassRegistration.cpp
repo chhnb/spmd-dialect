@@ -12,4 +12,5 @@ void mlir::spmd::registerSPMDPasses() {
   registerEraseSpmdMemorySpacesPass();
   registerSPMDToSCFPass();
   registerSPMDToOpenMPPass();
+  registerConvertSPMDToGPUPass();
 }
