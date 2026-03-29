@@ -1,3 +1,4 @@
 docs/plan.md
 .humanize*
 build/
+harness/__pycache__/
