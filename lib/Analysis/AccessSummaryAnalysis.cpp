@@ -122,6 +122,12 @@ computeAccessSummaries(ForallOp groupForall, ForallOp laneForall) {
   ValueRange outerIvs = groupForall.getInductionVars();
   ValueRange innerIvs = laneForall.getInductionVars();
 
+  // Sentinel used both to initialize the bounding box (so that the first
+  // decomposable offset seeds it correctly) and to mark dimensions whose
+  // access pattern is not decomposable.  The PromotionPlan bounded-check
+  // (>= INT64_MAX/4) correctly rejects either case.
+  static const int64_t kUnbounded = INT64_MAX / 2;
+
   laneForall.getBody().front().walk([&](memref::LoadOp load) {
     Value mr = load.getMemRef();
     auto mrType = cast<MemRefType>(mr.getType());
@@ -139,21 +145,11 @@ computeAccessSummaries(ForallOp groupForall, ForallOp laneForall) {
     if (mapIt == memrefToIdx.end()) {
       idx = result.size();
       memrefToIdx[mr] = idx;
-      // Use sentinel values so the first decomposable offset correctly seeds
-      // the bounding box.  Initializing to 0 would zero-clamp asymmetric
-      // halos: e.g. a stencil reading only A[i+1],A[i+2] would get minOffset=0
-      // instead of 1, and a negative-only halo would get maxOffset=0 instead
-      // of the true (negative) max.
-      //
-      // kUnbounded is also used by the else-branch below, so the PromotionPlan
-      // bounded-check (>= INT64_MAX/4) correctly rejects dims that have no
-      // decomposable access at all.
-      static const int64_t kSentinel = INT64_MAX / 2;
       AccessSummary s;
       s.memref = mr;
       s.rank   = ndim;
-      s.minOffset.assign(ndim,  kSentinel);  // will be min()'d to first offset
-      s.maxOffset.assign(ndim, -kSentinel);  // will be max()'d to first offset
+      s.minOffset.assign(ndim,  kUnbounded);  // will be min()'d to first offset
+      s.maxOffset.assign(ndim, -kUnbounded);  // will be max()'d to first offset
       result.push_back(std::move(s));
     } else {
       idx = mapIt->second;
@@ -169,7 +165,6 @@ computeAccessSummaries(ForallOp groupForall, ForallOp laneForall) {
         summary.maxOffset[d] = std::max(summary.maxOffset[d], *offset);
       } else {
         // Conservative: mark as unbounded (skip promotion for this memref).
-        const int64_t kUnbounded = INT64_MAX / 2;
         summary.minOffset[d] = -kUnbounded;
         summary.maxOffset[d] =  kUnbounded;
       }

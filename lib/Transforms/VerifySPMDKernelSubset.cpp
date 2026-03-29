@@ -114,14 +114,6 @@ struct VerifySPMDKernelSubsetPass
           return;
         }
 
-        // Disallow scf.* entirely in S0/S1 (those appear after lowering).
-        if (dialect == "scf") {
-          op->emitError("scf dialect ops must not appear in S0/S1 kernel; "
-                        "run --convert-spmd-to-scf first");
-          anyFailed = true;
-          return;
-        }
-
         // Check ALL operand types for non-global memref addr space.
         for (Value operand : op->getOperands()) {
           if (typeHasNonGlobalMemref(operand.getType())) {
