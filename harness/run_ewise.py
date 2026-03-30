@@ -71,12 +71,15 @@ def run_ewise_gpu(fn, A_d: cd.DevicePtr, B_d: cd.DevicePtr,
 
 
 def test_correctness(fn, sizes, tile: int):
-    rng = np.random.default_rng(42)
+    # RandomState is used here (and in run_host.py) so that all backends generate
+    # the same deterministic inputs with the same seed, enabling true differential
+    # comparison across CPU serial, OpenMP, and GPU backends.
+    rng = np.random.RandomState(42)
     print(f"{'N':>12}  {'max_err':>10}  result")
     all_pass = True
     for N in sizes:
-        A = rng.random(N, dtype=np.float32)
-        B = rng.random(N, dtype=np.float32)
+        A = rng.random_sample(N).astype(np.float32)
+        B = rng.random_sample(N).astype(np.float32)
         C_ref = A + B   # numpy reference
 
         A_d = cd.alloc(A.nbytes); cd.memcpy_h2d(A_d, A)

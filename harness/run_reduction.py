@@ -77,11 +77,14 @@ def run_sum_gpu(fn, A: np.ndarray, tile_size: int) -> float:
 
 
 def test_correctness(fn, sizes, tile_size: int):
-    rng = np.random.default_rng(0)
+    # RandomState is used here (and in run_host.py) so that all backends generate
+    # the same deterministic inputs with the same seed, enabling true differential
+    # comparison across CPU serial, OpenMP, and GPU backends.
+    rng = np.random.RandomState(0)
     print(f"{'N':>12}  {'gpu_sum':>14}  {'ref_sum':>14}  {'rel_err':>10}  result")
     all_pass = True
     for N in sizes:
-        A     = rng.random(N, dtype=np.float32)
+        A     = rng.random_sample(N).astype(np.float32)
         ref   = float(np.sum(A))
         gpu   = run_sum_gpu(fn, A, tile_size)
 

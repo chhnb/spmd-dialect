@@ -102,11 +102,21 @@ def cpu_reference(A: np.ndarray) -> np.ndarray:
 
 
 def test_correctness(fn, shapes, tile_row: int, tile_col: int):
-    rng = np.random.default_rng(0)
+    # RandomState is used here (and in run_host.py) so that all backends generate
+    # the same deterministic inputs with the same seed, enabling true differential
+    # comparison across CPU serial, OpenMP, and GPU backends.
+    #
+    # A is allocated as (N+1, M+1) to match the CPU harness layout: the extra
+    # row/col allows the stencil to read A[i,j+1] and A[i+1,j] at the boundary
+    # without OOB access. The GPU kernel receives the A[:N, :M] sub-region; the
+    # interior comparison uses only values within that sub-region, so both
+    # backends operate on identical data for all compared cells.
+    rng = np.random.RandomState(0)
     print(f"{'shape':>14}  {'max_err':>10}  result")
     all_pass = True
     for (N, M) in shapes:
-        A     = rng.random((N, M), dtype=np.float32)
+        A_big = rng.random_sample((N + 1, M + 1)).astype(np.float32)
+        A     = A_big[:N, :M]   # (N, M) sub-region passed to GPU kernel
         B_ref = cpu_reference(A)
         B_gpu = run_stencil_gpu(fn, A, tile_row, tile_col)
 
