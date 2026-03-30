@@ -5,9 +5,11 @@
 // PTX content check for the promoted stencil: the device PTX must contain
 // .shared (workgroup memory demoted to PTX shared space) and .visible .entry
 // (exported kernel entry point).
-// --promote-group-memory runs BEFORE --convert-spmd-to-gpu; no materialize
-// step because materialization nests barriers inside scf.if, violating the
-// gpu.barrier-at-launch-body-level invariant.
+// This test input is pre-planned: the forall ops already carry spmd.mapping,
+// spmd.tile_sizes, and spmd.memory_policy attributes, so --normalize-spmd,
+// --plan-spmd-schedule, and --materialize-spmd-tiling are omitted here.
+// Note: scripts/dump-pipeline.sh runs the full 6-stage pipeline (including
+// materialize) on this same input file, as required by AC-9.2.
 // RUN: spmd-opt %s --promote-group-memory \
 // RUN:   --convert-spmd-to-gpu \
 // RUN:   --gpu-kernel-outlining "--nvvm-attach-target=chip=sm_80" \
