@@ -60,18 +60,24 @@ append_row() {
 }
 
 # ── Harness output format note ─────────────────────────────────────────────────
-# The harnesses output tabular data, NOT key=value pairs.
-# Correctness line format: "    N   max_err   PASS|FAIL"
-# Performance line format: "    N   t_cpu   t_gpu   speedup"
-# These helpers parse columns by position from the tabular output.
+# The harnesses output tabular data with three different row formats:
+#   ewise:     "    N   max_err   PASS|FAIL"
+#   stencil:   "( N, M)   max_err   PASS|FAIL"  (shape column is NxM text)
+#   reduction: "    N   gpu_sum   ref_sum   rel_err   PASS|FAIL"
+# Performance rows: "    N   cpu_ms   gpu_ms   speedup" (ewise/reduction only)
+#
+# Parsers use a generic "last field before PASS/FAIL" approach to handle all formats.
 
-# Extract the max_err field from the first correctness data row.
+# Extract the numeric error field from the first correctness data row.
+# Works for all three harness formats by extracting the last numeric field
+# on the PASS/FAIL line (ewise: col 2, stencil: col 2, reduction: col 4).
 _parse_rel_err() {
-  echo "$1" | grep -E '^\s+[0-9]+\s+[0-9eE.+\-]+\s+(PASS|FAIL)' \
-    | head -1 | awk '{print $2}' || echo "N/A"
+  echo "$1" | grep -E '(PASS|FAIL)' | head -1 \
+    | sed 's/[[:space:]]*\(PASS\|FAIL\)[[:space:]]*//' \
+    | awk '{print $NF}' || echo "N/A"
 }
 
-# Extract t_cpu (column 2 of the first perf data row).
+# Extract t_cpu (column 2 of the first perf data row: "N cpu_ms gpu_ms speedup").
 _parse_cpu_ms() {
   echo "$1" | grep -E '^\s+[0-9]+\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+' \
     | head -1 | awk '{print $2}' || echo "N/A"
@@ -89,22 +95,44 @@ _parse_speedup() {
     | head -1 | awk '{gsub(/x$/,"",$4); print $4}' || echo "N/A"
 }
 
+# Helper: classify harness output as PASS, SKIP, or FAIL.
+# SKIP is returned when the harness rejects the input before GPU launch
+# (e.g., N not a multiple of tile size → AssertionError) or when no GPU
+# driver is present. FAIL is returned for a wrong numeric result.
+_classify_result() {
+  local out="$1"
+  if echo "$out" | grep -q "PASS"; then
+    echo "PASS"
+  elif echo "$out" | grep -qiE "assert|AssertionError|SKIP|no cuda|no gpu|driver"; then
+    echo "SKIP"
+  else
+    echo "FAIL"
+  fi
+}
+
+# Helper: patch spmd.tile_sizes in an MLIR file and compile a fresh PTX.
+# Usage: _compile_ptx_for_tile <src_mlir> <kernel_type> <tile> <old_tile> <sm> <out_ptx>
+# Replaces `array<i64: <old_tile>>` with `array<i64: <tile>>` in a temp copy,
+# then compiles it with gen-ptx.sh. Each tile size requires a separate PTX because
+# blockDim.x (= TILE) is baked in as a constant by the MLIR→PTX pipeline.
+_compile_ptx_for_tile() {
+  local src="$1" ktype="$2" tile="$3" old_tile="$4" sm="$5" out_ptx="$6"
+  local tmp
+  tmp="$(mktemp /tmp/spmd_tile_XXXXXX.mlir)"
+  sed "s/array<i64: ${old_tile}>/array<i64: ${tile}>/g" "$src" > "$tmp"
+  bash "${SCRIPT_DIR}/gen-ptx.sh" "$tmp" "$ktype" "$out_ptx" "$sm" >/dev/null 2>&1 || true
+  rm -f "$tmp"
+}
+
 # Helper: run ewise and parse result.
-# NOTE: The tile_size baked into the PTX is fixed at compile time (TILE=32 in
-# harness/run_ewise.py).  The tile column records the config label for
-# documentation; each tile config should ideally use a separately compiled PTX.
-# TODO: generate PTX per tile config when parameterized MLIR sources are available.
+# Each tile config uses its own PTX (compiled with that tile's blockDim.x baked in).
 run_ewise() {
   local ptx="$1" size="$2" tile="$3"
   local out
   out="$("$PYTHON" "${REPO_ROOT}/harness/run_ewise.py" \
-      --ptx "$ptx" --sizes "$size" --perf 2>&1 || true)"
+      --ptx "$ptx" --sizes "$size" --perf --tile-size "$tile" 2>&1 || true)"
   local ok rel cpu gpu spd
-  if echo "$out" | grep -q "PASS"; then
-    ok="PASS"
-  else
-    ok="FAIL"
-  fi
+  ok=$(_classify_result "$out")
   rel=$(_parse_rel_err "$out")
   cpu=$(_parse_cpu_ms  "$out")
   gpu=$(_parse_gpu_ms  "$out")
@@ -113,17 +141,15 @@ run_ewise() {
 }
 
 # Helper: run stencil and parse result.
+# Non-multiple-of-tile shapes (e.g., 33x9) are rejected by the harness with
+# an AssertionError and are classified as SKIP, not FAIL.
 run_stencil() {
   local ptx="$1" shape="$2" tile="$3"
   local out
   out="$("$PYTHON" "${REPO_ROOT}/harness/run_promoted_stencil.py" \
       --ptx "$ptx" --shapes "$shape" --perf 2>&1 || true)"
   local ok rel cpu gpu spd
-  if echo "$out" | grep -q "PASS"; then
-    ok="PASS"
-  else
-    ok="FAIL"
-  fi
+  ok=$(_classify_result "$out")
   rel=$(_parse_rel_err "$out")
   cpu=$(_parse_cpu_ms  "$out")
   gpu=$(_parse_gpu_ms  "$out")
@@ -132,35 +158,37 @@ run_stencil() {
 }
 
 # Helper: run reduction and parse result.
+# Each tile config uses its own PTX (compiled with that tile's blockDim.x baked in).
 run_reduction() {
   local ptx="$1" size="$2" tile="$3"
   local out
   out="$("$PYTHON" "${REPO_ROOT}/harness/run_reduction.py" \
-      --ptx "$ptx" --sizes "$size" 2>&1 || true)"
+      --ptx "$ptx" --sizes "$size" --tile-size "$tile" 2>&1 || true)"
   local ok rel
-  if echo "$out" | grep -q "PASS"; then
-    ok="PASS"
-  else
-    ok="FAIL"
-  fi
+  ok=$(_classify_result "$out")
   rel=$(_parse_rel_err "$out")
   append_row "reduction" "$size" "$tile" "no" "$ok" "$rel" "N/A" "N/A" "N/A"
 }
 
 # ── Kernel 1: ewise ────────────────────────────────────────────────────────────
 # Sizes: 1, 32, 33, 64, 256, 257, 1024, 1048576
-# Tile configs: 32, 64, 256 (currently PTX is fixed at 256 threads)
+# Tile configs: 32, 64, 256 — each gets its own compiled PTX because blockDim.x
+# is baked in as a constant by the MLIR→PTX pipeline.
 EWISE_SIZES=(1 32 33 64 256 257 1024 1048576)
 EWISE_TILES=(32 64 256)
+EWISE_SRC="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx.mlir"
+EWISE_BASE_TILE=32   # spmd.tile_sizes in the source MLIR
 
 echo "── Kernel 1: ewise ──────────────────────────────────"
-EWISE_PTX="/tmp/robustness_ewise_${SM}.ptx"
-bash "${SCRIPT_DIR}/gen-ptx.sh" \
-    "${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx.mlir" \
-    ewise "$EWISE_PTX" "$SM"
 
-for size in "${EWISE_SIZES[@]}"; do
-  for tile in "${EWISE_TILES[@]}"; do
+for tile in "${EWISE_TILES[@]}"; do
+  EWISE_PTX="/tmp/robustness_ewise_${SM}_t${tile}.ptx"
+  if [[ "$tile" -eq "$EWISE_BASE_TILE" ]]; then
+    bash "${SCRIPT_DIR}/gen-ptx.sh" "$EWISE_SRC" ewise "$EWISE_PTX" "$SM"
+  else
+    _compile_ptx_for_tile "$EWISE_SRC" ewise "$tile" "$EWISE_BASE_TILE" "$SM" "$EWISE_PTX"
+  fi
+  for size in "${EWISE_SIZES[@]}"; do
     echo "  ewise N=${size} tile=${tile}"
     run_ewise "$EWISE_PTX" "$size" "$tile"
   done
@@ -188,19 +216,23 @@ done
 
 # ── Kernel 3: reduction ────────────────────────────────────────────────────────
 # Sizes: 1, 255, 256, 257, 1024, 65536, 1048576, 16777216
-# Tile configs: 64, 128, 256 (atomic reduction, correctness only)
+# Tile configs: 64, 128, 256 — each gets its own PTX (atomic reduction, correctness only)
 REDUCTION_SIZES=(1 255 256 257 1024 65536 1048576 16777216)
 REDUCTION_TILES=(64 128 256)
+REDUCTION_SRC="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-reduction.mlir"
+REDUCTION_BASE_TILE=256   # spmd.tile_sizes in the source MLIR
 
 echo ""
 echo "── Kernel 3: reduction ──────────────────────────────"
-REDUCTION_PTX="/tmp/robustness_reduction_${SM}.ptx"
-bash "${SCRIPT_DIR}/gen-ptx.sh" \
-    "${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-reduction.mlir" \
-    ewise "$REDUCTION_PTX" "$SM"
 
-for size in "${REDUCTION_SIZES[@]}"; do
-  for tile in "${REDUCTION_TILES[@]}"; do
+for tile in "${REDUCTION_TILES[@]}"; do
+  REDUCTION_PTX="/tmp/robustness_reduction_${SM}_t${tile}.ptx"
+  if [[ "$tile" -eq "$REDUCTION_BASE_TILE" ]]; then
+    bash "${SCRIPT_DIR}/gen-ptx.sh" "$REDUCTION_SRC" ewise "$REDUCTION_PTX" "$SM"
+  else
+    _compile_ptx_for_tile "$REDUCTION_SRC" ewise "$tile" "$REDUCTION_BASE_TILE" "$SM" "$REDUCTION_PTX"
+  fi
+  for size in "${REDUCTION_SIZES[@]}"; do
     echo "  reduction N=${size} tile=${tile}"
     run_reduction "$REDUCTION_PTX" "$size" "$tile"
   done
@@ -209,11 +241,12 @@ done
 # ── Summary ────────────────────────────────────────────────────────────────────
 TOTAL=$(wc -l < "$CSV")
 PASS=$(grep -c ",PASS," "$CSV" || true)
+SKIP=$(grep -c ",SKIP," "$CSV" || true)
 FAIL=$(grep -c ",FAIL," "$CSV" || true)
 
 echo ""
 echo "══════════════════════════════════════════════════════════"
-echo "  Sweep complete: $((TOTAL-1)) rows, ${PASS} PASS, ${FAIL} FAIL"
+echo "  Sweep complete: $((TOTAL-1)) rows, ${PASS} PASS, ${SKIP} SKIP, ${FAIL} FAIL"
 echo "  CSV: $CSV"
 echo "══════════════════════════════════════════════════════════"
 

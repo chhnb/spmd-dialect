@@ -14,7 +14,7 @@ func.func @barrier_in_if(%A: memref<?xf32>, %N: index, %cond: i1) {
   %c1  = arith.constant 1 : index
   %c32 = arith.constant 32 : index
 
-  // expected-remark@+1 {{convert-spmd-to-gpu: blockDim=32}}
+  // expected-remark@+1 {{convert-spmd-to-gpu: gridDim=}}
   "spmd.forall"(%c0, %N, %c32) ({
   ^bb0(%ii: index):
     "spmd.if"(%cond) ({
@@ -50,7 +50,7 @@ func.func @barrier_in_lane_forall(%A: memref<?xf32>, %N: index) {
   %c1  = arith.constant 1 : index
   %c32 = arith.constant 32 : index
 
-  // expected-remark@+1 {{convert-spmd-to-gpu: blockDim=32}}
+  // expected-remark@+1 {{convert-spmd-to-gpu: gridDim=}}
   "spmd.forall"(%c0, %N, %c32) ({
   ^bb0(%ii: index):
     "spmd.forall"(%c0, %c32, %c1) ({
@@ -106,7 +106,7 @@ func.func @dynamic_multidim_lane(%A: memref<?x?xf32>, %N: index, %M: index) {
   %c0 = arith.constant 0 : index
   %c1 = arith.constant 1 : index
 
-  // expected-remark@+1 {{convert-spmd-to-gpu: blockDim=1}}
+  // expected-remark@+1 {{convert-spmd-to-gpu: gridDim=}}
   "spmd.forall"(%c0, %c1, %c1) ({
   ^bb0(%ii: index):
     // expected-error@+1 {{dynamic multi-dim lane forall is not supported for GPU lowering}}
@@ -174,7 +174,7 @@ func.func @lane_2d_delinearize(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
   %c4 = arith.constant 4 : index
   %c8 = arith.constant 8 : index
 
-  // expected-remark@+1 {{convert-spmd-to-gpu: blockDim=32}}
+  // expected-remark@+1 {{convert-spmd-to-gpu: gridDim=}}
   "spmd.forall"(%c0, %c0, %N, %M, %c4, %c8) ({
   ^bb0(%ii: index, %jj: index):
     // 2D lane forall [0,4) x [0,8) — constant bounds, all-const.

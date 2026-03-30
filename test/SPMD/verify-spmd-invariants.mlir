@@ -96,6 +96,63 @@ func.func @dangling_group_store(%N: index) {
 
 // -----
 
+// Test 2d: positive -- gpu.launch with workgroup buffer AND gpu.barrier passes.
+// PROM-LABEL: func @launch_with_barrier
+func.func @launch_with_barrier(%A: memref<?xf32>,
+                                %wg: memref<32xf32, #gpu.address_space<workgroup>>,
+                                %N: index) {
+  %c0   = arith.constant 0 : index
+  %c1   = arith.constant 1 : index
+  %c32  = arith.constant 32 : index
+  %zero = arith.constant 0.0 : f32
+  %gx   = arith.ceildivui %N, %c32 : index
+  gpu.launch blocks(%bx, %by, %bz) in (%gbx = %gx, %gby = %c1, %gbz = %c1)
+             threads(%tx, %ty, %tz) in (%tbx = %c32, %tby = %c1, %tbz = %c1) {
+    memref.store %zero, %wg[%tx] : memref<32xf32, #gpu.address_space<workgroup>>
+    gpu.barrier
+    %v = memref.load %wg[%tx] : memref<32xf32, #gpu.address_space<workgroup>>
+    memref.store %v, %A[%tx] : memref<?xf32>
+    gpu.terminator
+  }
+  func.return
+}
+
+// -----
+
+// Test 4: negative -- function has both gpu.workgroup memref arg AND group alloc.
+// This is the partial-conversion coexistence state: Check 4 fires (on the func)
+// and Check 1 also fires (on the alloc).
+// expected-error@+1 {{function has coexisting #gpu.address_space<workgroup> memrefs and #spmd.addr_space<group> allocs}}
+func.func @partial_coexistence(%wg: memref<32xf32, #gpu.address_space<workgroup>>,
+                                %N: index) {
+  // expected-error@+1 {{group-address-space memref.alloc should not exist after convert-spmd-to-gpu}}
+  %stale = memref.alloc() : memref<32xf32, #spmd.addr_space<group>>
+  func.return
+}
+
+// -----
+
+// Test 5: negative -- gpu.launch uses workgroup memref but has no gpu.barrier.
+// Check 5 fires: cooperative-barrier post-condition violated.
+func.func @launch_no_barrier(%A: memref<?xf32>,
+                              %wg: memref<32xf32, #gpu.address_space<workgroup>>,
+                              %N: index) {
+  %c1  = arith.constant 1 : index
+  %c32 = arith.constant 32 : index
+  %gx  = arith.ceildivui %N, %c32 : index
+  // expected-error@+1 {{gpu.launch uses #gpu.address_space<workgroup> memrefs but contains no gpu.barrier}}
+  gpu.launch blocks(%bx, %by, %bz) in (%gbx = %gx, %gby = %c1, %gbz = %c1)
+             threads(%tx, %ty, %tz) in (%tbx = %c32, %tby = %c1, %tbz = %c1) {
+    // No gpu.barrier — cooperative-barrier post-condition violated.
+    %v = memref.load %wg[%tx] : memref<32xf32, #gpu.address_space<workgroup>>
+    memref.store %v, %A[%tx] : memref<?xf32>
+    gpu.terminator
+  }
+  func.return
+}
+
+// -----
+
 // Test 3: negative -- two stale group allocs in one function; both reported.
 func.func @two_stale_allocs(%N: index) {
   %c0  = arith.constant 0 : index

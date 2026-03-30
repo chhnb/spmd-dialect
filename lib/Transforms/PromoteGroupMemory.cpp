@@ -179,18 +179,29 @@ struct PromoteGroupMemoryPass
       if (plan.empty())
         continue;
 
-      // Emit remark describing the promotion decision for the first record.
+      // Emit remark describing the promotion decision.
       {
-        int64_t totalFootprint = 1;
+        int64_t totalFootprint = 0;
+        // reuseCount = sum over records of (max halo span across dims + 1).
+        // This indicates how many distinct global-memory elements are
+        // accessed per output element (reuse via shared memory).
+        int64_t reuseCount = 0;
         for (auto &rec : plan) {
-          int64_t fp = 4; // default 4 bytes per element
+          int64_t fp = 4; // default 4 bytes per element (f32/i32)
           for (int64_t d : rec.tileDims)
             fp *= d;
           totalFootprint += fp;
+          int64_t maxSpan = 0;
+          for (unsigned d = 0; d < rec.rank; ++d) {
+            int64_t span = rec.maxOffset[d] - rec.minOffset[d];
+            if (span > maxSpan) maxSpan = span;
+          }
+          reuseCount += (maxSpan + 1);
         }
         groupForall.emitRemark()
             << "promote-group-memory: promoting " << plan.size()
-            << " memref(s), footprint ~" << totalFootprint
+            << " memref(s), reuseCount=" << reuseCount
+            << ", footprint ~" << totalFootprint
             << " B, memory_policy=prefer_group";
       }
 

@@ -3,6 +3,8 @@
 // Cross-pipeline regression tests spanning at least 4 passes each.
 // Each pipeline variant targets a different lowering path.
 //
+// REQUIRES: nvptx-registered-target
+//
 // Pipeline (a): normalize → plan → materialize → scf (CPU serial)
 // RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-scf \
@@ -31,16 +33,47 @@
 // RUN:     --reconcile-unrealized-casts \
 // RUN:   | FileCheck %s --check-prefix=NVVM
 //
+// Pipeline (d'): normalize → plan → materialize → promote → gpu → outline →
+//                nvvm → llc -filetype=asm (PTX).
+// Verifies the full PTX pipeline compiles without crash and emits a kernel entry.
+// RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --promote-group-memory \
+// RUN:   --convert-spmd-to-gpu \
+// RUN:   --gpu-kernel-outlining "--nvvm-attach-target=chip=sm_80" \
+// RUN: | mlir-opt --convert-gpu-to-nvvm --convert-scf-to-cf --convert-cf-to-llvm \
+// RUN:     --convert-arith-to-llvm --convert-index-to-llvm \
+// RUN:     --reconcile-unrealized-casts \
+// RUN: | spmd-opt --spmd-extract-gpu-module \
+// RUN: | mlir-translate --mlir-to-llvmir \
+// RUN: | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
+// RUN: | FileCheck %s --check-prefix=PTX
+//
 // Pipeline (e): normalize → plan → materialize → gpu (no-promotion path).
 // Verifies that a stencil kernel on the no-promotion path has no workgroup memory.
 // RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
 // RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
 // RUN:   | FileCheck %s --check-prefix=NOSHARED
 //
-// Pipeline (f): full PTX pipeline is tested in lower-to-gpu-nvptx-promoted.mlir.
-// (spmd-extract-gpu-module extracts only the first gpu.module; running it on
-// this multi-kernel file would extract the ewise kernel which has no .shared.
-// The promoted stencil PTX coverage is provided by lower-to-gpu-nvptx-promoted.mlir.)
+// Pipeline (e'): normalize → plan → materialize → gpu (no-promotion) →
+//                outline → nvvm → llc -filetype=asm (PTX).
+// Verifies that the no-promotion path emits no .shared in PTX.
+// RUN: spmd-opt %s --normalize-spmd --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --convert-spmd-to-gpu \
+// RUN:   --gpu-kernel-outlining "--nvvm-attach-target=chip=sm_80" \
+// RUN: | mlir-opt --convert-gpu-to-nvvm --convert-scf-to-cf --convert-cf-to-llvm \
+// RUN:     --convert-arith-to-llvm --convert-index-to-llvm \
+// RUN:     --reconcile-unrealized-casts \
+// RUN: | spmd-opt --spmd-extract-gpu-module \
+// RUN: | mlir-translate --mlir-to-llvmir \
+// RUN: | llc --march=nvptx64 --mcpu=sm_80 -filetype=asm \
+// RUN: | FileCheck %s --check-prefix=NOSHAREPTX
+//
+// Pipeline (f): normalize regression — plan without normalize shows non-canonical lb.
+// Runs plan+materialize+scf WITHOUT normalize on the ewise_nonzero_lb kernel.
+// The non-zero lb=4 survives in the SCF output, confirming normalize is required.
+// RUN: spmd-opt %s --plan-spmd-schedule \
+// RUN:   --materialize-spmd-tiling --convert-spmd-to-scf \
+// RUN:   | FileCheck %s --check-prefix=SKIPNORM
 
 // ─── Pipeline (a) checks: SCF lowering ───────────────────────────────────────
 // SCF-LABEL: func @ewise_regression
@@ -74,7 +107,21 @@
 // NOSHARED-NOT:   gpu.workgroup
 // NOSHARED:       gpu.launch
 
-// (Pipeline (f) PTX checks removed; see lower-to-gpu-nvptx-promoted.mlir)
+// ─── Pipeline (d') checks: PTX (promoted path, ewise kernel extracted) ───────
+// The first extracted gpu.module is the ewise kernel (no shared memory).
+// PTX: .entry ewise_regression_kernel
+// PTX-NOT: spmd.forall
+
+// ─── Pipeline (e') checks: PTX no-shared (no-promotion path) ─────────────────
+// The no-promotion path must not emit .shared declarations in PTX.
+// NOSHAREPTX-NOT: .shared
+// NOSHAREPTX:     .entry
+
+// ─── Pipeline (f) checks: normalize regression ────────────────────────────────
+// When --normalize-spmd is skipped, the non-zero lb=4 from @ewise_nonzero_lb
+// survives into the SCF output. This confirms that normalize is required.
+// SKIPNORM-LABEL: func @ewise_nonzero_lb
+// SKIPNORM:       arith.constant 4 : index
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Source kernel 1: 1D elementwise B[i] = A[i] + 1.0
@@ -165,5 +212,28 @@ func.func @stencil_nopromote_regression(
     "spmd.yield"() : () -> ()
   }) {operandSegmentSizes = array<i32: 2, 2, 2>}
      : (index, index, index, index, index, index) -> ()
+  func.return
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Source kernel 5: 1D elementwise with non-zero lower bound.
+// Used by pipeline (f) to verify that --normalize-spmd is required before
+// --plan-spmd-schedule. Without normalize, lb=4 survives in the SCF output.
+// With normalize (pipelines a-e), lb is shifted to 0.
+// ─────────────────────────────────────────────────────────────────────────────
+
+func.func @ewise_nonzero_lb(%A: memref<?xf32>, %B: memref<?xf32>, %N: index)
+    attributes {spmd.kernel} {
+  %c4  = arith.constant 4 : index
+  %c1  = arith.constant 1 : index
+  %one = arith.constant 1.0 : f32
+  "spmd.forall"(%c4, %N, %c1) ({
+  ^bb0(%i: index):
+    %a  = memref.load %A[%i] : memref<?xf32>
+    %b  = arith.addf %a, %one : f32
+    memref.store %b, %B[%i] : memref<?xf32>
+    "spmd.yield"() : () -> ()
+  }) {operandSegmentSizes = array<i32: 1, 1, 1>}
+     : (index, index, index) -> ()
   func.return
 }

@@ -449,7 +449,17 @@ struct ConvertSPMDToGPUPass
             has2DFlatten = true;
         });
         auto remark = groupForall.emitRemark();
-        remark << "convert-spmd-to-gpu: blockDim=" << blockDimTotal
+        // Report gridDim: try to fold each component to a constant; emit ? for
+        // dynamic dimensions (e.g., when the problem size N is a function arg).
+        remark << "convert-spmd-to-gpu: gridDim=";
+        for (unsigned i = 0; i < gridDims.size(); ++i) {
+          if (i > 0) remark << "x";
+          if (auto cst = gridDims[i].getDefiningOp<arith::ConstantIndexOp>())
+            remark << cst.value();
+          else
+            remark << "?";
+        }
+        remark << " blockDim=" << blockDimTotal
                << " workgroupBuffers=" << groupAllocs.size();
         if (has2DFlatten)
           remark << " 2DLaneFlattening=true";

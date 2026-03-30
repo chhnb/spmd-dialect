@@ -107,6 +107,20 @@ func.func @group_alloc_in_launch(%N: index) {
 
 // -----
 
+// Test 5: negative -- stale #gpu.address_space<workgroup> alloc before GPU lowering.
+// Workgroup attribution is created BY convert-spmd-to-gpu, not before it.
+// Its presence before the pass means the pipeline ran out of order or twice.
+func.func @stale_workgroup_attr(%N: index) {
+  %c0   = arith.constant 0 : index
+  %zero = arith.constant 0.0 : f32
+  // expected-error@+1 {{#gpu.address_space<workgroup> memref.alloc found before convert-spmd-to-gpu}}
+  %wg = memref.alloc() : memref<32xf32, #gpu.address_space<workgroup>>
+  memref.store %zero, %wg[%c0] : memref<32xf32, #gpu.address_space<workgroup>>
+  func.return
+}
+
+// -----
+
 // Test 3: negative -- spmd.reduce inside a gpu.launch body.
 // This indicates the reduction was not lowered before GPU outlining.
 func.func @reduce_in_launch(%A: memref<?xf32>, %N: index) {

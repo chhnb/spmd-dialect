@@ -37,8 +37,8 @@ func.func @stencil_full_pipeline(
   %c8  = arith.constant 8 : index
   %c32 = arith.constant 32 : index
 
-  // expected-remark@+2 {{promote-group-memory: promoting}}
-  // expected-remark@+1 {{convert-spmd-to-gpu: blockDim=}}
+  // expected-remark@+2 {{promote-group-memory: promoting 1 memref(s), reuseCount=}}
+  // expected-remark@+1 {{convert-spmd-to-gpu: gridDim=}}
   "spmd.forall"(%c0, %c0, %N, %M, %c32, %c8) ({
   ^bb0(%ii: index, %jj: index):
     "spmd.forall"(%c0, %c0, %c32, %c8, %c1, %c1) ({

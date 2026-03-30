@@ -52,27 +52,25 @@ import cuda_driver as cd
 #
 # Launch: grid=(ceil(N/32), 1, 1), block=(32, 1, 1)
 
-TILE = 32
-
 def memref1d(ptr: cd.DevicePtr, n: int):
     """Return the 5-element memref descriptor for a 1D memref<?xf32>."""
     return (ptr, ptr, 0, n, 1)
 
 
 def run_ewise_gpu(fn, A_d: cd.DevicePtr, B_d: cd.DevicePtr,
-                  C_d: cd.DevicePtr, N: int):
-    grid = (math.ceil(N / TILE), 1, 1)
+                  C_d: cd.DevicePtr, N: int, tile: int):
+    grid = (math.ceil(N / tile), 1, 1)
     cd.launch(
         fn,
-        grid, (TILE, 1, 1),
-        TILE, N,
+        grid, (tile, 1, 1),
+        tile, N,
         *memref1d(A_d, N),
         *memref1d(B_d, N),
         *memref1d(C_d, N),
     )
 
 
-def test_correctness(fn, sizes):
+def test_correctness(fn, sizes, tile: int):
     rng = np.random.default_rng(42)
     print(f"{'N':>12}  {'max_err':>10}  result")
     all_pass = True
@@ -85,7 +83,7 @@ def test_correctness(fn, sizes):
         B_d = cd.alloc(B.nbytes); cd.memcpy_h2d(B_d, B)
         C_d = cd.alloc(A.nbytes)
 
-        run_ewise_gpu(fn, A_d, B_d, C_d, N)
+        run_ewise_gpu(fn, A_d, B_d, C_d, N, tile)
         cd.synchronize()
 
         C_gpu = np.empty(N, dtype=np.float32)
@@ -101,7 +99,7 @@ def test_correctness(fn, sizes):
     return all_pass
 
 
-def test_performance(fn, sizes, repeats=20):
+def test_performance(fn, sizes, tile: int, repeats=20):
     rng = np.random.default_rng(0)
     print(f"\n{'N':>12}  {'cpu_ms':>8}  {'gpu_ms':>8}  {'speedup':>8}")
     for N in sizes:
@@ -114,7 +112,7 @@ def test_performance(fn, sizes, repeats=20):
 
         # Warmup
         for _ in range(3):
-            run_ewise_gpu(fn, A_d, B_d, C_d, N)
+            run_ewise_gpu(fn, A_d, B_d, C_d, N, tile)
         cd.synchronize()
 
         # CPU timing
@@ -126,7 +124,7 @@ def test_performance(fn, sizes, repeats=20):
         # GPU timing (includes launch overhead, not transfer)
         t0 = time.perf_counter()
         for _ in range(repeats):
-            run_ewise_gpu(fn, A_d, B_d, C_d, N)
+            run_ewise_gpu(fn, A_d, B_d, C_d, N, tile)
         cd.synchronize()
         t_gpu = (time.perf_counter() - t0) / repeats * 1e3
 
@@ -140,8 +138,12 @@ def main():
     ap.add_argument("--sizes", default="32,100,1024,10000,1000000")
     ap.add_argument("--perf",  action="store_true", help="also run perf test")
     ap.add_argument("--perf-sizes", default="100000,1000000,10000000")
+    ap.add_argument("--tile-size", type=int, default=32,
+                    help="Tile size baked into the PTX (blockDim.x). "
+                         "Must match the spmd.tile_sizes used when compiling the PTX.")
     args = ap.parse_args()
 
+    tile       = args.tile_size
     sizes      = [int(x) for x in args.sizes.split(",")]
     perf_sizes = [int(x) for x in args.perf_sizes.split(",")]
 
@@ -151,11 +153,11 @@ def main():
     fn  = cd.get_function(mod, "ewise_kernel")
 
     print("\n=== Correctness ===")
-    ok = test_correctness(fn, sizes)
+    ok = test_correctness(fn, sizes, tile)
 
     if args.perf:
         print("\n=== Performance (wall-clock, no data transfer) ===")
-        test_performance(fn, perf_sizes)
+        test_performance(fn, perf_sizes, tile)
 
     sys.exit(0 if ok else 1)
 

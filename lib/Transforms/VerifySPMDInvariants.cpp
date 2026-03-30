@@ -26,6 +26,7 @@
 #include "spmd/IR/SPMDOps.h"
 #include "spmd/Transforms/SPMDPasses.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -38,6 +39,13 @@ static bool hasGroupAddrSpace(mlir::MemRefType mrTy) {
   auto addrSpace =
       mlir::dyn_cast_or_null<AddressSpaceAttr>(mrTy.getMemorySpace());
   return addrSpace && addrSpace.getValue() == AddressSpaceKind::Group;
+}
+
+/// Returns true if the given MemRefType has the GPU workgroup address space.
+static bool hasGPUWorkgroupAddrSpace(mlir::MemRefType mrTy) {
+  auto addrSpace =
+      mlir::dyn_cast_or_null<mlir::gpu::AddressSpaceAttr>(mrTy.getMemorySpace());
+  return addrSpace && addrSpace.getValue() == mlir::gpu::AddressSpace::Workgroup;
 }
 
 using namespace mlir;
@@ -59,7 +67,9 @@ struct VerifySPMDPromotionInvariantPass
   }
   StringRef getDescription() const override {
     return "Verify no group-address-space memref.alloc remains after "
-           "convert-spmd-to-gpu (expected to become gpu.workgroup attributions)";
+           "convert-spmd-to-gpu; detect partial-conversion coexistence of "
+           "gpu.workgroup and group allocs; verify cooperative-barrier "
+           "post-condition for launches that use workgroup memory";
   }
 
   void runOnOperation() override {
@@ -102,6 +112,72 @@ struct VerifySPMDPromotionInvariantPass
       }
     });
 
+    // Check 4: stale gpu.workgroup attribution coexisting with group-space alloc.
+    // If a function contains both #gpu.address_space<workgroup> memrefs (from
+    // a partial convert-spmd-to-gpu) AND surviving #spmd.addr_space<group>
+    // allocs, the conversion was only partially applied.
+    getOperation().walk([&](func::FuncOp funcOp) {
+      bool hasWorkgroupMemref = false;
+      bool hasGroupAlloc = false;
+
+      // Check function args for workgroup types.
+      for (auto arg : funcOp.getArguments()) {
+        if (auto mrTy = mlir::dyn_cast<MemRefType>(arg.getType()))
+          if (hasGPUWorkgroupAddrSpace(mrTy))
+            hasWorkgroupMemref = true;
+      }
+
+      // Check gpu.launch body block args for workgroup types.
+      funcOp.walk([&](gpu::LaunchOp launchOp) {
+        for (auto arg : launchOp.getBody().front().getArguments()) {
+          if (auto mrTy = mlir::dyn_cast<MemRefType>(arg.getType()))
+            if (hasGPUWorkgroupAddrSpace(mrTy))
+              hasWorkgroupMemref = true;
+        }
+      });
+
+      // Check for surviving group-space allocs in this function.
+      funcOp.walk([&](memref::AllocOp alloc) {
+        if (hasGroupAddrSpace(cast<MemRefType>(alloc.getType())))
+          hasGroupAlloc = true;
+      });
+
+      if (hasWorkgroupMemref && hasGroupAlloc) {
+        funcOp.emitError(
+            "function has coexisting #gpu.address_space<workgroup> memrefs "
+            "and #spmd.addr_space<group> allocs; partial convert-spmd-to-gpu "
+            "conversion detected: some group allocs were converted to workgroup "
+            "buffers but others were not erased");
+        anyFailed = true;
+      }
+    });
+
+    // Check 5: cooperative-barrier post-condition.
+    // A gpu.launch that uses #gpu.address_space<workgroup> memrefs must contain
+    // at least one gpu.barrier. Omitting the barrier violates the cooperative
+    // load→barrier→compute protocol required by promoted shared memory.
+    getOperation().walk([&](gpu::LaunchOp launchOp) {
+      bool usesWorkgroup = false;
+      launchOp.getBody().walk([&](Operation *op) {
+        for (auto operand : op->getOperands()) {
+          if (auto mrTy = mlir::dyn_cast<MemRefType>(operand.getType()))
+            if (hasGPUWorkgroupAddrSpace(mrTy))
+              usesWorkgroup = true;
+        }
+      });
+      if (!usesWorkgroup) return;
+
+      bool hasBarrier = false;
+      launchOp.getBody().walk([&](gpu::BarrierOp) { hasBarrier = true; });
+      if (!hasBarrier) {
+        launchOp.emitError(
+            "gpu.launch uses #gpu.address_space<workgroup> memrefs but "
+            "contains no gpu.barrier; cooperative shared-memory access "
+            "requires a barrier between the cooperative copy and compute phases");
+        anyFailed = true;
+      }
+    });
+
     if (anyFailed)
       signalPassFailure();
   }
@@ -120,7 +196,8 @@ struct VerifySPMDGPUReadyPass
   StringRef getDescription() const override {
     return "Verify structural preconditions for convert-spmd-to-gpu: "
            "no spmd.barrier in scf.if (divergent path), "
-           "no spmd.reduce inside gpu.launch body (unhandled residual)";
+           "no spmd.reduce inside gpu.launch body (unhandled residual), "
+           "no stale #gpu.address_space<workgroup> allocs before GPU lowering";
   }
 
   void runOnOperation() override {
@@ -183,6 +260,22 @@ struct VerifySPMDGPUReadyPass
               "as a workgroup-attributed memref, not as an alloc inside launch");
           anyFailed = true;
         }
+      }
+    });
+
+    // Check 5: no stale #gpu.address_space<workgroup> alloc before GPU lowering.
+    // Workgroup-attributed memrefs are CREATED by convert-spmd-to-gpu.
+    // A workgroup alloc before that pass indicates the pipeline ran out of order
+    // or was applied twice, leaving stale state from a previous partial run.
+    getOperation().walk([&](memref::AllocOp allocOp) {
+      auto memTy = cast<MemRefType>(allocOp.getType());
+      if (hasGPUWorkgroupAddrSpace(memTy)) {
+        allocOp.emitError(
+            "#gpu.address_space<workgroup> memref.alloc found before "
+            "convert-spmd-to-gpu; workgroup attribution is created by that pass, "
+            "not before it — stale state from an out-of-order or repeated "
+            "pipeline run");
+        anyFailed = true;
       }
     });
 

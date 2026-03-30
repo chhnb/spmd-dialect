@@ -106,8 +106,10 @@ else
   fi
 
   # 4b: No-promotion stencil — promote pass must leave the kernel unchanged.
+  # Uses stencil-nopromote-only.mlir (no memory_policy) so the prefer_group
+  # kernel in cross-pipeline-regression.mlir does not contaminate the check.
   ABLATION_NOPROMOTE=$(
-    "$SPMD_OPT" "${REPO_ROOT}/test/SPMD/cross-pipeline-regression.mlir" \
+    "$SPMD_OPT" "${REPO_ROOT}/test/SPMD/stencil-nopromote-only.mlir" \
         --normalize-spmd --plan-spmd-schedule \
         --materialize-spmd-tiling --promote-group-memory 2>&1 || true
   )

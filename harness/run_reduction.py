@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 import cuda_driver as cd
 
 # ── Kernel constants ──────────────────────────────────────────────────────────
-TILE_SIZE = 256   # blockDim.x (matches spmd.tile_sizes = [256] in MLIR)
+# Default tile size; overridden at runtime by --tile-size to match the compiled PTX.
+_DEFAULT_TILE_SIZE = 256
 
 # ── ABI reference (derived from LLVM IR) ─────────────────────────────────────
 #
@@ -43,7 +44,7 @@ TILE_SIZE = 256   # blockDim.x (matches spmd.tile_sizes = [256] in MLIR)
 # Caller must zero-initialize *out before launch.
 
 
-def run_sum_gpu(fn, A: np.ndarray) -> float:
+def run_sum_gpu(fn, A: np.ndarray, tile_size: int) -> float:
     N = A.size
     A_c = np.ascontiguousarray(A, dtype=np.float32)
 
@@ -54,12 +55,12 @@ def run_sum_gpu(fn, A: np.ndarray) -> float:
     # Zero-initialize the accumulator before atomic adds
     cd.memset(out_d, 0, 4)
 
-    grid = (math.ceil(N / TILE_SIZE), 1, 1)
+    grid = (math.ceil(N / tile_size), 1, 1)
     cd.launch(
         fn,
-        grid, (TILE_SIZE, 1, 1),
+        grid, (tile_size, 1, 1),
         # param_0: tile_size, param_1: N
-        TILE_SIZE, N,
+        tile_size, N,
         # params 2-6: A memref1d descriptor
         A_d, A_d, 0, N, 1,
         # params 7-9: out rank-0 memref descriptor (base, aligned, offset)
@@ -75,14 +76,14 @@ def run_sum_gpu(fn, A: np.ndarray) -> float:
     return float(result_np[0])
 
 
-def test_correctness(fn, sizes):
+def test_correctness(fn, sizes, tile_size: int):
     rng = np.random.default_rng(0)
     print(f"{'N':>12}  {'gpu_sum':>14}  {'ref_sum':>14}  {'rel_err':>10}  result")
     all_pass = True
     for N in sizes:
         A     = rng.random(N, dtype=np.float32)
         ref   = float(np.sum(A))
-        gpu   = run_sum_gpu(fn, A)
+        gpu   = run_sum_gpu(fn, A, tile_size)
 
         # Use relative error tolerance for float32 reduction (accumulation error grows with N)
         rel_err = abs(gpu - ref) / max(abs(ref), 1e-6)
@@ -93,7 +94,7 @@ def test_correctness(fn, sizes):
     return all_pass
 
 
-def test_performance(fn, sizes, repeats=10):
+def test_performance(fn, sizes, tile_size: int, repeats=10):
     rng = np.random.default_rng(1)
     print(f"\n{'N':>12}  {'cpu_ms':>8}  {'gpu_ms':>8}  {'speedup':>8}")
     for N in sizes:
@@ -103,12 +104,12 @@ def test_performance(fn, sizes, repeats=10):
         out_d = cd.alloc(4)
         cd.memcpy_h2d(A_d, A_c)
 
-        grid = (math.ceil(N / TILE_SIZE), 1, 1)
+        grid = (math.ceil(N / tile_size), 1, 1)
 
         def launch_once():
             cd.memset(out_d, 0, 4)
-            cd.launch(fn, grid, (TILE_SIZE, 1, 1),
-                      TILE_SIZE, N,
+            cd.launch(fn, grid, (tile_size, 1, 1),
+                      tile_size, N,
                       A_d, A_d, 0, N, 1,
                       out_d, out_d, 0)
 
@@ -140,8 +141,12 @@ def main():
     ap.add_argument("--ptx",   default="/tmp/reduction.ptx")
     ap.add_argument("--sizes", default="1024,65536,1048576")
     ap.add_argument("--perf",  action="store_true")
+    ap.add_argument("--tile-size", type=int, default=_DEFAULT_TILE_SIZE,
+                    help="Tile size baked into the PTX (blockDim.x). "
+                         "Must match the spmd.tile_sizes used when compiling the PTX.")
     args = ap.parse_args()
 
+    tile_size = args.tile_size
     sizes = [int(s) for s in args.sizes.split(",")]
 
     print(f"Loading PTX: {args.ptx}")
@@ -150,12 +155,12 @@ def main():
     fn  = cd.get_function(mod, "atomic_sum_kernel")
 
     print("\n=== Correctness ===")
-    ok = test_correctness(fn, sizes)
+    ok = test_correctness(fn, sizes, tile_size)
 
     if args.perf:
         perf_sizes = [1_000_000, 10_000_000, 100_000_000]
         print("\n=== Performance ===")
-        test_performance(fn, perf_sizes)
+        test_performance(fn, perf_sizes, tile_size)
 
     sys.exit(0 if ok else 1)
 
