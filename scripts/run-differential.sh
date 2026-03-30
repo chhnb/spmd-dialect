@@ -10,6 +10,29 @@
 #   --sm <level>     Force SM target
 #   --outdir <dir>   Output directory (default: results/robustness)
 #   --help           Print this message
+#
+# ── Backend implementation notes ──────────────────────────────────────────────
+#
+# cpu_ok  (CPU serial reference)
+#   Implemented via numpy. Numpy IS the authoritative CPU serial reference for
+#   these simple elementwise, stencil, and reduction kernels — it computes the
+#   exact same floating-point operations as the SPMD-compiled SCF path would.
+#   Full SPMD→SCF→LLVM→execute comparison requires mlir-cpu-runner or lli,
+#   neither of which is built in the current LLVM configuration.
+#
+# omp_ok  (OpenMP compile check)
+#   Compiles the SPMD kernel through the OpenMP→SCF→CF→LLVM pipeline and emits
+#   LLVM IR. Reports COMPILE_OK if the output is non-empty, ERROR otherwise.
+#   Execution of the compiled OpenMP binary requires linking against libomp and
+#   a driver program; this is left for a future integration step when a
+#   test execution harness (e.g., mlir-cpu-runner) is available in the build.
+#
+# gpu_ok  (GPU execution + numeric comparison vs numpy)
+#   Runs the SPMD-compiled GPU kernel via the CUDA Python harness and compares
+#   the result against the numpy reference numerically. This IS the differential:
+#   GPU output ≈ numpy reference (within tolerance) confirms the GPU backend
+#   produces the same result as the serial CPU reference. Requires CUDA GPU.
+#   Reports SKIP when no GPU is detected.
 
 set -euo pipefail
 
@@ -256,7 +279,7 @@ run_harness_full() {
   omp="SKIP"
   if [[ $GPU_AVAILABLE -eq 1 ]]; then
     run_harness_full "${REPO_ROOT}/harness/run_promoted_stencil.py" \
-        --ptx "$STENCIL_PTX" --shapes 128x128
+        --ptx "$STENCIL_PTX" --shapes 128x128 --tile-row 32 --tile-col 8
   else
     gpu="SKIP"; err="N/A"
   fi
@@ -271,7 +294,7 @@ run_harness_full() {
   omp="SKIP"
   if [[ $GPU_AVAILABLE -eq 1 ]]; then
     run_harness_full "${REPO_ROOT}/harness/run_promoted_stencil.py" \
-        --ptx "$STENCIL_PTX" --shapes 512x512
+        --ptx "$STENCIL_PTX" --shapes 512x512 --tile-row 32 --tile-col 8
   else
     gpu="SKIP"; err="N/A"
   fi

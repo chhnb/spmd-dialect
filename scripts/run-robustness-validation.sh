@@ -77,22 +77,25 @@ _parse_rel_err() {
     | awk '{print $NF}' || echo "N/A"
 }
 
-# Extract t_cpu (column 2 of the first perf data row: "N cpu_ms gpu_ms speedup").
+# Extract t_cpu from the first perf data row.
+# Handles both ewise format ("    N  cpu gpu speedup")
+# and stencil format ("( N, M)  cpu gpu speedup").
+# Uses $(NF-2) which is cpu_ms in both: ewise has NF=4, stencil has NF=6.
 _parse_cpu_ms() {
-  echo "$1" | grep -E '^\s+[0-9]+\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+' \
-    | head -1 | awk '{print $2}' || echo "N/A"
+  echo "$1" | grep -E '[0-9.]+\s+[0-9.]+\s+[0-9.]+x' \
+    | head -1 | awk '{print $(NF-2)}' || echo "N/A"
 }
 
-# Extract t_gpu (column 3 of the first perf data row).
+# Extract t_gpu ($(NF-1) in both formats).
 _parse_gpu_ms() {
-  echo "$1" | grep -E '^\s+[0-9]+\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+' \
-    | head -1 | awk '{print $3}' || echo "N/A"
+  echo "$1" | grep -E '[0-9.]+\s+[0-9.]+\s+[0-9.]+x' \
+    | head -1 | awk '{print $(NF-1)}' || echo "N/A"
 }
 
-# Extract speedup (column 4, strip trailing 'x').
+# Extract speedup ($NF, strip trailing 'x').
 _parse_speedup() {
-  echo "$1" | grep -E '^\s+[0-9]+\s+[0-9.]+\s+[0-9.]+\s+[0-9.]+' \
-    | head -1 | awk '{gsub(/x$/,"",$4); print $4}' || echo "N/A"
+  echo "$1" | grep -E '[0-9.]+\s+[0-9.]+\s+[0-9.]+x' \
+    | head -1 | awk '{gsub(/x$/,"",$NF); print $NF}' || echo "N/A"
 }
 
 # Helper: classify harness output as PASS, SKIP, or FAIL.
@@ -110,11 +113,10 @@ _classify_result() {
   fi
 }
 
-# Helper: patch spmd.tile_sizes in an MLIR file and compile a fresh PTX.
+# Helper: patch spmd.tile_sizes (1D) and compile a fresh PTX.
 # Usage: _compile_ptx_for_tile <src_mlir> <kernel_type> <tile> <old_tile> <sm> <out_ptx>
-# Replaces `array<i64: <old_tile>>` with `array<i64: <tile>>` in a temp copy,
-# then compiles it with gen-ptx.sh. Each tile size requires a separate PTX because
-# blockDim.x (= TILE) is baked in as a constant by the MLIR→PTX pipeline.
+# Replaces `array<i64: <old_tile>>` with `array<i64: <tile>>` in a temp copy.
+# Each tile size requires a separate PTX because blockDim.x is baked in at compile time.
 _compile_ptx_for_tile() {
   local src="$1" ktype="$2" tile="$3" old_tile="$4" sm="$5" out_ptx="$6"
   local tmp
@@ -124,13 +126,31 @@ _compile_ptx_for_tile() {
   rm -f "$tmp"
 }
 
+# Helper: patch a 2D promoted-stencil MLIR and compile a fresh PTX.
+# Usage: _compile_stencil_ptx_for_tile <src_mlir> <tile_r> <tile_c> <base_r> <base_c> <sm> <out_ptx>
+# Replaces the row-constant, col-constant, and array<i64: base_r, base_c> in a temp copy.
+# blockDim.x = (tile_r+1)*(tile_c+1) is baked into the generated PTX.
+_compile_stencil_ptx_for_tile() {
+  local src="$1" tile_r="$2" tile_c="$3" base_r="$4" base_c="$5" sm="$6" out_ptx="$7"
+  local tmp
+  tmp="$(mktemp /tmp/spmd_stencil_XXXXXX.mlir)"
+  sed -e "s/= arith\.constant ${base_r} : index/= arith.constant ${tile_r} : index/g" \
+      -e "s/= arith\.constant ${base_c} : index/= arith.constant ${tile_c} : index/g" \
+      -e "s/array<i64: ${base_r}, ${base_c}>/array<i64: ${tile_r}, ${tile_c}>/g" \
+      "$src" > "$tmp"
+  bash "${SCRIPT_DIR}/gen-ptx.sh" "$tmp" promoted "$out_ptx" "$sm" >/dev/null 2>&1 || true
+  rm -f "$tmp"
+}
+
 # Helper: run ewise and parse result.
 # Each tile config uses its own PTX (compiled with that tile's blockDim.x baked in).
+# --perf-sizes is set to the sweep row's N so perf columns match the correctness row.
 run_ewise() {
   local ptx="$1" size="$2" tile="$3"
   local out
   out="$("$PYTHON" "${REPO_ROOT}/harness/run_ewise.py" \
-      --ptx "$ptx" --sizes "$size" --perf --tile-size "$tile" 2>&1 || true)"
+      --ptx "$ptx" --sizes "$size" --perf --perf-sizes "$size" \
+      --tile-size "$tile" 2>&1 || true)"
   local ok rel cpu gpu spd
   ok=$(_classify_result "$out")
   rel=$(_parse_rel_err "$out")
@@ -143,18 +163,21 @@ run_ewise() {
 # Helper: run stencil and parse result.
 # Non-multiple-of-tile shapes (e.g., 33x9) are rejected by the harness with
 # an AssertionError and are classified as SKIP, not FAIL.
+# --tile-row/--tile-col must match the tile dimensions used when compiling the PTX.
+# --perf-shapes is set to the sweep shape for per-row timing attribution.
 run_stencil() {
-  local ptx="$1" shape="$2" tile="$3"
+  local ptx="$1" shape="$2" tile_r="$3" tile_c="$4"
   local out
   out="$("$PYTHON" "${REPO_ROOT}/harness/run_promoted_stencil.py" \
-      --ptx "$ptx" --shapes "$shape" --perf 2>&1 || true)"
+      --ptx "$ptx" --shapes "$shape" --perf --perf-shapes "$shape" \
+      --tile-row "$tile_r" --tile-col "$tile_c" 2>&1 || true)"
   local ok rel cpu gpu spd
   ok=$(_classify_result "$out")
   rel=$(_parse_rel_err "$out")
   cpu=$(_parse_cpu_ms  "$out")
   gpu=$(_parse_gpu_ms  "$out")
   spd=$(_parse_speedup "$out")
-  append_row "stencil" "$shape" "$tile" "yes" "$ok" "$rel" "$cpu" "$gpu" "$spd"
+  append_row "stencil" "$shape" "${tile_r}x${tile_c}" "yes" "$ok" "$rel" "$cpu" "$gpu" "$spd"
 }
 
 # Helper: run reduction and parse result.
@@ -196,21 +219,31 @@ done
 
 # ── Kernel 2: promoted stencil ────────────────────────────────────────────────
 # Sizes: 32x8, 33x9, 64x64, 128x128, 256x256, 512x512, 1024x1024, 511x513
-# Tile configs: 32x8, 16x16, 64x8
+# Tile configs: 32x8, 16x16, 64x8 — each gets its own PTX because blockDim.x
+# = (TILE_ROW+1)*(TILE_COL+1) is baked in at compile time.
 STENCIL_SHAPES=("32x8" "33x9" "64x64" "128x128" "256x256" "512x512" "1024x1024" "511x513")
 STENCIL_TILES=("32x8" "16x16" "64x8")
+STENCIL_SRC="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-promoted.mlir"
+STENCIL_BASE_R=32   # spmd.tile_sizes[0] in the source MLIR
+STENCIL_BASE_C=8    # spmd.tile_sizes[1] in the source MLIR
 
 echo ""
 echo "── Kernel 2: promoted stencil ───────────────────────"
-STENCIL_PTX="/tmp/robustness_stencil_${SM}.ptx"
-bash "${SCRIPT_DIR}/gen-ptx.sh" \
-    "${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-promoted.mlir" \
-    promoted "$STENCIL_PTX" "$SM"
 
-for shape in "${STENCIL_SHAPES[@]}"; do
-  for tile in "${STENCIL_TILES[@]}"; do
-    echo "  stencil shape=${shape} tile=${tile}"
-    run_stencil "$STENCIL_PTX" "$shape" "$tile"
+for tile_spec in "${STENCIL_TILES[@]}"; do
+  tile_r="${tile_spec%%x*}"
+  tile_c="${tile_spec##*x}"
+  STENCIL_PTX="/tmp/robustness_stencil_${SM}_t${tile_r}x${tile_c}.ptx"
+  if [[ "$tile_r" -eq "$STENCIL_BASE_R" && "$tile_c" -eq "$STENCIL_BASE_C" ]]; then
+    bash "${SCRIPT_DIR}/gen-ptx.sh" "$STENCIL_SRC" promoted "$STENCIL_PTX" "$SM"
+  else
+    _compile_stencil_ptx_for_tile \
+        "$STENCIL_SRC" "$tile_r" "$tile_c" "$STENCIL_BASE_R" "$STENCIL_BASE_C" \
+        "$SM" "$STENCIL_PTX"
+  fi
+  for shape in "${STENCIL_SHAPES[@]}"; do
+    echo "  stencil shape=${shape} tile=${tile_spec}"
+    run_stencil "$STENCIL_PTX" "$shape" "$tile_r" "$tile_c"
   done
 done
 
