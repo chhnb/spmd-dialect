@@ -137,7 +137,7 @@ _compile_so() {
     # --no-as-needed forces NEEDED entry even when ld sees only unresolved refs
     # (in -shared mode ld allows undefined symbols, so --as-needed would skip it).
     local _omp_dir
-    for _omp_dir in "$HOME/.local/lib" /usr/lib/x86_64-linux-gnu /usr/lib; do
+    for _omp_dir in /home/scratch.huanhuanc_gpu/local/lib "$HOME/.local/lib" /usr/lib/x86_64-linux-gnu /usr/lib; do
       if [[ -f "$_omp_dir/libiomp5.so" ]]; then
         link_flags+=(-L"$_omp_dir" -Wl,--no-as-needed -liomp5 -Wl,--as-needed -Wl,-rpath,"$_omp_dir")
         break
