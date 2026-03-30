@@ -117,6 +117,63 @@ void ForallOp::getCanonicalizationPatterns(RewritePatternSet &results,
 // IfOp
 //===----------------------------------------------------------------------===//
 
+// Custom assembly format: `%cond : type { ... }` (no results)
+//                      or `%cond : type -> (types) { ... } else { ... }`
+// The declarative format `: (` type($results) `)` emitted `: ()` for zero
+// results, which the MLIR parser rejected as "expected non-function type".
+// This custom format simply omits the result section when empty.
+ParseResult IfOp::parse(OpAsmParser &parser, OperationState &result) {
+  OpAsmParser::UnresolvedOperand condOperand;
+  Type condType;
+  if (parser.parseOperand(condOperand) || parser.parseColon() ||
+      parser.parseType(condType))
+    return failure();
+
+  // Optional result types: -> (type, ...)
+  SmallVector<Type> resultTypes;
+  if (succeeded(parser.parseOptionalArrow())) {
+    if (parser.parseLParen() || parser.parseTypeList(resultTypes) ||
+        parser.parseRParen())
+      return failure();
+  }
+
+  if (parser.resolveOperand(condOperand, condType, result.operands))
+    return failure();
+  result.addTypes(resultTypes);
+
+  // thenRegion (required)
+  Region *thenRegion = result.addRegion();
+  if (parser.parseRegion(*thenRegion))
+    return failure();
+  ensureTerminator(*thenRegion, parser.getBuilder(), result.location);
+
+  // optional else region
+  Region *elseRegion = result.addRegion();
+  if (succeeded(parser.parseOptionalKeyword("else"))) {
+    if (parser.parseRegion(*elseRegion))
+      return failure();
+    ensureTerminator(*elseRegion, parser.getBuilder(), result.location);
+  }
+  return success();
+}
+
+void IfOp::print(OpAsmPrinter &p) {
+  p << ' ' << getCondition() << " : " << getCondition().getType();
+  if (!getResults().empty()) {
+    p << " -> (";
+    llvm::interleaveComma(getResultTypes(), p);
+    p << ')';
+  }
+  p << ' ';
+  p.printRegion(getThenRegion(), /*printEntryBlockArgs=*/false,
+                /*printBlockTerminators=*/true);
+  if (!getElseRegion().empty()) {
+    p << " else ";
+    p.printRegion(getElseRegion(), /*printEntryBlockArgs=*/false,
+                  /*printBlockTerminators=*/true);
+  }
+}
+
 LogicalResult IfOp::verify() {
   // ODS uses AnyType for $condition so verifyInvariantsImpl() does not check
   // the type; this verifier is the sole enforcer of the i1 requirement.

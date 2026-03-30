@@ -87,11 +87,15 @@ dump_stage() {
   "$SPMD_BIN/spmd-opt" "$INPUT_ABS" "$@" -o "$outfile"
   echo "   Written: $outfile"
 
-  # Validate the dump is re-parseable.
-  if "$SPMD_BIN/spmd-opt" "$outfile" -o /dev/null 2>/dev/null; then
-    echo "   Verified: re-parseable ✓"
+  # Validate the dump is re-parseable.  Try mlir-opt first (stock MLIR tool);
+  # fall back to spmd-opt for early stages that still contain SPMD dialect ops
+  # (which are not registered in the stock mlir-opt binary).
+  if "$LLVM_BIN/mlir-opt" "$outfile" -o /dev/null 2>/dev/null; then
+    echo "   Verified: re-parseable ✓ (mlir-opt)"
+  elif "$SPMD_BIN/spmd-opt" "$outfile" -o /dev/null 2>/dev/null; then
+    echo "   Verified: re-parseable ✓ (spmd-opt; stage contains SPMD dialect)"
   else
-    echo "   WARNING: output is not re-parseable by spmd-opt (may need mlir-opt)"
+    echo "   ERROR: output is not re-parseable by mlir-opt or spmd-opt" >&2
   fi
   echo ""
 
@@ -145,6 +149,11 @@ echo "── Stage: nvvm ──────────────────�
     --convert-index-to-llvm --reconcile-unrealized-casts \
   -o "$STAGE6"
 echo "   Written: $STAGE6"
+if "$LLVM_BIN/mlir-opt" "$STAGE6" -o /dev/null 2>/dev/null; then
+  echo "   Verified: re-parseable ✓ (mlir-opt)"
+else
+  echo "   ERROR: nvvm stage output is not re-parseable by mlir-opt" >&2
+fi
 echo ""
 
 echo "══════════════════════════════════════════════════════"

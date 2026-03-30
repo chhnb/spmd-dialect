@@ -128,10 +128,11 @@ def SPMD_IfOp : SPMD_Op<"if", [
   let regions = (region SizedRegion<1>:$thenRegion,
                         AnyRegion:$elseRegion);
 
-  let assemblyFormat = [{
-    $condition `:` type($condition) attr-dict `:` `(` type($results) `)`
-    $thenRegion (`else` $elseRegion^)?
-  }];
+  // Custom format: `%cond : type { ... }` (no results)
+  //            or: `%cond : type -> (types) { ... } else { ... }` (with results)
+  // The declarative format emitted `: ()` for zero results which failed
+  // round-trip re-parsing; the custom format omits the result section entirely.
+  let hasCustomAssemblyFormat = 1;
 
   let hasVerifier = 1;
   let hasCanonicalizer = 1;
