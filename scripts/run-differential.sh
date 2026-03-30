@@ -229,6 +229,7 @@ print_row "------" "----" "----" "------" "------" "------" "----------"
 EWISE_SRC="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx.mlir"
 STENCIL_SRC="${REPO_ROOT}/test/SPMD/differential-stencil.mlir"
 REDUCTION_SRC="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-reduction.mlir"
+HIERARCHICAL_SRC="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-hierarchical-reduction.mlir"
 
 EWISE_SCF_SO="/tmp/diff_ewise_scf_$$.so"
 EWISE_OMP_SO="/tmp/diff_ewise_omp_$$.so"
@@ -251,6 +252,7 @@ if [[ -n "$SM" ]]; then
   EWISE_PTX="/tmp/diff_ewise_${SM}_$$.ptx"
   STENCIL_PTX="/tmp/diff_stencil_${SM}_$$.ptx"
   REDUCTION_PTX="/tmp/diff_reduction_${SM}_$$.ptx"
+  HIERARCHICAL_PTX="/tmp/diff_hierarchical_${SM}_$$.ptx"
 
   bash "${SCRIPT_DIR}/gen-ptx.sh" \
       "$EWISE_SRC" ewise "$EWISE_PTX" "$SM" >/dev/null 2>&1 || true
@@ -261,6 +263,9 @@ if [[ -n "$SM" ]]; then
 
   bash "${SCRIPT_DIR}/gen-ptx.sh" \
       "$REDUCTION_SRC" ewise "$REDUCTION_PTX" "$SM" >/dev/null 2>&1 || true
+
+  bash "${SCRIPT_DIR}/gen-ptx.sh" \
+      "$HIERARCHICAL_SRC" hierarchical "$HIERARCHICAL_PTX" "$SM" >/dev/null 2>&1 || true
 fi
 
 # ── Kernel 1: ewise N=1024 ────────────────────────────────────────────────────
@@ -371,11 +376,32 @@ fi
   print_row "reduction" "N=1048576" "tile=256" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
+# ── Kernel 4: reduction_hierarchical ─────────────────────────────────────────
+# cpu_ok / omp_ok are SKIP: the hierarchical kernel is GPU-specific (shared-memory
+# tree reduction + single global atomic). The SCF/OMP backends use the baseline
+# atomic path, not the hierarchical path.  GPU correctness vs numpy is the
+# meaningful comparison here.
+{
+  cpu="SKIP"; cpu_err="N/A"
+  omp="SKIP"; omp_err="N/A"
+  if [[ -n "$SM" ]]; then
+    _run_gpu "${REPO_ROOT}/harness/run_reduction.py" \
+        --hierarchical --ptx "$HIERARCHICAL_PTX" --sizes 65536
+    gpu="$gpu"; gpu_err="$err"
+  else
+    gpu="SKIP"; gpu_err="N/A"
+  fi
+  err_metric="$(_dominant_err "$cpu_err" "$omp_err" "$gpu_err")"
+  [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
+  print_row "hier-reduct" "N=65536" "tile=256" "$cpu" "$omp" "$gpu" "$err_metric"
+}
+
 # ── Cleanup temp shared libs ──────────────────────────────────────────────────
 rm -f "$EWISE_SCF_SO" "$EWISE_OMP_SO" \
       "$STENCIL_SCF_SO" "$STENCIL_OMP_SO" \
       "$REDUCTION_SCF_SO" "$REDUCTION_OMP_SO"
-[[ -n "$SM" ]] && rm -f "$EWISE_PTX" "$STENCIL_PTX" "$REDUCTION_PTX" 2>/dev/null || true
+[[ -n "$SM" ]] && rm -f "$EWISE_PTX" "$STENCIL_PTX" "$REDUCTION_PTX" \
+                         "${HIERARCHICAL_PTX:-}" 2>/dev/null || true
 
 echo ""
 if [[ $FAIL -gt 0 ]]; then

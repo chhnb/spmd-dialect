@@ -5,8 +5,9 @@
 #   gen-ptx.sh <mlir_file> <pipeline> <output.ptx> [sm_level]
 #
 # pipeline:
-#   ewise     — non-promoted path: normalize → plan → materialize → convert-to-gpu
-#   promoted  — promoted path:     promote-group-memory → convert-to-gpu
+#   ewise         — non-promoted path: normalize → plan → materialize → convert-to-gpu
+#   promoted      — promoted path:     promote-group-memory → convert-to-gpu
+#   hierarchical  — hierarchical reduction: normalize → convert-to-gpu (no materialize)
 #
 # sm_level (optional):
 #   e.g. sm_100, sm_90, sm_80.  Defaults to auto-detecting the installed GPU.
@@ -68,6 +69,16 @@ case "$PIPELINE" in
   promoted)
     "$SPMD_BIN/spmd-opt" "$MLIR_FILE" \
         --promote-group-memory --convert-spmd-to-gpu \
+        --gpu-kernel-outlining "--nvvm-attach-target=chip=${SM}" \
+    | lower_to_ptx
+    ;;
+
+  hierarchical)
+    # Hierarchical reduction pipeline: normalize → convert-to-gpu (no materialize).
+    # Skipping materialize keeps spmd.reduce at the gpu.launch body level so that
+    # gpu.barrier can be emitted outside any conditional.
+    "$SPMD_BIN/spmd-opt" "$MLIR_FILE" \
+        --normalize-spmd --convert-spmd-to-gpu \
         --gpu-kernel-outlining "--nvvm-attach-target=chip=${SM}" \
     | lower_to_ptx
     ;;

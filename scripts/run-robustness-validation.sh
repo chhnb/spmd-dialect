@@ -276,6 +276,38 @@ for tile in "${REDUCTION_TILES[@]}"; do
   done
 done
 
+# ── Kernel 4: reduction_hierarchical ─────────────────────────────────────────
+# Sizes: AC-6 suite (powers of two, non-multiples, edge cases).
+# Tile config: 256 only (blockDim is baked into the kernel at compile time;
+# the hierarchical pattern requires a power-of-2 blockDim ≥ 2).
+HIERARCHICAL_SIZES=(1 32 33 255 256 257 1000 1024 65536 65537 1048576 16777216)
+HIERARCHICAL_SRC="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-hierarchical-reduction.mlir"
+HIERARCHICAL_BASE_TILE=256
+
+run_reduction_hierarchical() {
+  local ptx="$1" size="$2" tile="$3"
+  local out
+  out="$("$PYTHON" "${REPO_ROOT}/harness/run_reduction.py" \
+      --hierarchical --ptx "$ptx" --sizes "$size" \
+      --tile-size "$tile" 2>&1 || true)"
+  local ok rel
+  ok=$(_classify_result "$out")
+  rel=$(_parse_rel_err "$out")
+  append_row "reduction_hierarchical" "$size" "$tile" "no" "$ok" "$rel" "N/A" "N/A" "N/A"
+}
+
+echo ""
+echo "── Kernel 4: reduction_hierarchical ─────────────────"
+
+HIERARCHICAL_PTX="/tmp/robustness_hierarchical_${SM}_t${HIERARCHICAL_BASE_TILE}.ptx"
+bash "${SCRIPT_DIR}/gen-ptx.sh" \
+    "$HIERARCHICAL_SRC" hierarchical "$HIERARCHICAL_PTX" "$SM"
+
+for size in "${HIERARCHICAL_SIZES[@]}"; do
+  echo "  reduction_hierarchical N=${size} tile=${HIERARCHICAL_BASE_TILE}"
+  run_reduction_hierarchical "$HIERARCHICAL_PTX" "$size" "$HIERARCHICAL_BASE_TILE"
+done
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 TOTAL=$(wc -l < "$CSV")
 PASS=$(grep -c ",PASS," "$CSV" || true)

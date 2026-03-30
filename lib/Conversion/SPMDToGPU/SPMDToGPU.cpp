@@ -6,7 +6,11 @@
 //   group-level spmd.forall → gpu.launch (gridDim/blockDim from tile_sizes)
 //   lane-level  spmd.forall → thread index (linear, uses launch block args)
 //   spmd.if                 → scf.if  (via greedy pattern rewrite)
-//   spmd.reduce             → scf.for (via greedy pattern rewrite)
+//   spmd.reduce (f32 Add, inside gpu.launch, constant blockDim, feeds one
+//               rank-0 atomic_rmw addf, pure body)
+//               → workgroup-memory tree reduction + single atomic per block
+//                 (ReduceToHierarchicalGPU, benefit=2)
+//   spmd.reduce (all other cases) → scf.for (ReduceToSCFForGPU, benefit=1)
 //   spmd.barrier (group)    → gpu.barrier [memfence workgroup]
 //   group addr space alloc  → gpu.launch workgroup attribution +
 //                             replaceAllUsesWith + erase
@@ -200,6 +204,180 @@ struct IfToSCFIfGPU : public OpRewritePattern<IfOp> {
       transferRegion(rewriter, op.getElseRegion(),
                      &newIf.getElseRegion().front());
     rewriter.replaceOp(op, newIf.getResults());
+    return success();
+  }
+};
+
+//===----------------------------------------------------------------------===//
+// spmd.reduce → hierarchical shared-memory tree + single atomic per block
+//
+// Fires when ALL legality conditions hold:
+//   L1: result type is f32
+//   L2: spmd.kind = Add
+//   L3: reduce body contains only arith.*, math.*, memref.load ops (no calls,
+//       no stores, no other side-effecting ops)
+//   L4: reduce op is inside a gpu.launch body
+//   L5: the launch's blockDim.x is a compile-time constant
+//   L6: reduce result feeds exactly one memref.atomic_rmw addf on a rank-0 memref
+//
+// When any condition fails, the op is left for ReduceToSCFForGPU (fallback).
+//===----------------------------------------------------------------------===//
+
+struct ReduceToHierarchicalGPU : public OpRewritePattern<ReduceOp> {
+  ReduceToHierarchicalGPU(MLIRContext *ctx)
+      : OpRewritePattern<ReduceOp>(ctx, /*benefit=*/2) {}
+
+  // Returns true if the reduce body has any side-effecting op other than loads.
+  static bool bodyHasSideEffects(ReduceOp op) {
+    bool found = false;
+    op.getBody().front().walk([&](Operation *inner) {
+      if (found) return;
+      if (isa<YieldOp>(inner)) return;
+      // Allow arith and math dialect ops and memref.load.
+      if (inner->getDialect() ==
+          inner->getContext()->getLoadedDialect("arith"))
+        return;
+      if (inner->getDialect() ==
+          inner->getContext()->getLoadedDialect("math"))
+        return;
+      if (isa<memref::LoadOp>(inner)) return;
+      found = true;
+    });
+    return found;
+  }
+
+  LogicalResult matchAndRewrite(ReduceOp op,
+                                PatternRewriter &rewriter) const override {
+    // L1: f32 result
+    if (!isa<Float32Type>(op.getResult().getType()))
+      return failure();
+
+    // L2: Add kind
+    auto kindAttr = op->getAttrOfType<ReductionKindAttr>("spmd.kind");
+    if (!kindAttr || kindAttr.getValue() != ReductionKind::Add)
+      return failure();
+
+    // L3: pure body
+    if (bodyHasSideEffects(op)) {
+      op.emitRemark("hierarchical reduction lowering skipped: "
+                    "non-pure reduce body");
+      return failure();
+    }
+
+    // L4: inside a gpu.launch
+    auto launchOp = op->getParentOfType<gpu::LaunchOp>();
+    if (!launchOp) return failure();
+
+    // L5: compile-time constant blockDim.x
+    auto blockDimCst =
+        launchOp.getBlockSizeX().getDefiningOp<arith::ConstantIndexOp>();
+    if (!blockDimCst) return failure();
+    int64_t blockDim = blockDimCst.value();
+    if (blockDim < 2 || (blockDim & (blockDim - 1)) != 0)
+      return failure(); // must be a power of two ≥ 2 for tree reduction
+
+    // L6: result used only by one memref.atomic_rmw addf on a rank-0 memref
+    Value reduceResult = op.getResult();
+    if (!reduceResult.hasOneUse()) return failure();
+    auto atomicOp =
+        dyn_cast<memref::AtomicRMWOp>(*reduceResult.getUsers().begin());
+    if (!atomicOp) return failure();
+    if (atomicOp.getKind() != arith::AtomicRMWKind::addf) return failure();
+    if (cast<MemRefType>(atomicOp.getMemref().getType()).getRank() != 0)
+      return failure();
+
+    // ── All checks passed. Build hierarchical reduction. ──────────────────
+
+    Location loc = op.getLoc();
+    MLIRContext *ctx = getContext();
+    auto f32Ty = rewriter.getF32Type();
+
+    Value tx = launchOp.getThreadIds().x;
+    Value c0 = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+
+    // Inject a workgroup scratch buffer via gpu.launch workgroup attribution.
+    auto wgAddrSpace =
+        gpu::AddressSpaceAttr::get(ctx, gpu::AddressSpace::Workgroup);
+    auto smemType = MemRefType::get(ArrayRef<int64_t>{blockDim}, f32Ty,
+                                      /*map=*/AffineMap{}, wgAddrSpace);
+    Value smem = launchOp.addWorkgroupAttribution(smemType, loc);
+
+    rewriter.setInsertionPoint(op);
+
+    // Step 1: thread-strided local accumulation.
+    // Thread tx processes elements at indices: lb + tx*step, lb + (tx+blockDim)*step, …
+    Block &reduceBody    = op.getBody().front();
+    Value  reduceBodyIv  = reduceBody.getArgument(0);
+    Value  yieldedValue  =
+        cast<YieldOp>(reduceBody.getTerminator()).getValues()[0];
+
+    Value blockDimVal = rewriter.create<arith::ConstantIndexOp>(loc, blockDim);
+    Value txScaled    = rewriter.create<arith::MulIOp>(loc, tx, op.getStep());
+    Value startIdx    = rewriter.create<arith::AddIOp>(loc, op.getLowerBound(), txScaled);
+    Value stridedStep = rewriter.create<arith::MulIOp>(loc, blockDimVal, op.getStep());
+
+    auto forOp = rewriter.create<scf::ForOp>(
+        loc, startIdx, op.getUpperBound(), stridedStep,
+        ValueRange{op.getInit()},
+        [&](OpBuilder &fb, Location fl, Value iv, ValueRange iterArgs) {
+          IRMapping mapping;
+          mapping.map(reduceBodyIv, iv);
+          for (Operation &inner : reduceBody)
+            if (!isa<YieldOp>(inner))
+              fb.clone(inner, mapping);
+          Value partial  = mapping.lookupOrDefault(yieldedValue);
+          Value combined = fb.create<arith::AddFOp>(fl, iterArgs[0], partial);
+          fb.create<scf::YieldOp>(fl, ValueRange{combined});
+        });
+    Value threadPartial = forOp.getResult(0);
+
+    // Step 2: scatter thread partial into workgroup scratch; sync.
+    rewriter.create<memref::StoreOp>(loc, threadPartial, smem, ValueRange{tx});
+    auto wgMemFence = ArrayAttr::get(ctx, {wgAddrSpace});
+    rewriter.create<gpu::BarrierOp>(loc, wgMemFence);
+
+    // Step 3: statically-unrolled in-block tree reduction.
+    // log2(blockDim) scf.if + gpu.barrier pairs; stride halves each iteration.
+    for (int64_t stride = blockDim / 2; stride >= 1; stride /= 2) {
+      Value strideVal = rewriter.create<arith::ConstantIndexOp>(loc, stride);
+      Value cond      = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::ult, tx, strideVal);
+      auto ifOp = rewriter.create<scf::IfOp>(
+          loc, TypeRange{}, cond, /*withElseRegion=*/false);
+      {
+        OpBuilder::InsertionGuard g(rewriter);
+        rewriter.setInsertionPointToStart(
+            &ifOp.getThenRegion().front());
+        Value a        = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{tx});
+        Value peerIdx  = rewriter.create<arith::AddIOp>(loc, tx, strideVal);
+        Value b_val    = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{peerIdx});
+        Value s        = rewriter.create<arith::AddFOp>(loc, a, b_val);
+        rewriter.create<memref::StoreOp>(loc, s, smem, ValueRange{tx});
+        // scf::IfOp auto-generates scf.yield via ensureTerminator; no explicit yield needed.
+      }
+      rewriter.create<gpu::BarrierOp>(loc, wgMemFence);
+    }
+
+    // Step 4: thread 0 flushes block sum to global accumulator.
+    Value txIsZero = rewriter.create<arith::CmpIOp>(
+        loc, arith::CmpIPredicate::eq, tx, c0);
+    auto guardOp = rewriter.create<scf::IfOp>(
+        loc, TypeRange{}, txIsZero, /*withElseRegion=*/false);
+    {
+      OpBuilder::InsertionGuard g(rewriter);
+      rewriter.setInsertionPointToStart(
+          &guardOp.getThenRegion().front());
+      Value blockSum = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{c0});
+      rewriter.create<memref::AtomicRMWOp>(
+          loc, arith::AtomicRMWKind::addf, blockSum,
+          atomicOp.getMemref(), atomicOp.getIndices());
+      // scf::IfOp auto-generates scf.yield via ensureTerminator; no explicit yield needed.
+    }
+
+    // Erase the original atomic_rmw (its operand %sum is still live here),
+    // then erase the reduce op (now has no uses).
+    rewriter.eraseOp(atomicOp);
+    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -591,8 +769,13 @@ struct ConvertSPMDToGPUPass
     }
 
     // Lower spmd.if / spmd.reduce via greedy patterns.
+    // ReduceToHierarchicalGPU has benefit=2 (higher priority than
+    // ReduceToSCFForGPU's default benefit=1); it falls back automatically
+    // for any op that fails the legality checks.
     RewritePatternSet patterns(ctx);
-    patterns.add<IfToSCFIfGPU, ReduceToSCFForGPU>(ctx);
+    patterns.add<IfToSCFIfGPU>(ctx);
+    patterns.add<ReduceToHierarchicalGPU>(ctx);
+    patterns.add<ReduceToSCFForGPU>(ctx);
     if (failed(applyPatternsGreedily(module, std::move(patterns))))
       signalPassFailure();
 
