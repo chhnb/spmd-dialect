@@ -1,6 +1,6 @@
 // stencil-nopromote-only.mlir
 //
-// AC-9: Promotion ablation negative input.
+// Promotion ablation negative input.
 // A 2D stencil kernel with NO memory_policy attribute — promote-group-memory
 // must leave it unchanged (no group-space alloc inserted).
 //

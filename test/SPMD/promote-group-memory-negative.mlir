@@ -193,7 +193,7 @@ func.func @footprint_overflow_1d(%A: memref<?xf32>, %B: memref<?xf32>,
 // converts it to a gpu.workgroup attribution, no group-space alloc should
 // remain. This test checks the intermediate state: after promotion only, the
 // tile buffer IS present (and the original global loads are gone).
-// AC-2.1 positive test.
+// Post-promotion invariant positive check.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // CHECK-LABEL: func @stencil_post_promotion_invariant

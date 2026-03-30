@@ -9,7 +9,7 @@
 // spmd.tile_sizes, and spmd.memory_policy attributes, so --normalize-spmd,
 // --plan-spmd-schedule, and --materialize-spmd-tiling are omitted here.
 // Note: scripts/dump-pipeline.sh runs the full 6-stage pipeline (including
-// materialize) on this same input file, as required by AC-9.2.
+// materialize) on this same input file per the dump-pipeline.sh contract.
 // RUN: spmd-opt %s --promote-group-memory \
 // RUN:   --convert-spmd-to-gpu \
 // RUN:   --gpu-kernel-outlining "--nvvm-attach-target=chip=sm_80" \

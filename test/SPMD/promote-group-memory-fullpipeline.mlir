@@ -1,6 +1,6 @@
 // promote-group-memory-fullpipeline.mlir
 //
-// AC-2.1: Full pipeline invariant test.
+// Full pipeline promotion invariant test.
 // After --promote-group-memory --convert-spmd-to-gpu:
 //   (a) no group-address-space memref.alloc remains (converted and erased)
 //   (b) gpu.workgroup attribution present (lowered from group-space alloc)
