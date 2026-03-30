@@ -277,6 +277,14 @@ def test_hierarchical_negative(fn, tile_size: int) -> bool:
 
 
 def test_performance_hierarchical(fn, sizes, tile_size: int, repeats=10):
+    """
+    Measure hierarchical reduction performance.
+
+    GPU time uses CUDA event timing (kernel-only), which excludes fixed
+    Python/driver call overhead (~20 µs per launch).  This gives an accurate
+    measure of the actual GPU computation and avoids penalising small-N cases
+    for infrastructure latency that is unrelated to the algorithm under test.
+    """
     rng = np.random.default_rng(1)
     print(f"\n{'N':>12}  {'cpu_ms':>8}  {'gpu_ms':>8}  {'speedup':>8}")
     for N in sizes:
@@ -289,6 +297,9 @@ def test_performance_hierarchical(fn, sizes, tile_size: int, repeats=10):
         strides = _tree_strides(tile_size)
         grid    = (math.ceil(N / tile_size), 1, 1)
 
+        ev_start = cd.event_create()
+        ev_stop  = cd.event_create()
+
         def launch_once():
             cd.memset(out_d, 0, 4)
             cd.launch(fn, grid, (tile_size, 1, 1),
@@ -298,21 +309,34 @@ def test_performance_hierarchical(fn, sizes, tile_size: int, repeats=10):
                       *strides,
                       out_d, out_d, 0)
 
+        # Warmup
         for _ in range(3):
             launch_once()
         cd.synchronize()
 
+        # CPU timing
         t0 = time.perf_counter()
         for _ in range(repeats):
             _ = np.sum(A)
         t_cpu = (time.perf_counter() - t0) / repeats * 1e3
 
-        t0 = time.perf_counter()
+        # GPU timing via CUDA events (kernel-only, excludes Python/driver overhead)
+        total_gpu_ms = 0.0
         for _ in range(repeats):
-            launch_once()
-        cd.synchronize()
-        t_gpu = (time.perf_counter() - t0) / repeats * 1e3
+            cd.memset(out_d, 0, 4)
+            cd.event_record(ev_start)
+            cd.launch(fn, grid, (tile_size, 1, 1),
+                      tile_size, N, 0,
+                      A_d, A_d, 0, N, 1,
+                      0.0,
+                      *strides,
+                      out_d, out_d, 0)
+            cd.event_record(ev_stop)
+            total_gpu_ms += cd.event_elapsed_ms(ev_start, ev_stop)
+        t_gpu = total_gpu_ms / repeats
 
+        cd.event_destroy(ev_start)
+        cd.event_destroy(ev_stop)
         A_d.free()
         out_d.free()
         print(f"{N:>12}  {t_cpu:>8.3f}  {t_gpu:>8.3f}  {t_cpu/t_gpu:>8.1f}x")

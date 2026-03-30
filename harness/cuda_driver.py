@@ -15,6 +15,10 @@ Public API:
     launch(fn, grid, block, *args)    — launch kernel
     synchronize()                     — wait for all work to complete
     free(ptr)                         — free device memory
+    event_create() -> CUevent         — allocate a CUDA event
+    event_record(event)               — record event on default stream
+    event_elapsed_ms(start, stop)     — kernel-only elapsed time in ms
+    event_destroy(event)              — release a CUDA event
 """
 
 import ctypes
@@ -73,6 +77,11 @@ _cuLaunchKernel      = _fn("cuLaunchKernel",      _i32,
 _cuCtxSynchronize    = _fn("cuCtxSynchronize",    _i32)
 _cuMemFree           = _fn("cuMemFree_v2",        _i32, _u64)
 _cuMemsetD8          = _fn("cuMemsetD8_v2",       _i32, _u64, ctypes.c_ubyte, _sz)
+_cuEventCreate       = _fn("cuEventCreate",       _i32, _p(_vp), _i32)
+_cuEventRecord       = _fn("cuEventRecord",       _i32, _vp, _vp)
+_cuEventSynchronize  = _fn("cuEventSynchronize",  _i32, _vp)
+_cuEventElapsedTime  = _fn("cuEventElapsedTime",  _i32, _p(ctypes.c_float), _vp, _vp)
+_cuEventDestroy      = _fn("cuEventDestroy",      _i32, _vp)
 
 # ── High-level helpers ─────────────────────────────────────────────────────────
 
@@ -200,3 +209,36 @@ def memset(dst: "DevicePtr", value: int, n_bytes: int):
 def synchronize():
     """Block until all work on the current context finishes."""
     _cuCtxSynchronize()
+
+
+# ── CUDA event API ─────────────────────────────────────────────────────────────
+# Events measure kernel-only elapsed time, excluding Python/driver call overhead.
+
+_CU_EVENT_DEFAULT = 0
+
+def event_create():
+    """Allocate and return a new CUevent (ctypes void_p)."""
+    h = _vp()
+    _cuEventCreate(ctypes.byref(h), _CU_EVENT_DEFAULT)
+    return h
+
+
+def event_record(event):
+    """Enqueue a timestamp for *event* on the default (null) stream."""
+    _cuEventRecord(event, _vp())   # null stream
+
+
+def event_elapsed_ms(start, stop) -> float:
+    """
+    Return the elapsed time in milliseconds between two previously recorded
+    events.  Synchronises on *stop* to ensure it has completed.
+    """
+    _cuEventSynchronize(stop)
+    ms = ctypes.c_float(0.0)
+    _cuEventElapsedTime(ctypes.byref(ms), start, stop)
+    return float(ms.value)
+
+
+def event_destroy(event):
+    """Release a CUevent."""
+    _cuEventDestroy(event)

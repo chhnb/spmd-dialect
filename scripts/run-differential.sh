@@ -203,14 +203,18 @@ _run_gpu() {
   fi
   local raw
   raw="$("$PYTHON_GPU" "$script" "$@" 2>&1 || true)"
-  if echo "$raw" | grep -q "PASS"; then
+  # Exclude the negative-test summary row: its PASS records harness
+  # self-check status and must not mask a main-row FAIL.
+  local main_raw
+  main_raw="$(echo "$raw" | grep -v "negative-test")"
+  if echo "$main_raw" | grep -q "PASS"; then
     gpu="PASS"
-  elif echo "$raw" | grep -qiE "error|cuda|driver"; then
+  elif echo "$main_raw" | grep -qiE "error|cuda|driver"; then
     gpu="ERROR"
   else
     gpu="FAIL"
   fi
-  err=$(echo "$raw" | grep -E '(PASS|FAIL)' | head -1 \
+  err=$(echo "$main_raw" | grep -E '(PASS|FAIL)' | head -1 \
         | sed 's/[[:space:]]*\(PASS\|FAIL\)[[:space:]]*//' \
         | awk '{print $NF}' || echo "N/A")
 }
