@@ -219,6 +219,63 @@ def test_hierarchical_correctness(fn, sizes, tile_size: int):
     return all_pass
 
 
+def test_hierarchical_negative(fn, tile_size: int) -> bool:
+    """
+    Negative correctness test for the hierarchical kernel.
+
+    Verifies that the harness correctly detects a wrong result when the
+    output accumulator is not zero-initialized before launch.  Runs the
+    kernel twice on the same input without clearing the accumulator between
+    launches: the second launch accumulates on top of the first, producing
+    approximately 2× the true sum.  The relative error vs the true reference
+    must exceed the 1e-3 threshold, proving the harness can distinguish
+    correct from incorrect output.
+
+    Returns True (test behaved as expected) if the wrong result was detected,
+    False if the harness accidentally reported the wrong result as correct.
+    """
+    N = 1024
+    rng = np.random.RandomState(99)
+    A   = rng.random_sample(N).astype(np.float32)
+    ref = float(np.sum(A))
+
+    A_c   = np.ascontiguousarray(A, dtype=np.float32)
+    A_d   = cd.alloc(A_c.nbytes)
+    out_d = cd.alloc(4)
+    cd.memcpy_h2d(A_d, A_c)
+
+    strides = _tree_strides(tile_size)
+    grid    = (math.ceil(N / tile_size), 1, 1)
+
+    def _launch():
+        cd.launch(fn, grid, (tile_size, 1, 1),
+                  tile_size, N, 0,
+                  A_d, A_d, 0, N, 1,
+                  0.0, *strides,
+                  out_d, out_d, 0)
+
+    # First launch with zero-initialized accumulator (correct result).
+    cd.memset(out_d, 0, 4)
+    _launch()
+    # Second launch WITHOUT re-zeroing: accumulator now holds sum + sum ≈ 2×ref.
+    _launch()
+    cd.synchronize()
+
+    result_np = np.zeros(1, dtype=np.float32)
+    cd.memcpy_d2h(result_np, out_d)
+
+    A_d.free()
+    out_d.free()
+
+    gpu     = float(result_np[0])
+    rel_err = abs(gpu - ref) / max(abs(ref), 1e-6)
+    # The harness correctly detected the wrong result iff rel_err >= 1e-3.
+    detected = rel_err >= 1e-3
+    print(f"{'negative-test':>20}  {gpu:>14.6f}  {ref:>14.6f}  {rel_err:>10.2e}  "
+          f"{'PASS' if detected else 'FAIL'}")
+    return detected
+
+
 def test_performance_hierarchical(fn, sizes, tile_size: int, repeats=10):
     rng = np.random.default_rng(1)
     print(f"\n{'N':>12}  {'cpu_ms':>8}  {'gpu_ms':>8}  {'speedup':>8}")
@@ -343,6 +400,11 @@ def main():
     print("\n=== Correctness ===")
     if args.hierarchical:
         ok = test_hierarchical_correctness(fn, sizes, tile_size)
+        print("\n=== Negative test (uninitialized accumulator must FAIL) ===")
+        neg_ok = test_hierarchical_negative(fn, tile_size)
+        if not neg_ok:
+            print("ERROR: negative test did not detect wrong result — harness is broken")
+            ok = False
     else:
         ok = test_correctness(fn, sizes, tile_size)
 

@@ -53,8 +53,9 @@ echo "════════════════════════�
 #   - invalid/negative/verifier tests
 #   - attrs tests
 #   - ewise/normalize/materialize smoke
+#   - sum (spmd.reduce regression: exercises pattern priority after ReduceToHierarchicalGPU)
 "$LIT" "${LIT_ARGS[@]}" \
-  --filter="invalid|negative|verifier|attrs|verify-spmd|subset|ewise|normalize|materialize" \
+  --filter="invalid|negative|verifier|attrs|verify-spmd|subset|ewise|normalize|materialize|sum" \
   "${SPMD_BUILD}/test/SPMD"
 
 echo ""

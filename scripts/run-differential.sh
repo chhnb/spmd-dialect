@@ -400,7 +400,7 @@ fi
   [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "hier-reduct" "N=65536" "tile=256" "$cpu" "$omp" "$gpu" "$err_metric"
+  print_row "reduction_hierarchical" "N=65536" "tile=256" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
 # ── Cleanup temp shared libs ──────────────────────────────────────────────────

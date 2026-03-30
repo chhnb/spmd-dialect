@@ -44,6 +44,7 @@ fi
 
 mkdir -p "$OUTDIR"
 CSV="${OUTDIR}/latest.csv"
+FAIL=0   # cumulative failure counter; incremented by correctness and speedup checks
 
 echo "══════════════════════════════════════════════════════════"
 echo "  Robustness sweep  SM=${SM}"
@@ -325,7 +326,8 @@ done
 TOTAL=$(wc -l < "$CSV")
 PASS=$(grep -c ",PASS," "$CSV" || true)
 SKIP=$(grep -c ",SKIP," "$CSV" || true)
-FAIL=$(grep -c ",FAIL," "$CSV" || true)
+CSV_FAIL=$(grep -c ",FAIL," "$CSV" || true)
+FAIL=$((FAIL + CSV_FAIL))   # add correctness FAIL rows on top of speedup failures
 
 echo ""
 echo "══════════════════════════════════════════════════════════"

@@ -20,7 +20,9 @@
 // PTX: .visible .entry
 // PTX: .shared
 // PTX: bar.sync
-// PTX: atom{{.*}}add.f32
+// blockDim=16 → exactly 1 atom.add.f32 per kernel (inside tx==0 guard only):
+// PTX-COUNT-1: atom{{.*}}add.f32
+// PTX-NOT:     atom{{.*}}add.f32
 
 // Kernel: 16 threads per block, one tile per block.
 // blockDim=16 → 4-step tree reduction (strides 8, 4, 2, 1).
