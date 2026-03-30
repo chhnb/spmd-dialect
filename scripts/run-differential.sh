@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # run-differential.sh — Cross-backend differential correctness harness.
 #
-# Compares CPU serial, OpenMP, and GPU results for all three kernel types.
-# Prints a summary table and exits non-zero if any comparison fails.
+# Compares CPU serial (SCF), OpenMP parallel, and GPU results for all three
+# kernel types. Prints a summary table and exits non-zero if any comparison
+# fails.
 #
 # Usage: bash scripts/run-differential.sh [--sm sm_80] [--outdir <dir>]
 #
@@ -11,35 +12,33 @@
 #   --outdir <dir>   Output directory (default: results/robustness)
 #   --help           Print this message
 #
-# ── Backend implementation notes ──────────────────────────────────────────────
+# ── Backend implementation ────────────────────────────────────────────────────
 #
-# cpu_ok  (CPU serial reference)
-#   Implemented via numpy. Numpy IS the authoritative CPU serial reference for
-#   these simple elementwise, stencil, and reduction kernels — it computes the
-#   exact same floating-point operations as the SPMD-compiled SCF path would.
-#   Full SPMD→SCF→LLVM→execute comparison requires mlir-cpu-runner or lli,
-#   neither of which is built in the current LLVM configuration.
+# cpu_ok  (CPU serial — SPMD→SCF→LLVM→native)
+#   Compiles the SPMD kernel through SCF→CF→LLVM→native object, links as a
+#   shared library, and invokes harness/run_host.py via ctypes. Compares the
+#   kernel output against the numpy reference; reports PASS/FAIL/ERROR.
 #
-# omp_ok  (OpenMP compile check)
-#   Compiles the SPMD kernel through the OpenMP→SCF→CF→LLVM pipeline and emits
-#   LLVM IR. Reports COMPILE_OK if the output is non-empty, ERROR otherwise.
-#   Execution of the compiled OpenMP binary requires linking against libomp and
-#   a driver program; this is left for a future integration step when a
-#   test execution harness (e.g., mlir-cpu-runner) is available in the build.
+# omp_ok  (OpenMP parallel — SPMD→OMP→LLVM→native)
+#   Same pipeline but adds --convert-spmd-to-openmp before SCF lowering.
+#   Links with -fopenmp (libomp via clang). Invokes run_host.py and compares
+#   against numpy. Reports PASS/FAIL/ERROR.
 #
 # gpu_ok  (GPU execution + numeric comparison vs numpy)
 #   Runs the SPMD-compiled GPU kernel via the CUDA Python harness and compares
-#   the result against the numpy reference numerically. This IS the differential:
-#   GPU output ≈ numpy reference (within tolerance) confirms the GPU backend
-#   produces the same result as the serial CPU reference. Requires CUDA GPU.
-#   Reports SKIP when no GPU is detected.
+#   against numpy numerically. Requires CUDA GPU. Reports SKIP when no GPU.
+#
+# ── Python detection ──────────────────────────────────────────────────────────
+#
+# For host execution (cpu_ok, omp_ok), run_host.py requires Python with numpy
+# and ctypes (stdlib). We try the venv first, then the system python3.
+# For GPU harnesses, the venv Python is required (cuda_driver is there).
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-PYTHON="${REPO_ROOT}/.venv/bin/python"
 LLVM_BUILD="${LLVM_BUILD:-/home/scratch.huanhuanc_gpu/spmd/llvm-project/build}"
 SPMD_BUILD="${SPMD_BUILD:-${REPO_ROOT}/build}"
 LLVM_BIN="${LLVM_BUILD}/bin"
@@ -59,15 +58,28 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! -x "$PYTHON" ]]; then
-  echo "ERROR: venv not found. Run: bash scripts/setup-venv.sh" >&2
-  exit 1
-fi
+# Python for GPU harnesses (needs cuda_driver in venv)
+PYTHON_GPU="${REPO_ROOT}/.venv/bin/python"
+
+# Python for host runners (needs numpy + ctypes; finds system python3 if venv broken)
+_find_host_python() {
+  for py in "${REPO_ROOT}/.venv/bin/python" python3 python; do
+    if command -v "$py" >/dev/null 2>&1 && "$py" -c "import numpy, ctypes" 2>/dev/null; then
+      echo "$py"
+      return 0
+    fi
+  done
+  return 1
+}
+PYTHON_HOST="$(_find_host_python || echo "")"
 
 if [[ -n "$SM_OVERRIDE" ]]; then
   SM="$SM_OVERRIDE"
 else
-  SM="$("$PYTHON" "${SCRIPT_DIR}/detect-gpu.py" 2>/dev/null || echo "")"
+  SM=""
+  if [[ -x "$PYTHON_GPU" ]]; then
+    SM="$("$PYTHON_GPU" "${SCRIPT_DIR}/detect-gpu.py" 2>/dev/null || echo "")"
+  fi
 fi
 
 mkdir -p "$OUTDIR"
@@ -79,93 +91,92 @@ echo ""
 
 FAIL=0
 
-# ── Helper: run a GPU python harness and extract result ───────────────────────
-run_harness() {
-  local script="$1"
-  shift
+# ── Helper: compile MLIR source to a position-independent shared library ──────
+# Usage: _compile_so <src_mlir> <pipeline_type> <out_so>
+# pipeline_type: "scf" or "omp"
+# Returns: 0 on success, 1 on failure (prints reason to stderr)
+_compile_so() {
+  local src="$1" pipeline="$2" out_so="$3"
+  local obj
+  obj="$(mktemp /tmp/diff_XXXXXX.o)"
+
+  # Build the MLIR lowering pipeline
+  local omp_flags=""
+  if [[ "$pipeline" == "omp" ]]; then
+    omp_flags="--convert-spmd-to-openmp"
+  fi
+
+  "$SPMD_BIN/spmd-opt" "$src" \
+      --normalize-spmd --plan-spmd-schedule \
+      --materialize-spmd-tiling $omp_flags --convert-spmd-to-scf \
+  | "$LLVM_BIN/mlir-opt" \
+      $( [[ "$pipeline" == "omp" ]] && echo "--convert-openmp-to-llvm" ) \
+      --convert-scf-to-cf --convert-cf-to-llvm --convert-arith-to-llvm \
+      --convert-index-to-llvm --convert-func-to-llvm --finalize-memref-to-llvm \
+      --reconcile-unrealized-casts \
+  | "$LLVM_BIN/mlir-translate" --mlir-to-llvmir \
+  | "$LLVM_BIN/llc" -filetype=obj -relocation-model=pic -o "$obj" 2>/dev/null || {
+    rm -f "$obj"
+    echo "ERROR: MLIR→native compilation failed for $src ($pipeline)" >&2
+    return 1
+  }
+
+  local link_flags="-shared -fPIC"
+  [[ "$pipeline" == "omp" ]] && link_flags="$link_flags -fopenmp"
+  clang $link_flags "$obj" -o "$out_so" 2>/dev/null || {
+    rm -f "$obj"
+    echo "ERROR: shared-lib link failed for $src ($pipeline)" >&2
+    return 1
+  }
+  rm -f "$obj"
+  return 0
+}
+
+# ── Helper: run host kernel via run_host.py ───────────────────────────────────
+# Sets $host (PASS/FAIL/ERROR/SKIP) and $err (numeric metric) in caller scope.
+_run_host() {
+  local so="$1" kernel="$2" arg_name="$3" arg_val="$4"
+  if [[ -z "$PYTHON_HOST" ]]; then
+    host="SKIP"; err="N/A"; return
+  fi
+  if [[ ! -f "$so" ]]; then
+    host="ERROR"; err="N/A"; return
+  fi
   local out
-  out="$("$PYTHON" "$script" "$@" 2>&1 || true)"
+  out="$("$PYTHON_HOST" "${REPO_ROOT}/harness/run_host.py" \
+      --lib "$so" --kernel "$kernel" "--${arg_name}" "$arg_val" 2>&1 || true)"
   if echo "$out" | grep -q "PASS"; then
-    echo "PASS"
-  elif echo "$out" | grep -qiE "error|cuda|driver"; then
-    echo "ERROR"
+    host="PASS"
+  elif echo "$out" | grep -qiE "error|Error|Exception"; then
+    host="ERROR"
   else
-    echo "FAIL"
+    host="FAIL"
   fi
+  # Extract last numeric field from the first PASS/FAIL line
+  err=$(echo "$out" | grep -E '(PASS|FAIL)' | head -1 \
+        | sed 's/[[:space:]]*\(PASS\|FAIL\)[[:space:]]*//' \
+        | awk '{print $NF}' || echo "N/A")
 }
 
-# ── Helper: extract numeric error metric from GPU harness output ──────────────
-# Extracts the last numeric field on the first PASS/FAIL line.
-# Works for ewise (max_err), stencil (max_err), and reduction (rel_err).
-extract_err_metric() {
-  local out="$1"
-  echo "$out" | grep -E '(PASS|FAIL)' | head -1 \
-    | sed 's/[[:space:]]*\(PASS\|FAIL\)[[:space:]]*//' \
-    | awk '{print $NF}' || echo "N/A"
-}
-
-# ── Helper: compute CPU reference result using numpy ─────────────────────────
-# Executes the kernel using numpy (the definitive CPU serial reference).
-# Returns "PASS" if numpy runs successfully, "FAIL" on exception.
-# This provides the CPU side of the differential comparison.
-run_cpu_numpy() {
-  local kernel="$1" size="$2"
-  "$PYTHON" -c "
-import numpy as np, sys
-rng = np.random.default_rng(42)
-kernel = '$kernel'
-if kernel == 'ewise':
-    N = int('$size')
-    A = rng.random(N, dtype=np.float32)
-    B = rng.random(N, dtype=np.float32)
-    C = A + B
-    assert C.shape == (N,)
-elif kernel == 'stencil':
-    parts = '$size'.split('x')
-    N, M = int(parts[0]), int(parts[1])
-    A = rng.random((N+1, M+1), dtype=np.float32)
-    B = A[:N, :M] + A[:N, 1:M+1] + A[1:N+1, :M]
-    assert B.shape == (N, M)
-elif kernel == 'reduction':
-    N = int('$size')
-    A = rng.random(N, dtype=np.float32)
-    ref = float(np.sum(A))
-    assert abs(ref) >= 0
-print('PASS')
-sys.exit(0)
-" 2>&1 || echo "FAIL"
-}
-
-# ── Helper: verify OMP pipeline compiles for a kernel ────────────────────────
-# Compiles through OMP→SCF→CF→LLVM dialect and emits LLVM IR.
-# Returns "COMPILE_OK" if compilation succeeds, "SKIP" if tools not found,
-# "ERROR" otherwise.
-compile_omp() {
-  local mlir_file="$1"
-  local out_ll="$2"
-  if [[ ! -x "$SPMD_BIN/spmd-opt" || ! -x "$LLVM_BIN/mlir-opt" ]]; then
-    echo "SKIP"
-    return
+# ── Helper: run GPU harness capturing full output, return status + err ─────────
+# Sets $gpu (PASS/FAIL/ERROR/SKIP) and $err (numeric metric) in caller scope.
+_run_gpu() {
+  local script="$1"; shift
+  if [[ -z "$SM" || ! -x "$PYTHON_GPU" ]]; then
+    gpu="SKIP"; err="N/A"; return
   fi
-  local err
-  err=$(
-    "$SPMD_BIN/spmd-opt" "$mlir_file" \
-        --normalize-spmd --plan-spmd-schedule \
-        --materialize-spmd-tiling \
-        --convert-spmd-to-openmp --convert-spmd-to-scf \
-    | "$LLVM_BIN/mlir-opt" \
-        --convert-openmp-to-llvm --convert-scf-to-cf \
-        --convert-cf-to-llvm --convert-arith-to-llvm \
-        --convert-index-to-llvm --reconcile-unrealized-casts \
-    | "$LLVM_BIN/mlir-translate" --mlir-to-llvmir \
-        -o "$out_ll" 2>&1
-  ) || true
-  if [[ -f "$out_ll" && -s "$out_ll" ]]; then
-    echo "COMPILE_OK"
+  local raw
+  raw="$("$PYTHON_GPU" "$script" "$@" 2>&1 || true)"
+  if echo "$raw" | grep -q "PASS"; then
+    gpu="PASS"
+  elif echo "$raw" | grep -qiE "error|cuda|driver"; then
+    gpu="ERROR"
   else
-    echo "ERROR: $err" >&2
-    echo "ERROR"
+    gpu="FAIL"
   fi
+  err=$(echo "$raw" | grep -E '(PASS|FAIL)' | head -1 \
+        | sed 's/[[:space:]]*\(PASS\|FAIL\)[[:space:]]*//' \
+        | awk '{print $NF}' || echo "N/A")
 }
 
 # ── Helper: print table row ───────────────────────────────────────────────────
@@ -177,164 +188,152 @@ print_row() {
 print_row "kernel" "size" "tile" "cpu_ok" "omp_ok" "gpu_ok" "err_metric"
 print_row "------" "----" "----" "------" "------" "------" "----------"
 
-# ── Compute CPU numpy references ─────────────────────────────────────────────
-# The numpy computation IS the CPU serial reference. It provides the ground
-# truth against which GPU results are compared (the differential).
-EWISE_MLIR="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx.mlir"
-REDUCTION_MLIR="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-reduction.mlir"
-OMP_EWISE_LL="/tmp/diff_omp_ewise.ll"
-OMP_REDUCTION_LL="/tmp/diff_omp_reduction.ll"
+# ── Compile SCF and OMP shared libraries ─────────────────────────────────────
 
-# Compute cpu_ok via numpy (always PASS when numpy is available).
-CPU_EWISE=$(run_cpu_numpy "ewise" "1024")
-CPU_EWISE_LARGE=$(run_cpu_numpy "ewise" "1048576")
-CPU_STENCIL_128=$(run_cpu_numpy "stencil" "128x128")
-CPU_STENCIL_512=$(run_cpu_numpy "stencil" "512x512")
-CPU_REDUCTION_65K=$(run_cpu_numpy "reduction" "65536")
-CPU_REDUCTION_1M=$(run_cpu_numpy "reduction" "1048576")
+EWISE_SRC="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx.mlir"
+STENCIL_SRC="${REPO_ROOT}/test/SPMD/differential-stencil.mlir"
+REDUCTION_SRC="${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-reduction.mlir"
 
-# OMP compilation: verifies the OpenMP pipeline doesn't crash (compile-only).
-OMP_EWISE=$(compile_omp "$EWISE_MLIR" "$OMP_EWISE_LL")
-OMP_REDUCTION=$(compile_omp "$REDUCTION_MLIR" "$OMP_REDUCTION_LL")
+EWISE_SCF_SO="/tmp/diff_ewise_scf_$$.so"
+EWISE_OMP_SO="/tmp/diff_ewise_omp_$$.so"
+STENCIL_SCF_SO="/tmp/diff_stencil_scf_$$.so"
+STENCIL_OMP_SO="/tmp/diff_stencil_omp_$$.so"
+REDUCTION_SCF_SO="/tmp/diff_reduction_scf_$$.so"
+REDUCTION_OMP_SO="/tmp/diff_reduction_omp_$$.so"
 
-# ── Generate PTX for GPU ──────────────────────────────────────────────────────
+echo "Compiling CPU/OMP kernels..."
+_compile_so "$EWISE_SRC"     scf "$EWISE_SCF_SO"     || true
+_compile_so "$EWISE_SRC"     omp "$EWISE_OMP_SO"     || true
+_compile_so "$STENCIL_SRC"   scf "$STENCIL_SCF_SO"   || true
+_compile_so "$STENCIL_SRC"   omp "$STENCIL_OMP_SO"   || true
+_compile_so "$REDUCTION_SRC" scf "$REDUCTION_SCF_SO" || true
+_compile_so "$REDUCTION_SRC" omp "$REDUCTION_OMP_SO" || true
+echo ""
+
+# ── Generate PTX for GPU kernels ──────────────────────────────────────────────
 if [[ -n "$SM" ]]; then
-  EWISE_PTX="/tmp/diff_ewise_${SM}.ptx"
-  STENCIL_PTX="/tmp/diff_stencil_${SM}.ptx"
-  REDUCTION_PTX="/tmp/diff_reduction_${SM}.ptx"
+  EWISE_PTX="/tmp/diff_ewise_${SM}_$$.ptx"
+  STENCIL_PTX="/tmp/diff_stencil_${SM}_$$.ptx"
+  REDUCTION_PTX="/tmp/diff_reduction_${SM}_$$.ptx"
 
   bash "${SCRIPT_DIR}/gen-ptx.sh" \
-      "$EWISE_MLIR" \
-      ewise "$EWISE_PTX" "$SM" >/dev/null 2>&1
+      "$EWISE_SRC" ewise "$EWISE_PTX" "$SM" >/dev/null 2>&1 || true
 
   bash "${SCRIPT_DIR}/gen-ptx.sh" \
       "${REPO_ROOT}/test/SPMD/lower-to-gpu-nvptx-promoted.mlir" \
-      promoted "$STENCIL_PTX" "$SM" >/dev/null 2>&1
+      promoted "$STENCIL_PTX" "$SM" >/dev/null 2>&1 || true
 
   bash "${SCRIPT_DIR}/gen-ptx.sh" \
-      "$REDUCTION_MLIR" \
-      ewise "$REDUCTION_PTX" "$SM" >/dev/null 2>&1
-  GPU_AVAILABLE=1
-else
-  GPU_AVAILABLE=0
+      "$REDUCTION_SRC" ewise "$REDUCTION_PTX" "$SM" >/dev/null 2>&1 || true
 fi
 
-# ── Helper: run GPU harness capturing full output, return status + err metric ──
-# Sets $gpu (PASS/FAIL/ERROR/SKIP) and $err (numeric metric or N/A) in caller.
-run_harness_full() {
-  local script="$1"; shift
-  local raw
-  raw="$("$PYTHON" "$script" "$@" 2>&1 || true)"
-  if echo "$raw" | grep -q "PASS"; then
-    gpu="PASS"
-  elif echo "$raw" | grep -qiE "error|cuda|driver"; then
-    gpu="ERROR"
-  else
-    gpu="FAIL"
-  fi
-  err=$(extract_err_metric "$raw")
-}
-
 # ── Kernel 1: ewise N=1024 ────────────────────────────────────────────────────
-# cpu: numpy reference (PASS when numpy available)
-# omp: MLIR compile-only check via OMP→SCF→CF→LLVM pipeline
-# gpu: run_ewise.py validates GPU result against numpy reference
 {
-  cpu="$CPU_EWISE"
-  omp="$OMP_EWISE"
-  if [[ $GPU_AVAILABLE -eq 1 ]]; then
-    run_harness_full "${REPO_ROOT}/harness/run_ewise.py" \
+  _run_host "$EWISE_SCF_SO" ewise sizes 1024; cpu="$host"; cpu_err="$err"
+  _run_host "$EWISE_OMP_SO" ewise sizes 1024; omp="$host"
+  if [[ -n "$SM" ]]; then
+    _run_gpu "${REPO_ROOT}/harness/run_ewise.py" \
         --ptx "$EWISE_PTX" --sizes 1024
+    gpu="$gpu"
   else
     gpu="SKIP"; err="N/A"
   fi
-  [[ "$cpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$omp" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "ewise" "N=1024" "tile=32" "$cpu" "$omp" "$gpu" "$err"
+  [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
+  print_row "ewise" "N=1024" "tile=32" "$cpu" "$omp" "$gpu" "$cpu_err"
 }
 
 # ── Kernel 1: ewise N=1M ──────────────────────────────────────────────────────
 {
-  cpu="$CPU_EWISE_LARGE"
-  omp="$OMP_EWISE"
-  if [[ $GPU_AVAILABLE -eq 1 ]]; then
-    run_harness_full "${REPO_ROOT}/harness/run_ewise.py" \
+  _run_host "$EWISE_SCF_SO" ewise sizes 1048576; cpu="$host"; cpu_err="$err"
+  _run_host "$EWISE_OMP_SO" ewise sizes 1048576; omp="$host"
+  if [[ -n "$SM" ]]; then
+    _run_gpu "${REPO_ROOT}/harness/run_ewise.py" \
         --ptx "$EWISE_PTX" --sizes 1048576
+    gpu="$gpu"
   else
     gpu="SKIP"; err="N/A"
   fi
-  [[ "$cpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$omp" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "ewise" "N=1048576" "tile=32" "$cpu" "$omp" "$gpu" "$err"
+  [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
+  print_row "ewise" "N=1048576" "tile=32" "$cpu" "$omp" "$gpu" "$cpu_err"
 }
 
-# ── Kernel 2: promoted stencil 128x128 ───────────────────────────────────────
-# cpu: numpy reference for 128x128 stencil footprint
-# omp: SKIP — promoted stencil OMP pipeline not yet implemented
-# gpu: run_promoted_stencil.py validates GPU result against numpy reference
+# ── Kernel 2: stencil 128x128 ─────────────────────────────────────────────────
 {
-  cpu="$CPU_STENCIL_128"
-  omp="SKIP"
-  if [[ $GPU_AVAILABLE -eq 1 ]]; then
-    run_harness_full "${REPO_ROOT}/harness/run_promoted_stencil.py" \
+  _run_host "$STENCIL_SCF_SO" stencil shapes 128x128; cpu="$host"; cpu_err="$err"
+  _run_host "$STENCIL_OMP_SO" stencil shapes 128x128; omp="$host"
+  if [[ -n "$SM" ]]; then
+    _run_gpu "${REPO_ROOT}/harness/run_promoted_stencil.py" \
         --ptx "$STENCIL_PTX" --shapes 128x128 --tile-row 32 --tile-col 8
+    gpu="$gpu"
   else
     gpu="SKIP"; err="N/A"
   fi
-  [[ "$cpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "stencil" "128x128" "32x8" "$cpu" "$omp" "$gpu" "$err"
+  [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
+  print_row "stencil" "128x128" "32x8" "$cpu" "$omp" "$gpu" "$cpu_err"
 }
 
-# ── Kernel 2: promoted stencil 512x512 ───────────────────────────────────────
+# ── Kernel 2: stencil 512x512 ─────────────────────────────────────────────────
 {
-  cpu="$CPU_STENCIL_512"
-  omp="SKIP"
-  if [[ $GPU_AVAILABLE -eq 1 ]]; then
-    run_harness_full "${REPO_ROOT}/harness/run_promoted_stencil.py" \
+  _run_host "$STENCIL_SCF_SO" stencil shapes 512x512; cpu="$host"; cpu_err="$err"
+  _run_host "$STENCIL_OMP_SO" stencil shapes 512x512; omp="$host"
+  if [[ -n "$SM" ]]; then
+    _run_gpu "${REPO_ROOT}/harness/run_promoted_stencil.py" \
         --ptx "$STENCIL_PTX" --shapes 512x512 --tile-row 32 --tile-col 8
+    gpu="$gpu"
   else
     gpu="SKIP"; err="N/A"
   fi
-  [[ "$cpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "stencil" "512x512" "32x8" "$cpu" "$omp" "$gpu" "$err"
+  [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
+  print_row "stencil" "512x512" "32x8" "$cpu" "$omp" "$gpu" "$cpu_err"
 }
 
 # ── Kernel 3: reduction N=65536 ──────────────────────────────────────────────
-# omp: compile-only check (OMP reduction uses different lowering; no execution)
 {
-  cpu="$CPU_REDUCTION_65K"
-  omp="$OMP_REDUCTION"
-  if [[ $GPU_AVAILABLE -eq 1 ]]; then
-    run_harness_full "${REPO_ROOT}/harness/run_reduction.py" \
+  _run_host "$REDUCTION_SCF_SO" reduction sizes 65536; cpu="$host"; cpu_err="$err"
+  _run_host "$REDUCTION_OMP_SO" reduction sizes 65536; omp="$host"
+  if [[ -n "$SM" ]]; then
+    _run_gpu "${REPO_ROOT}/harness/run_reduction.py" \
         --ptx "$REDUCTION_PTX" --sizes 65536
+    gpu="$gpu"
   else
     gpu="SKIP"; err="N/A"
   fi
-  [[ "$cpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$omp" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "reduction" "N=65536" "tile=256" "$cpu" "$omp" "$gpu" "$err"
+  [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
+  print_row "reduction" "N=65536" "tile=256" "$cpu" "$omp" "$gpu" "$cpu_err"
 }
 
 # ── Kernel 3: reduction N=1M ─────────────────────────────────────────────────
 {
-  cpu="$CPU_REDUCTION_1M"
-  omp="$OMP_REDUCTION"
-  if [[ $GPU_AVAILABLE -eq 1 ]]; then
-    run_harness_full "${REPO_ROOT}/harness/run_reduction.py" \
+  _run_host "$REDUCTION_SCF_SO" reduction sizes 1048576; cpu="$host"; cpu_err="$err"
+  _run_host "$REDUCTION_OMP_SO" reduction sizes 1048576; omp="$host"
+  if [[ -n "$SM" ]]; then
+    _run_gpu "${REPO_ROOT}/harness/run_reduction.py" \
         --ptx "$REDUCTION_PTX" --sizes 1048576
+    gpu="$gpu"
   else
     gpu="SKIP"; err="N/A"
   fi
-  [[ "$cpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$omp" == "ERROR" ]] && FAIL=$((FAIL+1))
-  [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "reduction" "N=1048576" "tile=256" "$cpu" "$omp" "$gpu" "$err"
+  [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
+  print_row "reduction" "N=1048576" "tile=256" "$cpu" "$omp" "$gpu" "$cpu_err"
 }
+
+# ── Cleanup temp shared libs ──────────────────────────────────────────────────
+rm -f "$EWISE_SCF_SO" "$EWISE_OMP_SO" \
+      "$STENCIL_SCF_SO" "$STENCIL_OMP_SO" \
+      "$REDUCTION_SCF_SO" "$REDUCTION_OMP_SO"
+[[ -n "$SM" ]] && rm -f "$EWISE_PTX" "$STENCIL_PTX" "$REDUCTION_PTX" 2>/dev/null || true
 
 echo ""
 if [[ $FAIL -gt 0 ]]; then

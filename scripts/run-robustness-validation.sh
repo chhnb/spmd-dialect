@@ -182,15 +182,20 @@ run_stencil() {
 
 # Helper: run reduction and parse result.
 # Each tile config uses its own PTX (compiled with that tile's blockDim.x baked in).
+# --perf-sizes is set to the sweep row's N so perf columns match the correctness row.
 run_reduction() {
   local ptx="$1" size="$2" tile="$3"
   local out
   out="$("$PYTHON" "${REPO_ROOT}/harness/run_reduction.py" \
-      --ptx "$ptx" --sizes "$size" --tile-size "$tile" 2>&1 || true)"
-  local ok rel
+      --ptx "$ptx" --sizes "$size" --perf --perf-sizes "$size" \
+      --tile-size "$tile" 2>&1 || true)"
+  local ok rel cpu gpu spd
   ok=$(_classify_result "$out")
   rel=$(_parse_rel_err "$out")
-  append_row "reduction" "$size" "$tile" "no" "$ok" "$rel" "N/A" "N/A" "N/A"
+  cpu=$(_parse_cpu_ms  "$out")
+  gpu=$(_parse_gpu_ms  "$out")
+  spd=$(_parse_speedup "$out")
+  append_row "reduction" "$size" "$tile" "no" "$ok" "$rel" "$cpu" "$gpu" "$spd"
 }
 
 # ── Kernel 1: ewise ────────────────────────────────────────────────────────────

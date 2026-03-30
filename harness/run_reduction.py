@@ -141,6 +141,8 @@ def main():
     ap.add_argument("--ptx",   default="/tmp/reduction.ptx")
     ap.add_argument("--sizes", default="1024,65536,1048576")
     ap.add_argument("--perf",  action="store_true")
+    ap.add_argument("--perf-sizes", default="",
+                    help="Sizes to use for performance timing (default: same as --sizes).")
     ap.add_argument("--tile-size", type=int, default=_DEFAULT_TILE_SIZE,
                     help="Tile size baked into the PTX (blockDim.x). "
                          "Must match the spmd.tile_sizes used when compiling the PTX.")
@@ -148,6 +150,10 @@ def main():
 
     tile_size = args.tile_size
     sizes = [int(s) for s in args.sizes.split(",")]
+
+    # Performance sizes default to same as correctness sizes
+    perf_sizes_str = args.perf_sizes if args.perf_sizes else args.sizes
+    perf_sizes = [int(s) for s in perf_sizes_str.split(",")]
 
     print(f"Loading PTX: {args.ptx}")
     cd.init()
@@ -158,7 +164,6 @@ def main():
     ok = test_correctness(fn, sizes, tile_size)
 
     if args.perf:
-        perf_sizes = [1_000_000, 10_000_000, 100_000_000]
         print("\n=== Performance ===")
         test_performance(fn, perf_sizes, tile_size)
 
