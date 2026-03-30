@@ -18,6 +18,11 @@ config.substitutions.append(("%PATH%", config.environment["PATH"]))
 config.substitutions.append(("%shlibext", config.llvm_shlib_ext))
 
 llvm_config.with_system_environment(["HOME", "INCLUDE", "LIB", "TMP", "TEMP"])
+
+# Propagate LLVM shared-library directory so spmd-opt can find its RPATH libs
+# on systems where the default GLIBC version doesn't satisfy the build target.
+llvm_libs_dir = os.path.join(os.path.dirname(config.llvm_tools_dir), "lib")
+llvm_config.with_environment("LD_LIBRARY_PATH", llvm_libs_dir, append_path=True)
 llvm_config.use_default_substitutions()
 
 config.excludes = ["Inputs", "CMakeLists.txt", "README.txt"]
