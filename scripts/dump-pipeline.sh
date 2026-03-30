@@ -13,17 +13,17 @@
 # Options:
 #   --outdir <dir>   Output directory (default: /tmp/spmd-pipeline-dump)
 #   --stage <name>   Dump only a specific stage and exit.
-#                    Valid: normalize, plan, promote, gpu, outline, nvvm
+#                    Valid: normalize, materialize, promote, gpu, outline, nvvm
 #   --sm <level>     SM level for NVVM stage (default: sm_80)
 #   --help           Print this message
 #
 # Output files:
-#   <outdir>/01-after-normalize.mlir   (--normalize-spmd; generic form)
-#   <outdir>/02-after-plan.mlir        (+ --plan-spmd-schedule; generic form)
-#   <outdir>/03-after-promote.mlir     (+ --promote-group-memory; generic form)
-#   <outdir>/04-after-gpu.mlir         (+ --convert-spmd-to-gpu)
-#   <outdir>/05-after-outline.mlir     (+ --gpu-kernel-outlining)
-#   <outdir>/06-after-nvvm.mlir        (mlir-opt NVVM lowering)
+#   <outdir>/01-after-normalize.mlir    (--normalize-spmd; generic form)
+#   <outdir>/02-after-materialize.mlir  (+ --plan-spmd-schedule --materialize-spmd-tiling; generic form)
+#   <outdir>/03-after-promote.mlir      (+ --promote-group-memory; generic form)
+#   <outdir>/04-after-gpu.mlir          (+ --convert-spmd-to-gpu)
+#   <outdir>/05-after-outline.mlir      (+ --gpu-kernel-outlining)
+#   <outdir>/06-after-nvvm.mlir         (mlir-opt NVVM lowering)
 
 set -euo pipefail
 
@@ -61,10 +61,10 @@ done
 # Validate stage filter.
 if [[ -n "$STAGE_FILTER" ]]; then
   case "$STAGE_FILTER" in
-    normalize|plan|promote|gpu|outline|nvvm) ;;
+    normalize|materialize|promote|gpu|outline|nvvm) ;;
     *)
       echo "ERROR: unknown stage '${STAGE_FILTER}'" >&2
-      echo "       Valid stages: normalize, plan, promote, gpu, outline, nvvm" >&2
+      echo "       Valid stages: normalize, materialize, promote, gpu, outline, nvvm" >&2
       exit 1 ;;
   esac
 fi
@@ -136,37 +136,35 @@ dump_lowered_stage() {
 }
 
 # ── Stage 1: after normalize ────────────────────────────────────────────────
-# NormalizeSPMD transforms flat foralls to (group, lane) nesting.
+# NormalizeSPMD transforms flat foralls to canonical (group, lane) nesting.
 # Emitted in generic form; validated by mlir-opt --allow-unregistered-dialect.
 dump_spmd_stage "normalize" "01" \
   --normalize-spmd
 
-# ── Stage 2: after plan ─────────────────────────────────────────────────────
-# PlanSPMDSchedule assigns tile_sizes and memory_policy.
+# ── Stage 2: after materialize ──────────────────────────────────────────────
+# PlanSPMDSchedule assigns tile_sizes and memory_policy; MaterializeSPMDTiling
+# expands the tiled iteration domain.
 # Emitted in generic form; validated by mlir-opt --allow-unregistered-dialect.
-dump_spmd_stage "plan" "02" \
-  --normalize-spmd --plan-spmd-schedule
+dump_spmd_stage "materialize" "02" \
+  --normalize-spmd --plan-spmd-schedule --materialize-spmd-tiling
 
 # ── Stage 3: after promote ──────────────────────────────────────────────────
 # PromoteGroupMemory inserts shared-memory allocations and barriers.
-# This is the final SPMD-dialect stage; emitted in generic form.
-# Note: --materialize-spmd-tiling is NOT applied here — the promoted pipeline
-# goes directly normalize → plan → promote → gpu (materialization creates
-# spmd.if inside scf.if which violates the GPU-barrier invariant).
+# Emitted in generic form; validated by mlir-opt --allow-unregistered-dialect.
 dump_spmd_stage "promote" "03" \
-  --normalize-spmd --plan-spmd-schedule \
+  --normalize-spmd --plan-spmd-schedule --materialize-spmd-tiling \
   --promote-group-memory
 
 # ── Stage 4: after GPU lowering ─────────────────────────────────────────────
 # ConvertSPMDToGPU replaces SPMD dialect with gpu/scf/arith dialect ops.
 dump_lowered_stage "gpu" "04" \
-  --normalize-spmd --plan-spmd-schedule \
+  --normalize-spmd --plan-spmd-schedule --materialize-spmd-tiling \
   --promote-group-memory \
   --convert-spmd-to-gpu
 
 # ── Stage 5: after kernel outlining ─────────────────────────────────────────
 dump_lowered_stage "outline" "05" \
-  --normalize-spmd --plan-spmd-schedule \
+  --normalize-spmd --plan-spmd-schedule --materialize-spmd-tiling \
   --promote-group-memory \
   --convert-spmd-to-gpu \
   "--gpu-kernel-outlining" "--nvvm-attach-target=chip=${SM}"
@@ -175,7 +173,7 @@ dump_lowered_stage "outline" "05" \
 STAGE6="${OUTDIR}/06-after-nvvm.mlir"
 echo "── Stage: nvvm ──────────────────────────────────────"
 "$SPMD_BIN/spmd-opt" "$INPUT_ABS" \
-  --normalize-spmd --plan-spmd-schedule \
+  --normalize-spmd --plan-spmd-schedule --materialize-spmd-tiling \
   --promote-group-memory \
   --convert-spmd-to-gpu \
   "--gpu-kernel-outlining" "--nvvm-attach-target=chip=${SM}" \
