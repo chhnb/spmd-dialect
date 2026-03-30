@@ -73,6 +73,15 @@ _find_host_python() {
 }
 PYTHON_HOST="$(_find_host_python || echo "")"
 
+# C linker for shared libs: prefer clang (libomp) then gcc (libgomp, also has __kmpc_* compat)
+_find_c_linker() {
+  for cc in clang gcc cc; do
+    if command -v "$cc" >/dev/null 2>&1; then echo "$cc"; return 0; fi
+  done
+  return 1
+}
+CC_LINKER="$(_find_c_linker || echo "gcc")"
+
 if [[ -n "$SM_OVERRIDE" ]]; then
   SM="$SM_OVERRIDE"
 else
@@ -123,13 +132,25 @@ _compile_so() {
 
   local link_flags="-shared -fPIC"
   [[ "$pipeline" == "omp" ]] && link_flags="$link_flags -fopenmp"
-  clang $link_flags "$obj" -o "$out_so" 2>/dev/null || {
+  $CC_LINKER $link_flags "$obj" -o "$out_so" 2>/dev/null || {
     rm -f "$obj"
     echo "ERROR: shared-lib link failed for $src ($pipeline)" >&2
     return 1
   }
   rm -f "$obj"
   return 0
+}
+
+# ── Helper: compute dominant err_metric across backends ───────────────────────
+# Usage: _dominant_err <cpu_err> <omp_err> <gpu_err>
+# Returns: gpu_err if GPU ran (not N/A), else max(cpu_err, omp_err) by float.
+_dominant_err() {
+  local ce="$1" oe="$2" ge="$3"
+  if [[ "$ge" != "N/A" ]]; then echo "$ge"; return; fi
+  if [[ "$ce" == "N/A" && "$oe" == "N/A" ]]; then echo "N/A"; return; fi
+  if [[ "$ce" == "N/A" ]]; then echo "$oe"; return; fi
+  if [[ "$oe" == "N/A" ]]; then echo "$ce"; return; fi
+  echo "$ce $oe" | awk '{printf "%s", ($1+0 > $2+0) ? $1 : $2}'
 }
 
 # ── Helper: run host kernel via run_host.py ───────────────────────────────────
@@ -230,103 +251,109 @@ fi
 # ── Kernel 1: ewise N=1024 ────────────────────────────────────────────────────
 {
   _run_host "$EWISE_SCF_SO" ewise sizes 1024; cpu="$host"; cpu_err="$err"
-  _run_host "$EWISE_OMP_SO" ewise sizes 1024; omp="$host"
+  _run_host "$EWISE_OMP_SO" ewise sizes 1024; omp="$host"; omp_err="$err"
   if [[ -n "$SM" ]]; then
     _run_gpu "${REPO_ROOT}/harness/run_ewise.py" \
         --ptx "$EWISE_PTX" --sizes 1024
-    gpu="$gpu"
+    gpu="$gpu"; gpu_err="$err"
   else
-    gpu="SKIP"; err="N/A"
+    gpu="SKIP"; gpu_err="N/A"
   fi
+  err_metric="$(_dominant_err "$cpu_err" "$omp_err" "$gpu_err")"
   [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "ewise" "N=1024" "tile=32" "$cpu" "$omp" "$gpu" "$cpu_err"
+  print_row "ewise" "N=1024" "tile=32" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
 # ── Kernel 1: ewise N=1M ──────────────────────────────────────────────────────
 {
   _run_host "$EWISE_SCF_SO" ewise sizes 1048576; cpu="$host"; cpu_err="$err"
-  _run_host "$EWISE_OMP_SO" ewise sizes 1048576; omp="$host"
+  _run_host "$EWISE_OMP_SO" ewise sizes 1048576; omp="$host"; omp_err="$err"
   if [[ -n "$SM" ]]; then
     _run_gpu "${REPO_ROOT}/harness/run_ewise.py" \
         --ptx "$EWISE_PTX" --sizes 1048576
-    gpu="$gpu"
+    gpu="$gpu"; gpu_err="$err"
   else
-    gpu="SKIP"; err="N/A"
+    gpu="SKIP"; gpu_err="N/A"
   fi
+  err_metric="$(_dominant_err "$cpu_err" "$omp_err" "$gpu_err")"
   [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "ewise" "N=1048576" "tile=32" "$cpu" "$omp" "$gpu" "$cpu_err"
+  print_row "ewise" "N=1048576" "tile=32" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
 # ── Kernel 2: stencil 128x128 ─────────────────────────────────────────────────
 {
   _run_host "$STENCIL_SCF_SO" stencil shapes 128x128; cpu="$host"; cpu_err="$err"
-  _run_host "$STENCIL_OMP_SO" stencil shapes 128x128; omp="$host"
+  _run_host "$STENCIL_OMP_SO" stencil shapes 128x128; omp="$host"; omp_err="$err"
   if [[ -n "$SM" ]]; then
     _run_gpu "${REPO_ROOT}/harness/run_promoted_stencil.py" \
         --ptx "$STENCIL_PTX" --shapes 128x128 --tile-row 32 --tile-col 8
-    gpu="$gpu"
+    gpu="$gpu"; gpu_err="$err"
   else
-    gpu="SKIP"; err="N/A"
+    gpu="SKIP"; gpu_err="N/A"
   fi
+  err_metric="$(_dominant_err "$cpu_err" "$omp_err" "$gpu_err")"
   [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "stencil" "128x128" "32x8" "$cpu" "$omp" "$gpu" "$cpu_err"
+  print_row "stencil" "128x128" "32x8" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
 # ── Kernel 2: stencil 512x512 ─────────────────────────────────────────────────
 {
   _run_host "$STENCIL_SCF_SO" stencil shapes 512x512; cpu="$host"; cpu_err="$err"
-  _run_host "$STENCIL_OMP_SO" stencil shapes 512x512; omp="$host"
+  _run_host "$STENCIL_OMP_SO" stencil shapes 512x512; omp="$host"; omp_err="$err"
   if [[ -n "$SM" ]]; then
     _run_gpu "${REPO_ROOT}/harness/run_promoted_stencil.py" \
         --ptx "$STENCIL_PTX" --shapes 512x512 --tile-row 32 --tile-col 8
-    gpu="$gpu"
+    gpu="$gpu"; gpu_err="$err"
   else
-    gpu="SKIP"; err="N/A"
+    gpu="SKIP"; gpu_err="N/A"
   fi
+  err_metric="$(_dominant_err "$cpu_err" "$omp_err" "$gpu_err")"
   [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "stencil" "512x512" "32x8" "$cpu" "$omp" "$gpu" "$cpu_err"
+  print_row "stencil" "512x512" "32x8" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
 # ── Kernel 3: reduction N=65536 ──────────────────────────────────────────────
 {
   _run_host "$REDUCTION_SCF_SO" reduction sizes 65536; cpu="$host"; cpu_err="$err"
-  _run_host "$REDUCTION_OMP_SO" reduction sizes 65536; omp="$host"
+  _run_host "$REDUCTION_OMP_SO" reduction sizes 65536; omp="$host"; omp_err="$err"
   if [[ -n "$SM" ]]; then
     _run_gpu "${REPO_ROOT}/harness/run_reduction.py" \
         --ptx "$REDUCTION_PTX" --sizes 65536
-    gpu="$gpu"
+    gpu="$gpu"; gpu_err="$err"
   else
-    gpu="SKIP"; err="N/A"
+    gpu="SKIP"; gpu_err="N/A"
   fi
+  err_metric="$(_dominant_err "$cpu_err" "$omp_err" "$gpu_err")"
   [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "reduction" "N=65536" "tile=256" "$cpu" "$omp" "$gpu" "$cpu_err"
+  print_row "reduction" "N=65536" "tile=256" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
 # ── Kernel 3: reduction N=1M ─────────────────────────────────────────────────
 {
   _run_host "$REDUCTION_SCF_SO" reduction sizes 1048576; cpu="$host"; cpu_err="$err"
-  _run_host "$REDUCTION_OMP_SO" reduction sizes 1048576; omp="$host"
+  _run_host "$REDUCTION_OMP_SO" reduction sizes 1048576; omp="$host"; omp_err="$err"
   if [[ -n "$SM" ]]; then
     _run_gpu "${REPO_ROOT}/harness/run_reduction.py" \
         --ptx "$REDUCTION_PTX" --sizes 1048576
-    gpu="$gpu"
+    gpu="$gpu"; gpu_err="$err"
   else
-    gpu="SKIP"; err="N/A"
+    gpu="SKIP"; gpu_err="N/A"
   fi
+  err_metric="$(_dominant_err "$cpu_err" "$omp_err" "$gpu_err")"
   [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
   [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
-  print_row "reduction" "N=1048576" "tile=256" "$cpu" "$omp" "$gpu" "$cpu_err"
+  print_row "reduction" "N=1048576" "tile=256" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
 # ── Cleanup temp shared libs ──────────────────────────────────────────────────
