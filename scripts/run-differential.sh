@@ -73,7 +73,7 @@ _find_host_python() {
 }
 PYTHON_HOST="$(_find_host_python || echo "")"
 
-# C linker for shared libs: prefer clang (libomp) then gcc (libgomp, also has __kmpc_* compat)
+# C linker for shared libs: prefer clang (links libomp) then gcc
 _find_c_linker() {
   for cc in clang gcc cc; do
     if command -v "$cc" >/dev/null 2>&1; then echo "$cc"; return 0; fi
@@ -81,6 +81,7 @@ _find_c_linker() {
   return 1
 }
 CC_LINKER="$(_find_c_linker || echo "gcc")"
+
 
 if [[ -n "$SM_OVERRIDE" ]]; then
   SM="$SM_OVERRIDE"
@@ -130,9 +131,23 @@ _compile_so() {
     return 1
   }
 
-  local link_flags="-shared -fPIC"
-  [[ "$pipeline" == "omp" ]] && link_flags="$link_flags -fopenmp"
-  $CC_LINKER $link_flags "$obj" -o "$out_so" 2>/dev/null || {
+  local -a link_flags=(-shared -fPIC)
+  if [[ "$pipeline" == "omp" ]]; then
+    # MLIR emits __kmpc_* (LLVM/Intel OMP ABI); prefer libiomp5 over libgomp.
+    # --no-as-needed forces NEEDED entry even when ld sees only unresolved refs
+    # (in -shared mode ld allows undefined symbols, so --as-needed would skip it).
+    local _omp_dir
+    for _omp_dir in "$HOME/.local/lib" /usr/lib/x86_64-linux-gnu /usr/lib; do
+      if [[ -f "$_omp_dir/libiomp5.so" ]]; then
+        link_flags+=(-L"$_omp_dir" -Wl,--no-as-needed -liomp5 -Wl,--as-needed -Wl,-rpath,"$_omp_dir")
+        break
+      fi
+    done
+    if [[ "${link_flags[*]}" != *iomp5* ]]; then
+      link_flags+=(-fopenmp)
+    fi
+  fi
+  $CC_LINKER "${link_flags[@]}" "$obj" -o "$out_so" 2>/dev/null || {
     rm -f "$obj"
     echo "ERROR: shared-lib link failed for $src ($pipeline)" >&2
     return 1

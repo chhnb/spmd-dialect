@@ -27,28 +27,23 @@ _DEFAULT_TILE_COL = 8
 
 # ── ABI reference (derived from LLVM IR, not PTX text) ───────────────────────
 #
-# define ptx_kernel void @promoted_stencil_kernel(
-#   i64 %0,       param_0  = TILE_ROW  (blockIdx.x step)
-#   i64 %1,       param_1  = TILE_COL  (blockIdx.y step; compute divisor)
-#   i64 %2,       param_2  = COOP_COLS (= TILE_COL+1; coop-copy linearisation)
-#   i64 %3,       param_3  = COOP_THREADS (= (TILE_ROW+1)*(TILE_COL+1); blockDim.x)
-#   ptr %4,       param_4  = A.base_ptr
-#   ptr %5,       param_5  = A.aligned_ptr      ← actual data pointer
-#   i64 %6,       param_6  = A.offset (0)
-#   i64 %7,       param_7  = A.size[0] = N
-#   i64 %8,       param_8  = A.size[1] = M
-#   i64 %9,       param_9  = A.stride[0] = M    ← row-major stride
-#   i64 %10,      param_10 = A.stride[1] = 1
-#   i64 %11,      param_11 = 0  (dim-index for row boundary check)
-#   i64 %12,      param_12 = 1  (dim-index for col boundary check AND stencil offset)
-#   i64 %13,      param_13 = COMPUTE_THREADS (= TILE_ROW*TILE_COL; compute phase bound)
-#   ptr %14,      param_14 = B.base_ptr
-#   ptr %15,      param_15 = B.aligned_ptr
-#   i64 %16,      param_16 = B.offset (0)
-#   i64 %17,      param_17 = B.size[0] = N
-#   i64 %18,      param_18 = B.size[1] = M
-#   i64 %19,      param_19 = B.stride[0] = M
-#   i64 %20)      param_20 = B.stride[1] = 1
+# When TILE_ROW != TILE_COL (e.g. 32x8, 64x8): 21 params
+#   i64 %0  = TILE_ROW, i64 %1 = TILE_COL, i64 %2 = COOP_COLS, i64 %3 = COOP_THREADS
+#   ptr %4  = A.base_ptr, ptr %5 = A.aligned_ptr
+#   i64 %6  = A.offset(0), i64 %7 = N, i64 %8 = M, i64 %9 = stride[0]=M, i64 %10 = stride[1]=1
+#   i64 %11 = 0, i64 %12 = 1, i64 %13 = COMPUTE_THREADS
+#   ptr %14 = B.base_ptr, ptr %15 = B.aligned_ptr
+#   i64 %16 = B.offset(0), i64 %17 = N, i64 %18 = M, i64 %19 = stride[0]=M, i64 %20 = stride[1]=1
+#
+# When TILE_ROW == TILE_COL (e.g. 16x16): 20 params
+#   MLIR CSE merges the two equal arith.constant ops into one, so TILE_ROW and
+#   TILE_COL share a single kernel param.  The layout becomes:
+#   i64 %0  = TILE_ROW(=TILE_COL), i64 %1 = COOP_COLS, i64 %2 = COOP_THREADS
+#   ptr %3  = A.base_ptr, ptr %4 = A.aligned_ptr
+#   i64 %5  = A.offset(0), i64 %6 = N, i64 %7 = M, i64 %8 = stride[0]=M, i64 %9 = stride[1]=1
+#   i64 %10 = 0, i64 %11 = 1, i64 %12 = COMPUTE_THREADS
+#   ptr %13 = B.base_ptr, ptr %14 = B.aligned_ptr
+#   i64 %15 = B.offset(0), i64 %16 = N, i64 %17 = M, i64 %18 = stride[0]=M, i64 %19 = stride[1]=1
 #
 # Launch: grid=(⌈N/TILE_ROW⌉, ⌈M/TILE_COL⌉, 1), block=(COOP_THREADS, 1, 1)
 # Shared: static (.shared declared in PTX; pass shared_bytes=0 to cuLaunchKernel)
@@ -73,19 +68,37 @@ def run_stencil_gpu(fn, A: np.ndarray, tile_row: int, tile_col: int) -> np.ndarr
     B_d = cd.alloc(B_np.nbytes)
 
     grid = (math.ceil(N / tile_row), math.ceil(M / tile_col), 1)
-    cd.launch(
-        fn,
-        grid, (coop_threads, 1, 1),
-        # params 0-3: tile geometry
-        tile_row, tile_col, coop_cols, coop_threads,
-        # params 4-10: A memref2d descriptor
-        A_d, A_d, 0, N, M, M, 1,
-        # params 11-13: dim indices (constants) + compute thread bound
-        0, 1, compute_threads,
-        # params 14-20: B memref2d descriptor
-        B_d, B_d, 0, N, M, M, 1,
-        shared_bytes=0,   # static .shared in PTX handles shared memory automatically
-    )
+    # When tile_row == tile_col, MLIR CSE merges the two identical arith.constant
+    # ops into one SSA value, so the outlined kernel has 20 params (one shared
+    # tile constant) instead of 21 (separate tile_row and tile_col params).
+    if tile_row == tile_col:
+        cd.launch(
+            fn,
+            grid, (coop_threads, 1, 1),
+            # params 0-2: tile geometry (tile_row==tile_col merged by CSE)
+            tile_row, coop_cols, coop_threads,
+            # params 3-9: A memref2d descriptor
+            A_d, A_d, 0, N, M, M, 1,
+            # params 10-12: dim indices (constants) + compute thread bound
+            0, 1, compute_threads,
+            # params 13-19: B memref2d descriptor
+            B_d, B_d, 0, N, M, M, 1,
+            shared_bytes=0,
+        )
+    else:
+        cd.launch(
+            fn,
+            grid, (coop_threads, 1, 1),
+            # params 0-3: tile geometry
+            tile_row, tile_col, coop_cols, coop_threads,
+            # params 4-10: A memref2d descriptor
+            A_d, A_d, 0, N, M, M, 1,
+            # params 11-13: dim indices (constants) + compute thread bound
+            0, 1, compute_threads,
+            # params 14-20: B memref2d descriptor
+            B_d, B_d, 0, N, M, M, 1,
+            shared_bytes=0,   # static .shared in PTX handles shared memory automatically
+        )
     cd.synchronize()
 
     cd.memcpy_d2h(B_np, B_d)
@@ -146,11 +159,18 @@ def test_performance(fn, shapes, tile_row: int, tile_col: int, repeats=10):
         grid = (math.ceil(N / tile_row), math.ceil(M / tile_col), 1)
 
         def launch_once():
-            cd.launch(fn, grid, (coop_threads, 1, 1),
-                      tile_row, tile_col, coop_cols, coop_threads,
-                      A_d, A_d, 0, N, M, M, 1,
-                      0, 1, compute_threads,
-                      B_d, B_d, 0, N, M, M, 1)
+            if tile_row == tile_col:
+                cd.launch(fn, grid, (coop_threads, 1, 1),
+                          tile_row, coop_cols, coop_threads,
+                          A_d, A_d, 0, N, M, M, 1,
+                          0, 1, compute_threads,
+                          B_d, B_d, 0, N, M, M, 1)
+            else:
+                cd.launch(fn, grid, (coop_threads, 1, 1),
+                          tile_row, tile_col, coop_cols, coop_threads,
+                          A_d, A_d, 0, N, M, M, 1,
+                          0, 1, compute_threads,
+                          B_d, B_d, 0, N, M, M, 1)
 
         # Warmup
         for _ in range(3): launch_once()
