@@ -289,11 +289,24 @@ run_reduction_hierarchical() {
   local out
   out="$("$PYTHON" "${REPO_ROOT}/harness/run_reduction.py" \
       --hierarchical --ptx "$ptx" --sizes "$size" \
+      --perf --perf-sizes "$size" \
       --tile-size "$tile" 2>&1 || true)"
-  local ok rel
+  local ok rel cpu gpu spd
   ok=$(_classify_result "$out")
-  rel=$(_parse_rel_err "$out")
-  append_row "reduction_hierarchical" "$size" "$tile" "no" "$ok" "$rel" "N/A" "N/A" "N/A"
+  rel=$(_parse_rel_err  "$out")
+  cpu=$(_parse_cpu_ms   "$out")
+  gpu=$(_parse_gpu_ms   "$out")
+  spd=$(_parse_speedup  "$out")
+  append_row "reduction_hierarchical" "$size" "$tile" "no" "$ok" "$rel" "$cpu" "$gpu" "$spd"
+  # AC-7: GPU speedup must exceed 1.0 for N >= 64K.
+  if [[ "$size" -ge 65536 && "$ok" == "PASS" && "$spd" != "N/A" ]]; then
+    if awk "BEGIN { exit ($spd+0 > 1.0) ? 0 : 1 }"; then
+      : # speedup > 1.0: pass
+    else
+      echo "  SPEEDUP FAIL: reduction_hierarchical N=${size} speedup=${spd}x (expected > 1.0)" >&2
+      FAIL=$((FAIL+1))
+    fi
+  fi
 }
 
 echo ""

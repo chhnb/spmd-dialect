@@ -237,14 +237,18 @@ STENCIL_SCF_SO="/tmp/diff_stencil_scf_$$.so"
 STENCIL_OMP_SO="/tmp/diff_stencil_omp_$$.so"
 REDUCTION_SCF_SO="/tmp/diff_reduction_scf_$$.so"
 REDUCTION_OMP_SO="/tmp/diff_reduction_omp_$$.so"
+HIERARCHICAL_SCF_SO="/tmp/diff_hierarchical_scf_$$.so"
+HIERARCHICAL_OMP_SO="/tmp/diff_hierarchical_omp_$$.so"
 
 echo "Compiling CPU/OMP kernels..."
-_compile_so "$EWISE_SRC"     scf "$EWISE_SCF_SO"     || true
-_compile_so "$EWISE_SRC"     omp "$EWISE_OMP_SO"     || true
-_compile_so "$STENCIL_SRC"   scf "$STENCIL_SCF_SO"   || true
-_compile_so "$STENCIL_SRC"   omp "$STENCIL_OMP_SO"   || true
-_compile_so "$REDUCTION_SRC" scf "$REDUCTION_SCF_SO" || true
-_compile_so "$REDUCTION_SRC" omp "$REDUCTION_OMP_SO" || true
+_compile_so "$EWISE_SRC"        scf "$EWISE_SCF_SO"        || true
+_compile_so "$EWISE_SRC"        omp "$EWISE_OMP_SO"        || true
+_compile_so "$STENCIL_SRC"      scf "$STENCIL_SCF_SO"      || true
+_compile_so "$STENCIL_SRC"      omp "$STENCIL_OMP_SO"      || true
+_compile_so "$REDUCTION_SRC"    scf "$REDUCTION_SCF_SO"    || true
+_compile_so "$REDUCTION_SRC"    omp "$REDUCTION_OMP_SO"    || true
+_compile_so "$HIERARCHICAL_SRC" scf "$HIERARCHICAL_SCF_SO" || true
+_compile_so "$HIERARCHICAL_SRC" omp "$HIERARCHICAL_OMP_SO" || true
 echo ""
 
 # ── Generate PTX for GPU kernels ──────────────────────────────────────────────
@@ -376,14 +380,15 @@ fi
   print_row "reduction" "N=1048576" "tile=256" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
-# ── Kernel 4: reduction_hierarchical ─────────────────────────────────────────
-# cpu_ok / omp_ok are SKIP: the hierarchical kernel is GPU-specific (shared-memory
-# tree reduction + single global atomic). The SCF/OMP backends use the baseline
-# atomic path, not the hierarchical path.  GPU correctness vs numpy is the
-# meaningful comparison here.
+# ── Kernel 4: reduction_hierarchical N=65536 ─────────────────────────────────
+# cpu_ok: SCF serial path via @hierarchical_sum (spmd.reduce → scf.for).
+# omp_ok: OpenMP parallel path via @hierarchical_sum.
+# gpu_ok: GPU hierarchical path (shared-memory tree + single atomic per block).
 {
-  cpu="SKIP"; cpu_err="N/A"
-  omp="SKIP"; omp_err="N/A"
+  _run_host "$HIERARCHICAL_SCF_SO" reduction_hierarchical sizes 65536
+  cpu="$host"; cpu_err="$err"
+  _run_host "$HIERARCHICAL_OMP_SO" reduction_hierarchical sizes 65536
+  omp="$host"; omp_err="$err"
   if [[ -n "$SM" ]]; then
     _run_gpu "${REPO_ROOT}/harness/run_reduction.py" \
         --hierarchical --ptx "$HIERARCHICAL_PTX" --sizes 65536
@@ -392,14 +397,17 @@ fi
     gpu="SKIP"; gpu_err="N/A"
   fi
   err_metric="$(_dominant_err "$cpu_err" "$omp_err" "$gpu_err")"
-  [[ "$gpu" == "FAIL" || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
+  [[ "$cpu" == "ERROR" || "$cpu" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$omp" == "ERROR" || "$omp" == "FAIL" ]] && FAIL=$((FAIL+1))
+  [[ "$gpu" == "FAIL"  || "$gpu" == "ERROR" ]] && FAIL=$((FAIL+1))
   print_row "hier-reduct" "N=65536" "tile=256" "$cpu" "$omp" "$gpu" "$err_metric"
 }
 
 # ── Cleanup temp shared libs ──────────────────────────────────────────────────
 rm -f "$EWISE_SCF_SO" "$EWISE_OMP_SO" \
       "$STENCIL_SCF_SO" "$STENCIL_OMP_SO" \
-      "$REDUCTION_SCF_SO" "$REDUCTION_OMP_SO"
+      "$REDUCTION_SCF_SO" "$REDUCTION_OMP_SO" \
+      "$HIERARCHICAL_SCF_SO" "$HIERARCHICAL_OMP_SO"
 [[ -n "$SM" ]] && rm -f "$EWISE_PTX" "$STENCIL_PTX" "$REDUCTION_PTX" \
                          "${HIERARCHICAL_PTX:-}" 2>/dev/null || true
 

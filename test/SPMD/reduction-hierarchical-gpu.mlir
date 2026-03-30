@@ -13,12 +13,19 @@
 // CHECK-NOT:   spmd.reduce
 // CHECK:       scf.for
 // CHECK:       memref.store {{.*}} memref<4xf32, #gpu.address_space<workgroup>>
+// blockDim=4 → 3 barriers: 1 after scatter, 2 tree-reduction steps (strides 2, 1).
 // CHECK:       gpu.barrier
 // CHECK:       scf.if
 // CHECK:       gpu.barrier
+// CHECK:       scf.if
+// CHECK:       gpu.barrier
+// CHECK-NOT:   gpu.barrier
+// tx==0 condition and guard:
 // CHECK:       arith.cmpi eq
 // CHECK:       scf.if
-// CHECK:       memref.atomic_rmw addf
+// Exactly one atomic per block (inside the tx==0 guard):
+// CHECK-COUNT-1: memref.atomic_rmw addf
+// CHECK-NOT:     memref.atomic_rmw addf
 
 // Kernel: sum 4 elements per block with 4 threads.
 // blockDim=4 produces a 2-step tree reduction (strides 2, 1).

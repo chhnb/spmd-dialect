@@ -183,6 +183,34 @@ def run_reduction(lib_path: str, sizes: list) -> bool:
     return all_pass
 
 
+# ── Hierarchical reduction kernel ─────────────────────────────────────────────
+# Source: test/SPMD/lower-to-gpu-nvptx-hierarchical-reduction.mlir → @hierarchical_sum
+# Semantics: out += sum(A[0..N-1])  — same as atomic_sum but different function name.
+# When compiled through the SCF host pipeline, spmd.reduce lowers to a serial scf.for;
+# the result is numerically identical to the GPU hierarchical path.
+#
+# LLVM ABI (9 args, identical layout to atomic_sum):
+#   void hierarchical_sum(A×5, out×3, N)
+
+def run_reduction_hierarchical(lib_path: str, sizes: list) -> bool:
+    fn  = _load(lib_path, "hierarchical_sum", _REDUCTION_ARGTYPES)
+    rng = np.random.RandomState(0)
+    all_pass = True
+    print(f"{'N':>12}  {'cpu_sum':>14}  {'ref_sum':>14}  {'rel_err':>10}  result")
+    for N in sizes:
+        A   = rng.random_sample(N).astype(np.float32)
+        out = np.zeros(1, dtype=np.float32)
+        fn(*_desc1d(A, N), *_desc0d(out), c_i(N))
+        ref     = float(np.sum(A))
+        rel_err = abs(float(out[0]) - ref) / max(abs(ref), 1e-6)
+        ok      = rel_err < 1e-3
+        if not ok:
+            all_pass = False
+        print(f"{N:>12}  {float(out[0]):>14.6f}  {ref:>14.6f}  {rel_err:>10.2e}  "
+              f"{'PASS' if ok else 'FAIL'}")
+    return all_pass
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main():
@@ -192,7 +220,7 @@ def main():
     ap.add_argument("--lib",    required=True,
                     help="Path to the compiled shared library (.so)")
     ap.add_argument("--kernel", required=True,
-                    choices=["ewise", "stencil", "reduction"],
+                    choices=["ewise", "stencil", "reduction", "reduction_hierarchical"],
                     help="Which kernel to run")
     ap.add_argument("--sizes",  default="",
                     help="Comma-separated sizes N (ewise, reduction)")
@@ -214,6 +242,10 @@ def main():
         sizes = [int(x) for x in args.sizes.split(",") if x]
         print("\n=== Correctness ===")
         ok = run_reduction(args.lib, sizes)
+    elif args.kernel == "reduction_hierarchical":
+        sizes = [int(x) for x in args.sizes.split(",") if x]
+        print("\n=== Correctness ===")
+        ok = run_reduction_hierarchical(args.lib, sizes)
 
     sys.exit(0 if ok else 1)
 
