@@ -33,7 +33,7 @@ uv venv .venv --python 3.12 --clear
 
 # ── Install dependencies ──────────────────────────────────────────────────────
 echo "Installing dependencies ..."
-uv pip install --python .venv/bin/python numpy
+uv pip install --python .venv/bin/python numpy taichi
 
 echo ""
 echo "Done.  Python: $(.venv/bin/python --version)"
