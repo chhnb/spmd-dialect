@@ -29,7 +29,7 @@ export UV_CACHE_DIR="${UV_CACHE_DIR:-/home/scratch.huanhuanc_gpu/.uv-cache}"
 # ── Create venv ───────────────────────────────────────────────────────────────
 echo "Creating .venv in ${REPO_ROOT} ..."
 cd "$REPO_ROOT"
-uv venv .venv --python 3.12
+uv venv .venv --python 3.12 --clear
 
 # ── Install dependencies ──────────────────────────────────────────────────────
 echo "Installing dependencies ..."

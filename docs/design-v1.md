@@ -544,30 +544,37 @@ func.func @stencil2d(%A: memref<?x?xf32>, %B: memref<?x?xf32>,
 
 ### Phase 1：IR 立起来
 
-- [ ] 5 个 attr class：ODS 定义 + C++ 实现
-- [ ] 5 个 op：ODS 定义 + verifier + printer/parser
-- [ ] `spmd.kernel` legality pass
-- [ ] lit tests：`test/SPMD/ops.mlir` + `test/SPMD/invalid.mlir`
+- [x] 5 个 attr class：ODS 定义 + C++ 实现
+- [x] 5 个 op：ODS 定义 + verifier + printer/parser
+- [x] `spmd.kernel` legality pass
+- [x] lit tests：`test/SPMD/ops.mlir` + `test/SPMD/invalid.mlir`
 
 ### Phase 2：CPU 最小闭环
 
-- [ ] `NormalizeSPMD`
-- [ ] `MaterializeTilingAndMapping`
-- [ ] `LowerSPMDToSCF`
-- [ ] `SCF → OpenMP → LLVM`
-- [ ] 跑通：elementwise / reduction / stencil（无 promotion）
+- [x] `NormalizeSPMD`
+- [x] `MaterializeTilingAndMapping`
+- [x] `LowerSPMDToSCF`
+- [x] `SCF → OpenMP → LLVM`
+- [x] 跑通：elementwise / reduction / stencil（无 promotion）
 
 ### Phase 3：Group memory promotion demo
 
-- [ ] `PromoteGroupMemory`（只做 read-only stencil pattern）
-- [ ] 2D stencil 全流程：S0 → S2 → CPU
+- [x] `PromoteGroupMemory`（只做 read-only stencil pattern）
+- [x] 2D stencil 全流程：S0 → S2 → CPU
 
 ### Phase 4：GPU mapping
 
-- [ ] `group → block`，`lane → thread`
-- [ ] group addr space → shared memory
-- [ ] barrier → workgroup barrier
-- [ ] 跑通 stencil on CUDA
+- [x] `group → block`，`lane → thread`
+- [x] group addr space → shared memory
+- [x] barrier → workgroup barrier
+- [x] 跑通 stencil on CUDA
+
+### Phase 5：Hierarchical GPU reduction（post-MVP）
+
+- [x] `ReduceToHierarchicalGPU`：intra-block shared-memory tree + per-block global atomic
+- [x] GPU speedup >1× vs CPU serial for N ≥ 64K（实测：1.1×@65K，10.2×@1M，24.0×@16M on B200）
+- [x] Legality guards（non-pure body → fallback，non-Add kind → fallback）
+- [x] 全套 lit tests + correctness harness（所有尺寸 PASS，rel_err < 1e-3）
 
 ---
 

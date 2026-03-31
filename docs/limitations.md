@@ -139,9 +139,12 @@ dialects (e.g., `llvm.call` with unknown callees), `VerifySPMDKernelSubset`
 rejects the kernel before any lowering pass runs.
 
 **Workaround:** Keep reduction bodies pure (only `arith.*`, `math.*`). For
-efficient GPU reductions, use `memref.atomic_rmw` in a group-level forall
-(the current recommended approach for GPU atomic accumulation); this avoids
-`spmd.reduce` entirely for single-pass reductions.
+efficient GPU reductions, use `spmd.reduce` with `spmd.kind = add` and an
+`f32` element type: `ReduceToHierarchicalGPU` will automatically lower this
+to a two-level shared-memory tree reduction followed by a single per-block
+global atomic, achieving >1× speedup over CPU serial for N ≥ 64K. The
+`memref.atomic_rmw`-in-forall idiom remains valid as an explicit atomic-only
+baseline, but is no longer the recommended approach for GPU reductions.
 
 ---
 
