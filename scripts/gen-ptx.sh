@@ -99,8 +99,9 @@ case "$PIPELINE" in
     # satisfying the AC-7 speedup requirement at N=65536.
     #
     # Dead params (memref descriptor fields never read by the kernel):
-    # The warp-shuffle lowering inlines the identity (0.0) and c0 clamp (0) as
-    # PTX immediates, so the 10-param kernel (0-9) has only 4 live params:
+    # The tree lowering inlines all tree strides as arith.constant ops inside
+    # the kernel body, so they become PTX immediates rather than parameters.
+    # The 10-param kernel (0-9) has only 4 live params:
     #   _param_0  — tile_size              (live)
     #   _param_1  — N                      (live)
     #   _param_2  — input A: base ptr      (dead, same as aligned)

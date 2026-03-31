@@ -4,7 +4,6 @@ add_mlir_conversion_library(SPMDToGPU
   LINK_LIBS PUBLIC
     SPMDDialect
     MLIRGPUDialect
-    MLIRNVVMDialect
     MLIRArithDialect
     MLIRSCFDialect
     MLIRMemRefDialect

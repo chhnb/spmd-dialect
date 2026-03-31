@@ -25,25 +25,38 @@ import cuda_driver as cd
 _DEFAULT_TILE_ROW = 32
 _DEFAULT_TILE_COL = 8
 
-# ── ABI reference (derived from LLVM IR, not PTX text) ───────────────────────
+# ── ABI reference (derived from gpu-kernel-outlining MLIR output) ────────────
 #
-# When TILE_ROW != TILE_COL (e.g. 32x8, 64x8): 21 params
-#   i64 %0  = TILE_ROW, i64 %1 = TILE_COL, i64 %2 = COOP_COLS, i64 %3 = COOP_THREADS
-#   ptr %4  = A.base_ptr, ptr %5 = A.aligned_ptr
-#   i64 %6  = A.offset(0), i64 %7 = N, i64 %8 = M, i64 %9 = stride[0]=M, i64 %10 = stride[1]=1
-#   i64 %11 = 0, i64 %12 = 1, i64 %13 = COMPUTE_THREADS
-#   ptr %14 = B.base_ptr, ptr %15 = B.aligned_ptr
-#   i64 %16 = B.offset(0), i64 %17 = N, i64 %18 = M, i64 %19 = stride[0]=M, i64 %20 = stride[1]=1
+# The outlined kernel always has the form:
+#   gpu.launch_func args(TILE_ROW, TILE_COL, A_memref, %c1, B_memref)
 #
-# When TILE_ROW == TILE_COL (e.g. 16x16): 20 params
-#   MLIR CSE merges the two equal arith.constant ops into one, so TILE_ROW and
-#   TILE_COL share a single kernel param.  The layout becomes:
-#   i64 %0  = TILE_ROW(=TILE_COL), i64 %1 = COOP_COLS, i64 %2 = COOP_THREADS
-#   ptr %3  = A.base_ptr, ptr %4 = A.aligned_ptr
-#   i64 %5  = A.offset(0), i64 %6 = N, i64 %7 = M, i64 %8 = stride[0]=M, i64 %9 = stride[1]=1
-#   i64 %10 = 0, i64 %11 = 1, i64 %12 = COMPUTE_THREADS
-#   ptr %13 = B.base_ptr, ptr %14 = B.aligned_ptr
-#   i64 %15 = B.offset(0), i64 %16 = N, i64 %17 = M, i64 %18 = stride[0]=M, i64 %19 = stride[1]=1
+# COOP_COLS, COOP_THREADS, COMPUTE_THREADS are baked in as PTX immediates
+# (they are arith.constant ops inside the kernel body, not function arguments).
+# %c1 is the stencil neighbor offset (j+1, i+1); it is a function argument
+# because it is defined at function scope in the source MLIR.
+#
+# When TILE_ROW != TILE_COL (e.g. 32x8, 64x8): 17 params
+#   i64 %0  = TILE_ROW
+#   i64 %1  = TILE_COL
+#   ptr %2  = A.base_ptr,    ptr %3  = A.aligned_ptr
+#   i64 %4  = A.offset(0),   i64 %5  = N,  i64 %6  = M
+#   i64 %7  = A.stride[0]=M, i64 %8  = A.stride[1]=1
+#   i64 %9  = 1  (stencil constant %c1)
+#   ptr %10 = B.base_ptr,    ptr %11 = B.aligned_ptr
+#   i64 %12 = B.offset(0),   i64 %13 = N,  i64 %14 = M
+#   i64 %15 = B.stride[0]=M, i64 %16 = B.stride[1]=1
+#
+# When TILE_ROW == TILE_COL (e.g. 16x16): 16 params
+#   MLIR CSE merges the two equal arith.constant ops into one SSA value, so
+#   TILE_ROW and TILE_COL share a single kernel param.  Layout:
+#   i64 %0  = TILE_ROW(=TILE_COL)
+#   ptr %1  = A.base_ptr,    ptr %2  = A.aligned_ptr
+#   i64 %3  = A.offset(0),   i64 %4  = N,  i64 %5  = M
+#   i64 %6  = A.stride[0]=M, i64 %7  = A.stride[1]=1
+#   i64 %8  = 1  (stencil constant %c1)
+#   ptr %9  = B.base_ptr,    ptr %10 = B.aligned_ptr
+#   i64 %11 = B.offset(0),   i64 %12 = N,  i64 %13 = M
+#   i64 %14 = B.stride[0]=M, i64 %15 = B.stride[1]=1
 #
 # Launch: grid=(⌈N/TILE_ROW⌉, ⌈M/TILE_COL⌉, 1), block=(COOP_THREADS, 1, 1)
 # Shared: static (.shared declared in PTX; pass shared_bytes=0 to cuLaunchKernel)
@@ -53,9 +66,7 @@ _DEFAULT_TILE_COL = 8
 
 
 def run_stencil_gpu(fn, A: np.ndarray, tile_row: int, tile_col: int) -> np.ndarray:
-    coop_cols    = tile_col + 1
     coop_threads = (tile_row + 1) * (tile_col + 1)
-    compute_threads = tile_row * tile_col
 
     N, M = A.shape
     assert N % tile_row == 0, f"N={N} must be a multiple of tile_row={tile_row}"
@@ -68,36 +79,27 @@ def run_stencil_gpu(fn, A: np.ndarray, tile_row: int, tile_col: int) -> np.ndarr
     B_d = cd.alloc(B_np.nbytes)
 
     grid = (math.ceil(N / tile_row), math.ceil(M / tile_col), 1)
-    # When tile_row == tile_col, MLIR CSE merges the two identical arith.constant
-    # ops into one SSA value, so the outlined kernel has 20 params (one shared
-    # tile constant) instead of 21 (separate tile_row and tile_col params).
+    # When tile_row == tile_col, MLIR CSE merges the two equal arith.constant
+    # ops into one SSA value → 16 params; otherwise 17 params.
     if tile_row == tile_col:
         cd.launch(
             fn,
             grid, (coop_threads, 1, 1),
-            # params 0-2: tile geometry (tile_row==tile_col merged by CSE)
-            tile_row, coop_cols, coop_threads,
-            # params 3-9: A memref2d descriptor
-            A_d, A_d, 0, N, M, M, 1,
-            # params 10-12: dim indices (constants) + compute thread bound
-            0, 1, compute_threads,
-            # params 13-19: B memref2d descriptor
-            B_d, B_d, 0, N, M, M, 1,
+            tile_row,                      # param_0: tile (shared row=col)
+            A_d, A_d, 0, N, M, M, 1,      # params 1-7: A descriptor
+            1,                             # param_8: stencil constant
+            B_d, B_d, 0, N, M, M, 1,      # params 9-15: B descriptor
             shared_bytes=0,
         )
     else:
         cd.launch(
             fn,
             grid, (coop_threads, 1, 1),
-            # params 0-3: tile geometry
-            tile_row, tile_col, coop_cols, coop_threads,
-            # params 4-10: A memref2d descriptor
-            A_d, A_d, 0, N, M, M, 1,
-            # params 11-13: dim indices (constants) + compute thread bound
-            0, 1, compute_threads,
-            # params 14-20: B memref2d descriptor
-            B_d, B_d, 0, N, M, M, 1,
-            shared_bytes=0,   # static .shared in PTX handles shared memory automatically
+            tile_row, tile_col,            # params 0-1: tile geometry
+            A_d, A_d, 0, N, M, M, 1,      # params 2-8: A descriptor
+            1,                             # param_9: stencil constant
+            B_d, B_d, 0, N, M, M, 1,      # params 10-16: B descriptor
+            shared_bytes=0,
         )
     cd.synchronize()
 
@@ -144,9 +146,7 @@ def test_correctness(fn, shapes, tile_row: int, tile_col: int):
 
 
 def test_performance(fn, shapes, tile_row: int, tile_col: int, repeats=10):
-    coop_threads    = (tile_row + 1) * (tile_col + 1)
-    coop_cols       = tile_col + 1
-    compute_threads = tile_row * tile_col
+    coop_threads = (tile_row + 1) * (tile_col + 1)
 
     rng = np.random.default_rng(1)
     print(f"\n{'shape':>14}  {'cpu_ms':>8}  {'gpu_ms':>8}  {'speedup':>8}")
@@ -161,15 +161,15 @@ def test_performance(fn, shapes, tile_row: int, tile_col: int, repeats=10):
         def launch_once():
             if tile_row == tile_col:
                 cd.launch(fn, grid, (coop_threads, 1, 1),
-                          tile_row, coop_cols, coop_threads,
+                          tile_row,
                           A_d, A_d, 0, N, M, M, 1,
-                          0, 1, compute_threads,
+                          1,
                           B_d, B_d, 0, N, M, M, 1)
             else:
                 cd.launch(fn, grid, (coop_threads, 1, 1),
-                          tile_row, tile_col, coop_cols, coop_threads,
+                          tile_row, tile_col,
                           A_d, A_d, 0, N, M, M, 1,
-                          0, 1, compute_threads,
+                          1,
                           B_d, B_d, 0, N, M, M, 1)
 
         # Warmup
