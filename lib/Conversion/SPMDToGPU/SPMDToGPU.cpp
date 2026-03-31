@@ -808,10 +808,10 @@ struct ConvertSPMDToGPUPass
     // Region-simplification is disabled so that arith.constant ops created
     // inside the gpu.launch body by ReduceToHierarchicalGPU stay there.
     // gpu.launch is NOT isolated-from-above, so the default "Aggressive" CSE
-    // would move the warp-shuffle constants (fullMask, clamp31, delta values,
-    // numWarps, finalMask) to the enclosing host function.  gpu-kernel-outlining
-    // would then treat them as captured values and add 10 extra kernel
-    // parameters (~1 µs each on B200), blowing past the AC-7 speedup target.
+    // would move the tree-stride constants (blockDim, each halving stride, and
+    // the loop trip-count) to the enclosing host function.  gpu-kernel-outlining
+    // would then treat them as captured values and add extra kernel parameters
+    // (~1 µs each on B200), increasing launch overhead.
     RewritePatternSet patterns(ctx);
     patterns.add<IfToSCFIfGPU>(ctx);
     patterns.add<ReduceToHierarchicalGPU>(ctx);
@@ -820,7 +820,7 @@ struct ConvertSPMDToGPUPass
     // ops stay inside the gpu.launch body where ReduceToHierarchicalGPU places
     // them.  OperationFolder (used by the greedy rewriter) would otherwise move
     // constants into parent regions for "more aggressive CSE'ing", hoisting the
-    // shuffle constants to the host function and turning them into kernel params.
+    // tree-stride constants to the host function and turning them into kernel params.
     GreedyRewriteConfig cfg;
     cfg.setRegionSimplificationLevel(GreedySimplifyRegionLevel::Disabled);
     cfg.enableConstantCSE(false);
