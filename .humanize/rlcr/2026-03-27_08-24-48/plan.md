@@ -1,1 +1,0 @@
-/home/scratch.huanhuanc_gpu/spmd/spmd-dialect/docs/plan.md
