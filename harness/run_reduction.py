@@ -81,12 +81,13 @@ def run_sum_gpu(fn, A: np.ndarray, tile_size: int) -> float:
     return float(result_np[0])
 
 
-# ── Hierarchical kernel ABI (warp-shuffle path, tile_size >= 32) ──────────────
+# ── Hierarchical kernel ABI (shared-memory tree lowering) ────────────────────
 #
-# Warp-shuffle reduction: intra-warp Phase 1 (5 shfl steps) + inter-warp
-# Phase 2 (1 barrier) + final-warp Phase 3 (log2(numWarps) shfl steps).
-# Warp-shuffle constants (fullMask, deltas, clamp31, numWarps, finalMask) and
-# the identity (0.0) and c0 clamp (0) are all baked into the PTX as immediates.
+# Shared-memory tree reduction: thread-strided local accumulation (scf.for),
+# scatter to a blockDim-slot smem buffer, then log2(blockDim) statically
+# unrolled scf.if + gpu.barrier steps, followed by a single tx==0 atomic.
+# All tree stride constants and the identity (0.0) are baked into the PTX
+# as immediates (arith.constant ops in MLIR → PTX .param literals after LLVM).
 #
 # The MLIR memref descriptor ABI emits 10 params (base+aligned+offset+size+stride
 # for the rank-1 input, plus base+aligned+offset for the rank-0 output) but 6 of
