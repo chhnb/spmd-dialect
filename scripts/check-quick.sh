@@ -55,7 +55,7 @@ echo "════════════════════════�
 #   - ewise/normalize/materialize smoke
 #   - sum (spmd.reduce regression: exercises pattern priority after ReduceToHierarchicalGPU)
 "$LIT" "${LIT_ARGS[@]}" \
-  --filter="invalid|negative|verifier|attrs|verify-spmd|subset|ewise|normalize|materialize|sum" \
+  --filter="invalid|negative|verifier|attrs|verify-spmd|subset|ewise|normalize|materialize|sum|reduction-hierarchical-gpu" \
   "${SPMD_BUILD}/test/SPMD"
 
 echo ""

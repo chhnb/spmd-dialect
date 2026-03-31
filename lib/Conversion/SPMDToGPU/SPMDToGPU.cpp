@@ -330,6 +330,7 @@ struct ReduceToHierarchicalGPU : public OpRewritePattern<ReduceOp> {
 
     Value blockDimVal = rewriter.create<arith::ConstantIndexOp>(loc, blockDim);
     Value lb   = rematerializeExternal(op.getLowerBound());
+    Value ub   = rematerializeExternal(op.getUpperBound());
     Value step = rematerializeExternal(op.getStep());
     Value init = rematerializeExternal(op.getInit());
     Value txScaled    = rewriter.create<arith::MulIOp>(loc, tx, step);
@@ -337,7 +338,7 @@ struct ReduceToHierarchicalGPU : public OpRewritePattern<ReduceOp> {
     Value stridedStep = rewriter.create<arith::MulIOp>(loc, blockDimVal, step);
 
     auto forOp = rewriter.create<scf::ForOp>(
-        loc, startIdx, blockDimVal, stridedStep,
+        loc, startIdx, ub, stridedStep,
         ValueRange{init},
         [&](OpBuilder &fb, Location fl, Value iv, ValueRange iterArgs) {
           IRMapping mapping;
