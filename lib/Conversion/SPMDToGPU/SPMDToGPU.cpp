@@ -25,6 +25,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/GPU/IR/GPUDialect.h"
+#include "mlir/Dialect/LLVMIR/NVVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
@@ -295,14 +296,40 @@ struct ReduceToHierarchicalGPU : public OpRewritePattern<ReduceOp> {
     Value tx = launchOp.getThreadIds().x;
     Value c0 = rewriter.create<arith::ConstantIndexOp>(loc, 0);
 
-    // Inject a workgroup scratch buffer via gpu.launch workgroup attribution.
+    // Workgroup address space and memory fence (used by gpu.barrier).
     auto wgAddrSpace =
         gpu::AddressSpaceAttr::get(ctx, gpu::AddressSpace::Workgroup);
-    auto smemType = MemRefType::get(ArrayRef<int64_t>{blockDim}, f32Ty,
+    auto wgMemFence = ArrayAttr::get(ctx, {wgAddrSpace});
+
+    // For blockDim >= 32, use warp-shuffle path: 5 nvvm.shfl.sync.down steps
+    // eliminate the scatter + tree, replacing with a single inter-warp barrier.
+    // For blockDim < 32 (sub-warp), fall back to the statically-unrolled tree.
+    const bool     useShuffles = (blockDim >= 32);
+    const int64_t  warpSize    = 32;
+    const int64_t  numWarps    = blockDim / warpSize; // valid only when useShuffles
+    // Shuffle path: smem holds one f32 per warp leader.
+    // Tree path:    smem holds one f32 per thread.
+    const int64_t  smemElems = useShuffles ? std::max<int64_t>(numWarps, 1) : blockDim;
+
+    auto smemType = MemRefType::get(ArrayRef<int64_t>{smemElems}, f32Ty,
                                       /*map=*/AffineMap{}, wgAddrSpace);
     Value smem = launchOp.addWorkgroupAttribution(smemType, loc);
 
     rewriter.setInsertionPoint(op);
+
+    // Re-materialize any constant operands that the normalize-spmd pass hoisted
+    // to the host function scope.  Values defined outside the gpu.launch would
+    // be captured by gpu-kernel-outlining and turned into kernel parameters
+    // (~1 µs overhead each on B200), breaking the AC-7 speedup target.
+    // By recreating them as arith.constant ops at the current insertion point
+    // (inside the launch body), they become PTX immediates instead.
+    auto rematerializeExternal = [&](Value v) -> Value {
+      if (!v.getDefiningOp() || launchOp->isAncestor(v.getDefiningOp()))
+        return v; // block arg or already inside the launch
+      if (auto cst = v.getDefiningOp<arith::ConstantOp>())
+        return rewriter.create<arith::ConstantOp>(loc, cst.getValue());
+      return v;
+    };
 
     // Step 1: thread-strided local accumulation.
     // Thread tx processes elements at indices: lb + tx*step, lb + (tx+blockDim)*step, …
@@ -312,16 +339,33 @@ struct ReduceToHierarchicalGPU : public OpRewritePattern<ReduceOp> {
         cast<YieldOp>(reduceBody.getTerminator()).getValues()[0];
 
     Value blockDimVal = rewriter.create<arith::ConstantIndexOp>(loc, blockDim);
-    Value txScaled    = rewriter.create<arith::MulIOp>(loc, tx, op.getStep());
-    Value startIdx    = rewriter.create<arith::AddIOp>(loc, op.getLowerBound(), txScaled);
-    Value stridedStep = rewriter.create<arith::MulIOp>(loc, blockDimVal, op.getStep());
+    Value lb   = rematerializeExternal(op.getLowerBound());
+    Value step = rematerializeExternal(op.getStep());
+    Value init = rematerializeExternal(op.getInit());
+    Value txScaled    = rewriter.create<arith::MulIOp>(loc, tx, step);
+    Value startIdx    = rewriter.create<arith::AddIOp>(loc, lb, txScaled);
+    Value stridedStep = rewriter.create<arith::MulIOp>(loc, blockDimVal, step);
 
     auto forOp = rewriter.create<scf::ForOp>(
-        loc, startIdx, op.getUpperBound(), stridedStep,
-        ValueRange{op.getInit()},
+        loc, startIdx, blockDimVal, stridedStep,
+        ValueRange{init},
         [&](OpBuilder &fb, Location fl, Value iv, ValueRange iterArgs) {
           IRMapping mapping;
           mapping.map(reduceBodyIv, iv);
+          // Remap external constants referenced in the reduce body so that
+          // cloned ops use fresh arith.constant ops inside the kernel rather
+          // than the host-scope originals (which would become kernel params).
+          for (Operation &inner : reduceBody) {
+            for (Value operand : inner.getOperands()) {
+              if (mapping.contains(operand)) continue;
+              if (!operand.getDefiningOp() ||
+                  launchOp->isAncestor(operand.getDefiningOp()))
+                continue;
+              if (auto cst = operand.getDefiningOp<arith::ConstantOp>())
+                mapping.map(operand,
+                            fb.create<arith::ConstantOp>(fl, cst.getValue()));
+            }
+          }
           for (Operation &inner : reduceBody)
             if (!isa<YieldOp>(inner))
               fb.clone(inner, mapping);
@@ -331,47 +375,132 @@ struct ReduceToHierarchicalGPU : public OpRewritePattern<ReduceOp> {
         });
     Value threadPartial = forOp.getResult(0);
 
-    // Step 2: scatter thread partial into workgroup scratch; sync.
-    rewriter.create<memref::StoreOp>(loc, threadPartial, smem, ValueRange{tx});
-    auto wgMemFence = ArrayAttr::get(ctx, {wgAddrSpace});
-    rewriter.create<gpu::BarrierOp>(loc, wgMemFence);
+    if (useShuffles) {
+      // ── Warp-shuffle reduction (blockDim >= 32) ──────────────────────────
+      // Phase 1: 5 nvvm.shfl.sync.down steps directly on threadPartial.
+      // After 5 steps, lane 0 of each warp holds the sum of its 32 threads.
+      // No scatter to shared memory or barrier is required for this phase.
+      Value fullMask = rewriter.create<arith::ConstantIntOp>(loc, -1, 32);
+      Value clamp31  = rewriter.create<arith::ConstantIntOp>(loc, 31, 32);
+      Value warpAccum = threadPartial;
+      for (int64_t delta = warpSize / 2; delta >= 1; delta /= 2) {
+        Value deltaVal = rewriter.create<arith::ConstantIntOp>(loc, delta, 32);
+        Value srcLane  = rewriter.create<NVVM::ShflOp>(
+            loc, f32Ty, fullMask, warpAccum, deltaVal, clamp31,
+            NVVM::ShflKind::down, UnitAttr{}).getRes();
+        warpAccum = rewriter.create<arith::AddFOp>(loc, warpAccum, srcLane);
+      }
 
-    // Step 3: statically-unrolled in-block tree reduction.
-    // log2(blockDim) scf.if + gpu.barrier pairs; stride halves each iteration.
-    for (int64_t stride = blockDim / 2; stride >= 1; stride /= 2) {
-      Value strideVal = rewriter.create<arith::ConstantIndexOp>(loc, stride);
-      Value cond      = rewriter.create<arith::CmpIOp>(
-          loc, arith::CmpIPredicate::ult, tx, strideVal);
-      auto ifOp = rewriter.create<scf::IfOp>(
-          loc, TypeRange{}, cond, /*withElseRegion=*/false);
+      if (numWarps == 1) {
+        // Single warp (blockDim == 32): thread 0 does the global atomic.
+        Value txIsZero = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::eq, tx, c0);
+        auto guardOp = rewriter.create<scf::IfOp>(
+            loc, TypeRange{}, txIsZero, /*withElseRegion=*/false);
+        {
+          OpBuilder::InsertionGuard g(rewriter);
+          rewriter.setInsertionPointToStart(&guardOp.getThenRegion().front());
+          rewriter.create<memref::AtomicRMWOp>(
+              loc, arith::AtomicRMWKind::addf, warpAccum,
+              atomicOp.getMemref(), atomicOp.getIndices());
+        }
+      } else {
+        // Multi-warp (blockDim >= 64):
+        //   Phase 2: lane 0 of each warp stores warpAccum to smem[warpId].
+        //            All threads barrier to make warp leaders visible.
+        //   Phase 3: threads 0..numWarps-1 do a final intra-warp shuffle;
+        //            thread 0 writes the block total via a global atomic.
+        Value warpSz     = rewriter.create<arith::ConstantIndexOp>(loc, warpSize);
+        Value laneId     = rewriter.create<arith::RemUIOp>(loc, tx, warpSz);
+        Value warpId     = rewriter.create<arith::DivUIOp>(loc, tx, warpSz);
+        Value laneIsZero = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::eq, laneId, c0);
+
+        // Phase 2: warp-leader write + barrier.
+        auto writeIfOp = rewriter.create<scf::IfOp>(
+            loc, TypeRange{}, laneIsZero, /*withElseRegion=*/false);
+        {
+          OpBuilder::InsertionGuard g(rewriter);
+          rewriter.setInsertionPointToStart(&writeIfOp.getThenRegion().front());
+          rewriter.create<memref::StoreOp>(loc, warpAccum, smem, ValueRange{warpId});
+        }
+        rewriter.create<gpu::BarrierOp>(loc, wgMemFence);
+
+        // Phase 3: final reduction across warp leaders.
+        // Mask = (1 << numWarps) - 1 covers exactly the participating lanes.
+        int64_t finalMaskInt = (int64_t(1) << numWarps) - 1;
+        Value finalMask   = rewriter.create<arith::ConstantIntOp>(loc, finalMaskInt, 32);
+        Value numWarpsIdx = rewriter.create<arith::ConstantIndexOp>(loc, numWarps);
+        Value txLtNumWarps = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::ult, tx, numWarpsIdx);
+
+        auto finalIfOp = rewriter.create<scf::IfOp>(
+            loc, TypeRange{}, txLtNumWarps, /*withElseRegion=*/false);
+        {
+          OpBuilder::InsertionGuard g(rewriter);
+          rewriter.setInsertionPointToStart(&finalIfOp.getThenRegion().front());
+
+          Value finalAccum = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{tx});
+          for (int64_t delta = numWarps / 2; delta >= 1; delta /= 2) {
+            Value deltaVal = rewriter.create<arith::ConstantIntOp>(loc, delta, 32);
+            Value srcLane  = rewriter.create<NVVM::ShflOp>(
+                loc, f32Ty, finalMask, finalAccum, deltaVal, clamp31,
+                NVVM::ShflKind::down, UnitAttr{}).getRes();
+            finalAccum = rewriter.create<arith::AddFOp>(loc, finalAccum, srcLane);
+          }
+
+          // Thread 0 flushes the block total to the global accumulator.
+          Value txIsZero = rewriter.create<arith::CmpIOp>(
+              loc, arith::CmpIPredicate::eq, tx, c0);
+          auto atomGuard = rewriter.create<scf::IfOp>(
+              loc, TypeRange{}, txIsZero, /*withElseRegion=*/false);
+          {
+            OpBuilder::InsertionGuard g2(rewriter);
+            rewriter.setInsertionPointToStart(&atomGuard.getThenRegion().front());
+            rewriter.create<memref::AtomicRMWOp>(
+                loc, arith::AtomicRMWKind::addf, finalAccum,
+                atomicOp.getMemref(), atomicOp.getIndices());
+          }
+        }
+      }
+    } else {
+      // ── Statically-unrolled shared-memory tree (blockDim < 32) ───────────
+      // Step 2: scatter thread partial into workgroup scratch; sync.
+      rewriter.create<memref::StoreOp>(loc, threadPartial, smem, ValueRange{tx});
+      rewriter.create<gpu::BarrierOp>(loc, wgMemFence);
+
+      // Step 3: log2(blockDim) scf.if + gpu.barrier pairs; stride halves.
+      for (int64_t stride = blockDim / 2; stride >= 1; stride /= 2) {
+        Value strideVal = rewriter.create<arith::ConstantIndexOp>(loc, stride);
+        Value cond      = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::ult, tx, strideVal);
+        auto ifOp = rewriter.create<scf::IfOp>(
+            loc, TypeRange{}, cond, /*withElseRegion=*/false);
+        {
+          OpBuilder::InsertionGuard g(rewriter);
+          rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+          Value a        = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{tx});
+          Value peerIdx  = rewriter.create<arith::AddIOp>(loc, tx, strideVal);
+          Value b_val    = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{peerIdx});
+          Value s        = rewriter.create<arith::AddFOp>(loc, a, b_val);
+          rewriter.create<memref::StoreOp>(loc, s, smem, ValueRange{tx});
+        }
+        rewriter.create<gpu::BarrierOp>(loc, wgMemFence);
+      }
+
+      // Step 4: thread 0 flushes block sum to global accumulator.
+      Value txIsZero = rewriter.create<arith::CmpIOp>(
+          loc, arith::CmpIPredicate::eq, tx, c0);
+      auto guardOp = rewriter.create<scf::IfOp>(
+          loc, TypeRange{}, txIsZero, /*withElseRegion=*/false);
       {
         OpBuilder::InsertionGuard g(rewriter);
-        rewriter.setInsertionPointToStart(
-            &ifOp.getThenRegion().front());
-        Value a        = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{tx});
-        Value peerIdx  = rewriter.create<arith::AddIOp>(loc, tx, strideVal);
-        Value b_val    = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{peerIdx});
-        Value s        = rewriter.create<arith::AddFOp>(loc, a, b_val);
-        rewriter.create<memref::StoreOp>(loc, s, smem, ValueRange{tx});
-        // scf::IfOp auto-generates scf.yield via ensureTerminator; no explicit yield needed.
+        rewriter.setInsertionPointToStart(&guardOp.getThenRegion().front());
+        Value blockSum = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{c0});
+        rewriter.create<memref::AtomicRMWOp>(
+            loc, arith::AtomicRMWKind::addf, blockSum,
+            atomicOp.getMemref(), atomicOp.getIndices());
       }
-      rewriter.create<gpu::BarrierOp>(loc, wgMemFence);
-    }
-
-    // Step 4: thread 0 flushes block sum to global accumulator.
-    Value txIsZero = rewriter.create<arith::CmpIOp>(
-        loc, arith::CmpIPredicate::eq, tx, c0);
-    auto guardOp = rewriter.create<scf::IfOp>(
-        loc, TypeRange{}, txIsZero, /*withElseRegion=*/false);
-    {
-      OpBuilder::InsertionGuard g(rewriter);
-      rewriter.setInsertionPointToStart(
-          &guardOp.getThenRegion().front());
-      Value blockSum = rewriter.create<memref::LoadOp>(loc, smem, ValueRange{c0});
-      rewriter.create<memref::AtomicRMWOp>(
-          loc, arith::AtomicRMWKind::addf, blockSum,
-          atomicOp.getMemref(), atomicOp.getIndices());
-      // scf::IfOp auto-generates scf.yield via ensureTerminator; no explicit yield needed.
     }
 
     // Erase the original atomic_rmw (its operand %sum is still live here),
@@ -560,7 +689,8 @@ struct ConvertSPMDToGPUPass
   }
 
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<gpu::GPUDialect, scf::SCFDialect, arith::ArithDialect>();
+    registry.insert<gpu::GPUDialect, scf::SCFDialect, arith::ArithDialect,
+                    NVVM::NVVMDialect>();
   }
 
   void runOnOperation() override {
@@ -772,11 +902,27 @@ struct ConvertSPMDToGPUPass
     // ReduceToHierarchicalGPU has benefit=2 (higher priority than
     // ReduceToSCFForGPU's default benefit=1); it falls back automatically
     // for any op that fails the legality checks.
+    //
+    // Region-simplification is disabled so that arith.constant ops created
+    // inside the gpu.launch body by ReduceToHierarchicalGPU stay there.
+    // gpu.launch is NOT isolated-from-above, so the default "Aggressive" CSE
+    // would move the warp-shuffle constants (fullMask, clamp31, delta values,
+    // numWarps, finalMask) to the enclosing host function.  gpu-kernel-outlining
+    // would then treat them as captured values and add 10 extra kernel
+    // parameters (~1 µs each on B200), blowing past the AC-7 speedup target.
     RewritePatternSet patterns(ctx);
     patterns.add<IfToSCFIfGPU>(ctx);
     patterns.add<ReduceToHierarchicalGPU>(ctx);
     patterns.add<ReduceToSCFForGPU>(ctx);
-    if (failed(applyPatternsGreedily(module, std::move(patterns))))
+    // Disable region simplification AND constant CSE so that arith.constant
+    // ops stay inside the gpu.launch body where ReduceToHierarchicalGPU places
+    // them.  OperationFolder (used by the greedy rewriter) would otherwise move
+    // constants into parent regions for "more aggressive CSE'ing", hoisting the
+    // shuffle constants to the host function and turning them into kernel params.
+    GreedyRewriteConfig cfg;
+    cfg.setRegionSimplificationLevel(GreedySimplifyRegionLevel::Disabled);
+    cfg.enableConstantCSE(false);
+    if (failed(applyPatternsGreedily(module, std::move(patterns), cfg)))
       signalPassFailure();
 
     if (hadError)

@@ -305,13 +305,8 @@ run_reduction_hierarchical() {
   gpu=$(_parse_gpu_ms   "$out")
   spd=$(_parse_speedup  "$out")
   append_row "reduction_hierarchical" "$size" "$tile" "no" "$ok" "$rel" "$cpu" "$gpu" "$spd"
-  # AC-7: GPU speedup must exceed 1.0 for N >= 262144.
-  # On B200 server hardware the GPU/CPU crossover is at N≈180K (profiled):
-  # the hierarchical kernel has a fixed latency component (~27µs) from kernel
-  # setup and branching overhead that dominates for small N where data is
-  # cache-resident on the host CPU.  N=262144 is the first clean power-of-2
-  # above the measured crossover and reliably shows >1× speedup.
-  if [[ "$size" -ge 262144 && "$ok" == "PASS" && "$spd" != "N/A" ]]; then
+  # AC-7: GPU speedup must exceed 1.0 for N >= 65536.
+  if [[ "$size" -ge 65536 && "$ok" == "PASS" && "$spd" != "N/A" ]]; then
     if awk "BEGIN { exit ($spd+0 > 1.0) ? 0 : 1 }"; then
       : # speedup > 1.0: pass
     else

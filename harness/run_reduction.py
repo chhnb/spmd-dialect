@@ -81,33 +81,27 @@ def run_sum_gpu(fn, A: np.ndarray, tile_size: int) -> float:
     return float(result_np[0])
 
 
-# ── Hierarchical kernel ABI ────────────────────────────────────────────────────
+# ── Hierarchical kernel ABI (warp-shuffle path, tile_size >= 32) ──────────────
+#
+# Warp-shuffle reduction: intra-warp Phase 1 (5 shfl steps) + inter-warp
+# Phase 2 (1 barrier) + final-warp Phase 3 (log2(numWarps) shfl steps).
+# Warp-shuffle constants (fullMask, deltas, clamp31, numWarps, finalMask) and
+# the identity (0.0) and c0 clamp (0) are all baked into the PTX as immediates.
+#
+# The MLIR memref descriptor ABI emits 10 params (base+aligned+offset+size+stride
+# for the rank-1 input, plus base+aligned+offset for the rank-0 output) but 6 of
+# those are dead (LLVM DCE removes the ld.param loads).  gen-ptx.sh surgically
+# removes the dead declarations from the PTX signature so the CUDA driver only
+# marshals the 4 live params, cutting launch overhead further.
 #
 # define ptx_kernel void @hierarchical_sum_kernel(
-#   i64    param_0 = tile_size  (blockDim.x = compile-time constant)
-#   i64    param_1 = N
-#   i64    param_2 = 0          (safe-idx clamp constant)
-#   ptr    param_3 = A.base_ptr
-#   ptr    param_4 = A.aligned_ptr
-#   i64    param_5 = A.offset = 0
-#   i64    param_6 = A.size = N
-#   i64    param_7 = A.stride = 1
-#   float  param_8 = 0.0        (reduction identity)
-#   i64    param_9 .. param_{9+log2(tile_size)-1} = tree strides (tile_size/2 .. 1)
-#   ptr    param_{9+K}   = out.base_ptr
-#   ptr    param_{10+K}  = out.aligned_ptr
-#   i64    param_{11+K}  = out.offset = 0
-# ) where K = log2(tile_size)
+#   i64    param_0  = tile_size        (blockDim.x)
+#   i64    param_1  = N
+#   ptr    param_3  = A.aligned_ptr    (position 2 after surgery)
+#   ptr    param_8  = out.aligned_ptr  (position 3 after surgery, last)
+# )
 #
 # Launch: grid=(⌈N/tile_size⌉, 1, 1), block=(tile_size, 1, 1)
-
-def _tree_strides(tile_size: int) -> list:
-    """Return tree reduction strides [tile_size/2, .., 1] for given blockDim."""
-    strides, s = [], tile_size // 2
-    while s >= 1:
-        strides.append(s)
-        s //= 2
-    return strides
 
 
 def run_hierarchical_gpu(fn, A: np.ndarray, tile_size: int) -> float:
@@ -120,17 +114,14 @@ def run_hierarchical_gpu(fn, A: np.ndarray, tile_size: int) -> float:
     cd.memcpy_h2d(A_d, A_c)
     cd.memset(out_d, 0, 4)
 
-    grid    = (math.ceil(N / tile_size), 1, 1)
-    strides = _tree_strides(tile_size)
+    grid = (math.ceil(N / tile_size), 1, 1)
 
     cd.launch(
         fn,
         grid, (tile_size, 1, 1),
-        tile_size, N, 0,          # params 0-2: tile_size, N, c0
-        A_d, A_d, 0, N, 1,        # params 3-7: A descriptor
-        0.0,                      # param 8: identity (float)
-        *strides,                 # params 9..(8+K): tree strides
-        out_d, out_d, 0,          # params (9+K)..(11+K): out descriptor
+        tile_size, N,  # param_0: tile_size, param_1: N
+        A_d,           # param_3 (pos 2): A.aligned_ptr
+        out_d,         # param_8 (pos 3): out.aligned_ptr
     )
     cd.synchronize()
 
@@ -244,15 +235,11 @@ def test_hierarchical_negative(fn, tile_size: int) -> bool:
     out_d = cd.alloc(4)
     cd.memcpy_h2d(A_d, A_c)
 
-    strides = _tree_strides(tile_size)
-    grid    = (math.ceil(N / tile_size), 1, 1)
+    grid = (math.ceil(N / tile_size), 1, 1)
 
     def _launch():
         cd.launch(fn, grid, (tile_size, 1, 1),
-                  tile_size, N, 0,
-                  A_d, A_d, 0, N, 1,
-                  0.0, *strides,
-                  out_d, out_d, 0)
+                  tile_size, N, A_d, out_d)
 
     # First launch with zero-initialized accumulator (correct result).
     cd.memset(out_d, 0, 4)
@@ -294,8 +281,7 @@ def test_performance_hierarchical(fn, sizes, tile_size: int, repeats=10):
         out_d = cd.alloc(4)
         cd.memcpy_h2d(A_d, A_c)
 
-        strides = _tree_strides(tile_size)
-        grid    = (math.ceil(N / tile_size), 1, 1)
+        grid = (math.ceil(N / tile_size), 1, 1)
 
         ev_start = cd.event_create()
         ev_stop  = cd.event_create()
@@ -303,11 +289,7 @@ def test_performance_hierarchical(fn, sizes, tile_size: int, repeats=10):
         def launch_once():
             cd.memset(out_d, 0, 4)
             cd.launch(fn, grid, (tile_size, 1, 1),
-                      tile_size, N, 0,
-                      A_d, A_d, 0, N, 1,
-                      0.0,
-                      *strides,
-                      out_d, out_d, 0)
+                      tile_size, N, A_d, out_d)
 
         # Warmup
         for _ in range(3):
@@ -326,11 +308,7 @@ def test_performance_hierarchical(fn, sizes, tile_size: int, repeats=10):
             cd.memset(out_d, 0, 4)
             cd.event_record(ev_start)
             cd.launch(fn, grid, (tile_size, 1, 1),
-                      tile_size, N, 0,
-                      A_d, A_d, 0, N, 1,
-                      0.0,
-                      *strides,
-                      out_d, out_d, 0)
+                      tile_size, N, A_d, out_d)
             cd.event_record(ev_stop)
             total_gpu_ms += cd.event_elapsed_ms(ev_start, ev_stop)
         t_gpu = total_gpu_ms / repeats
@@ -343,6 +321,11 @@ def test_performance_hierarchical(fn, sizes, tile_size: int, repeats=10):
 
 
 def test_performance(fn, sizes, tile_size: int, repeats=10):
+    """
+    Measure atomic-only reduction performance using CUDA event timing
+    (kernel-only, excludes Python/driver call overhead) for consistency
+    with test_performance_hierarchical.
+    """
     rng = np.random.default_rng(1)
     print(f"\n{'N':>12}  {'cpu_ms':>8}  {'gpu_ms':>8}  {'speedup':>8}")
     for N in sizes:
@@ -353,6 +336,8 @@ def test_performance(fn, sizes, tile_size: int, repeats=10):
         cd.memcpy_h2d(A_d, A_c)
 
         grid = (math.ceil(N / tile_size), 1, 1)
+        ev_start = cd.event_create()
+        ev_stop  = cd.event_create()
 
         def launch_once():
             cd.memset(out_d, 0, 4)
@@ -366,19 +351,27 @@ def test_performance(fn, sizes, tile_size: int, repeats=10):
             launch_once()
         cd.synchronize()
 
-        # CPU
+        # CPU timing
         t0 = time.perf_counter()
         for _ in range(repeats):
             _ = np.sum(A)
         t_cpu = (time.perf_counter() - t0) / repeats * 1e3
 
-        # GPU
-        t0 = time.perf_counter()
+        # GPU timing via CUDA events (kernel-only)
+        total_gpu_ms = 0.0
         for _ in range(repeats):
-            launch_once()
-        cd.synchronize()
-        t_gpu = (time.perf_counter() - t0) / repeats * 1e3
+            cd.memset(out_d, 0, 4)
+            cd.event_record(ev_start)
+            cd.launch(fn, grid, (tile_size, 1, 1),
+                      tile_size, N,
+                      A_d, A_d, 0, N, 1,
+                      out_d, out_d, 0)
+            cd.event_record(ev_stop)
+            total_gpu_ms += cd.event_elapsed_ms(ev_start, ev_stop)
+        t_gpu = total_gpu_ms / repeats
 
+        cd.event_destroy(ev_start)
+        cd.event_destroy(ev_stop)
         A_d.free()
         out_d.free()
         print(f"{N:>12}  {t_cpu:>8.3f}  {t_gpu:>8.3f}  {t_cpu/t_gpu:>8.1f}x")
