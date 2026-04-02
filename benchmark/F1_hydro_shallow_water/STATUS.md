@@ -21,6 +21,7 @@ Per-cell computation:
 - [x] Warp (CUDA)
 - [x] Triton (CUDA) — branchless precompute-and-select for Osher 16-case dispatch
 - [x] TileLang (CUDA) — T.if_then_else precompute-and-select, no tile/shared benefit
+- [x] Kokkos (C++/CUDA) — functor + parallel_for, natural switch-case Osher dispatch
 
 ## Grid sizes
 Default: 32, 64, 128, 256 (NxN cells)

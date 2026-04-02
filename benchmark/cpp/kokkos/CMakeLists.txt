@@ -19,3 +19,6 @@ target_link_libraries(jacobi_2d_kokkos Kokkos::kokkos)
 
 add_executable(reduction_kokkos reduction.cpp)
 target_link_libraries(reduction_kokkos Kokkos::kokkos)
+
+add_executable(hydro_swe_kokkos hydro_swe.cpp)
+target_link_libraries(hydro_swe_kokkos Kokkos::kokkos)
