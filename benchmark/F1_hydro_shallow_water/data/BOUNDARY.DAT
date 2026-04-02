@@ -1,0 +1,6 @@
+0      !PARAMETER (NZ)
+20        !PARAMETER (NQ)
+0        !PARAMETER (NZQ)
+5        !PARAMETER (NHQ)
+0        !PARAMETER (NWE)
+0        !PARAMETER (NDI)

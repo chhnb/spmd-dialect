@@ -24,6 +24,7 @@ BENCHMARKS = {
     "C1": ("C1_mpm",                "MPM (Material Point Method)"),
     "D2": ("D2_stable_fluids",      "Stable Fluids (incompressible NS)"),
     "E1": ("E1_reduction",          "Global Reduction (sum)"),
+    "F1": ("F1_hydro_shallow_water", "2D Shallow Water (Osher, hydro-cal)"),
 }
 
 # D1 Cloth uses Warp's own benchmark harness
