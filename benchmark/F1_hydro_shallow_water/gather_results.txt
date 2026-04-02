@@ -1,0 +1,56 @@
+======= N=64 =======
+=== Gather Promotion Experiment ===
+N=64, CEL=4096, steps=100, DT=0.112881
+BLOCK_SIZE=256, halo=BLOCK+2N=384
+Shared mem per block: 12.0 KB (4 fields × 384 cells × 8B)
+
+=== Results ===
+Naive:    1.314 ms (median, 100 steps)
+Promoted: 1.440 ms (median, 100 steps)
+Speedup:  0.91x
+Max |H_naive - H_promoted|: 0.00e+00 (should be ~0)
+
+CSV: 64,100,1.314,1.440,0.91,0.00e+00
+
+======= N=128 =======
+=== Gather Promotion Experiment ===
+N=128, CEL=16384, steps=100, DT=0.112881
+BLOCK_SIZE=256, halo=BLOCK+2N=512
+Shared mem per block: 16.0 KB (4 fields × 512 cells × 8B)
+
+=== Results ===
+Naive:    1.427 ms (median, 100 steps)
+Promoted: 1.441 ms (median, 100 steps)
+Speedup:  0.99x
+Max |H_naive - H_promoted|: 0.00e+00 (should be ~0)
+
+CSV: 128,100,1.427,1.441,0.99,0.00e+00
+
+======= N=256 =======
+=== Gather Promotion Experiment ===
+N=256, CEL=65536, steps=100, DT=0.112881
+BLOCK_SIZE=256, halo=BLOCK+2N=768
+Shared mem per block: 24.0 KB (4 fields × 768 cells × 8B)
+
+=== Results ===
+Naive:    1.442 ms (median, 100 steps)
+Promoted: 1.645 ms (median, 100 steps)
+Speedup:  0.88x
+Max |H_naive - H_promoted|: 0.00e+00 (should be ~0)
+
+CSV: 256,100,1.442,1.645,0.88,0.00e+00
+
+======= N=512 =======
+=== Gather Promotion Experiment ===
+N=512, CEL=262144, steps=100, DT=0.112881
+BLOCK_SIZE=256, halo=BLOCK+2N=1280
+Shared mem per block: 40.0 KB (4 fields × 1280 cells × 8B)
+
+=== Results ===
+Naive:    4.320 ms (median, 100 steps)
+Promoted: 5.127 ms (median, 100 steps)
+Speedup:  0.84x
+Max |H_naive - H_promoted|: 0.00e+00 (should be ~0)
+
+CSV: 512,100,4.320,5.127,0.84,0.00e+00
+

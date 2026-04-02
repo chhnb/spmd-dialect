@@ -262,8 +262,8 @@ def run(N, steps=1, backend="cuda"):
             UI = U1
             VI = V1
             if HI <= HM2:
-                UI = ti.math.copysign(VMIN, UI) if UI != 0.0 else VMIN
-                VI = ti.math.copysign(VMIN, VI) if VI != 0.0 else VMIN
+                UI = ti.select(UI >= 0.0, VMIN, -VMIN)
+                VI = ti.select(VI >= 0.0, VMIN, -VMIN)
             ZI = ti.max(Z_pre[pos], ZBC[pos])
 
             WH = 0.0
@@ -336,7 +336,7 @@ def run(N, steps=1, backend="cuda"):
                         ratio = ti.min(HC / QR_h, 1.5)
                         QR_u = UR * ratio
                         if HC <= HM2 or QR_h <= HM2:
-                            QR_u = ti.math.copysign(VMIN, UR) if UR != 0.0 else VMIN
+                            QR_u = ti.select(UR >= 0.0, VMIN, -VMIN)
                         QR_v_ = VC * COSJ - UC * SINJ
                         QR_vec = ti.Vector([QR_h, QR_u, QR_v_])
                         FLR_OS = osher(QL, QR_vec, FIL_v, H_pre[pos])
@@ -361,7 +361,7 @@ def run(N, steps=1, backend="cuda"):
                         ratio1 = ti.min(HC2 / QR1_h, 1.5)
                         QR1_u = UR1 * ratio1
                         if HC2 <= HM2 or QR1_h <= HM2:
-                            QR1_u = ti.math.copysign(VMIN, UR1) if UR1 != 0.0 else VMIN
+                            QR1_u = ti.select(UR1 >= 0.0, VMIN, -VMIN)
                         QR1_v_ = VI * COSJ1 - UI * SINJ1
                         QR1_vec = ti.Vector([QR1_h, QR1_u, QR1_v_])
                         FLR1 = osher(QL1, QR1_vec, FIL1, H_pre[NC])
@@ -392,8 +392,8 @@ def run(N, steps=1, backend="cuda"):
             V2 = 0.0
             if H2 > HM1:
                 if H2 <= HM2:
-                    U2 = ti.math.copysign(ti.min(VMIN, ti.abs(U1)), U1) if U1 != 0.0 else 0.0
-                    V2 = ti.math.copysign(ti.min(VMIN, ti.abs(V1)), V1) if V1 != 0.0 else 0.0
+                    U2 = ti.select(U1 >= 0.0, ti.min(VMIN, ti.abs(U1)), -ti.min(VMIN, ti.abs(U1)))
+                    V2 = ti.select(V1 >= 0.0, ti.min(VMIN, ti.abs(V1)), -ti.min(VMIN, ti.abs(V1)))
                 else:
                     QX1 = H1 * U1
                     QY1 = H1 * V1
@@ -403,8 +403,8 @@ def run(N, steps=1, backend="cuda"):
                     U2 = (QX1 - DTAU - DT * WSF * U1) / H2
                     V2 = (QY1 - DTAV - DT * WSF * V1) / H2
                     if H2 > HM2:
-                        U2 = ti.math.copysign(ti.min(ti.abs(U2), 15.0), U2)
-                        V2 = ti.math.copysign(ti.min(ti.abs(V2), 15.0), V2)
+                        U2 = ti.select(U2 >= 0.0, ti.min(ti.abs(U2), 15.0), -ti.min(ti.abs(U2), 15.0))
+                        V2 = ti.select(V2 >= 0.0, ti.min(ti.abs(V2), 15.0), -ti.min(ti.abs(V2), 15.0))
 
             H_res[pos] = H2
             U_res[pos] = U2
