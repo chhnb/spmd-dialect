@@ -15,7 +15,8 @@
 
 **Finding**: Kokkos and Taichi match or beat hand-written CUDA by 10-15%.
 Triton is 8-9x slower — its block-based precompute-and-select approach wastes compute.
-TileLang: compilation error (Buffer shape API incompatibility), not benchmarked.
+Triton is 8-9x slower — its block-based precompute-and-select wastes ~16x compute.
+TileLang: cannot run (pip v0.1.8 doesn't detect B200/sm_100; local build not compiled).
 
 ## 2. fp32 Comparison (Taichi vs Warp)
 

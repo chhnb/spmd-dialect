@@ -35,16 +35,19 @@ def build_swe_kernel(CEL, DT_val):
     # out_idx: positions of output tensors in the argument list
     # Arguments: NAC KLAS SIDE COSF SINF AREA ZBC FNC  H_pre U_pre V_pre Z_pre  H_res U_res V_res Z_res W_res
     #   idx:      0    1    2    3    4    5    6   7    8     9    10    11      12    13    14    15    16
+    edge_dim = 5 * stride  # pre-compute outside prim_func
+
     @tilelang.jit(out_idx=[12, 13, 14, 15, 16])
     def swe_step_kernel(CEL: int = CEL, stride: int = stride,
-                        DT: float = DT_val, BLOCK: int = BLOCK_SIZE):
+                        DT: float = DT_val, BLOCK: int = BLOCK_SIZE,
+                        edge_dim: int = edge_dim):
         @T.prim_func
         def kernel(
-            NAC: T.Tensor((5 * stride,), T.int32),
-            KLAS: T.Tensor((5 * stride,), T.int32),
-            SIDE: T.Tensor((5 * stride,), T.float32),
-            COSF: T.Tensor((5 * stride,), T.float32),
-            SINF: T.Tensor((5 * stride,), T.float32),
+            NAC: T.Tensor((edge_dim,), T.int32),
+            KLAS: T.Tensor((edge_dim,), T.int32),
+            SIDE: T.Tensor((edge_dim,), T.float32),
+            COSF: T.Tensor((edge_dim,), T.float32),
+            SINF: T.Tensor((edge_dim,), T.float32),
             AREA: T.Tensor((stride,), T.float32),
             ZBC: T.Tensor((stride,), T.float32),
             FNC: T.Tensor((stride,), T.float32),
