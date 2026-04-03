@@ -6,15 +6,16 @@
 
 ## 1. Cross-Framework Performance (fp64)
 
-| N | Cells | CUDA naive | Kokkos | Taichi |
-|---|-------|-----------|--------|--------|
-| 512 | 262K | 0.445 ms | 0.465 ms | 0.428 ms |
-| 1024 | 1M | 1.791 ms | 1.637 ms | 1.722 ms |
-| 2048 | 4M | 6.985 ms | 6.106 ms | 5.384 ms |
-| 4096 | 16M | 27.570 ms | 23.926 ms | 25.979 ms |
+| N | Cells | CUDA naive | Kokkos | Taichi | Triton |
+|---|-------|-----------|--------|--------|--------|
+| 512 | 262K | 0.445 ms | 0.465 ms | 0.428 ms | 4.104 ms |
+| 1024 | 1M | 1.791 ms | 1.637 ms | 1.722 ms | 14.949 ms |
+| 2048 | 4M | 6.985 ms | 6.106 ms | 5.384 ms | 55.699 ms |
+| 4096 | 16M | 27.570 ms | 23.926 ms | 25.979 ms | 220.796 ms |
 
 **Finding**: Kokkos and Taichi match or beat hand-written CUDA by 10-15%.
-Hand-written CUDA naive is the slowest — framework compilers produce better code.
+Triton is 8-9x slower — its block-based precompute-and-select approach wastes compute.
+TileLang: compilation error (Buffer shape API incompatibility), not benchmarked.
 
 ## 2. fp32 Comparison (Taichi vs Warp)
 
@@ -56,4 +57,5 @@ Needs testing on truly unstructured meshes where L2 cache miss rate is higher.
 1. **Gather promotion is NOT the right optimization for structured meshes on modern GPUs** — L2 cache is too effective
 2. **Framework overhead is negligible at scale** — at N≥512, Taichi/Kokkos match hand-written CUDA
 3. **Compiler quality matters more than manual optimization** — Kokkos/Taichi beat naive CUDA
-4. **Next research direction**: test on truly unstructured meshes, or pivot to divergence reduction
+4. **Triton is a poor fit** for branchy gather kernels — 8-9x slower due to precompute-all-select-one
+5. **Next research direction**: test on truly unstructured meshes, or pivot to divergence reduction

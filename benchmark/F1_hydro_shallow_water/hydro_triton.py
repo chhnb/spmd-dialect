@@ -304,13 +304,13 @@ def compute_edge_flux(
 
     # Case: ZI <= BC (local below neighbor bed)
     zi_le_bc = (~is_bnd) & (~both_dry) & (ZI <= BC)
-    f0 = tl.where(zi_le_bc, -0.3 * tl.math.pow(HC, 1.5), f0)
+    f0 = tl.where(zi_le_bc, -0.3 * HC * tl.sqrt(HC), f0)
     f1 = tl.where(zi_le_bc, HI * QL_u * tl.abs(QL_u), f1)
     f3 = tl.where(zi_le_bc, 4.905 * HI * HI, f3)
 
     # Case: ZC <= BI (neighbor below local bed)
     zc_le_bi = (~is_bnd) & (~both_dry) & (~zi_le_bc) & (ZC <= BI)
-    f0 = tl.where(zc_le_bi, 0.3 * tl.math.pow(HI, 1.5), f0)
+    f0 = tl.where(zc_le_bi, 0.3 * HI * tl.sqrt(HI), f0)
     f1 = tl.where(zc_le_bi, HI * tl.abs(QL_u) * QL_u, f1)
     f2 = tl.where(zc_le_bi, HI * tl.abs(QL_u) * QL_v, f2)
 
@@ -324,7 +324,7 @@ def compute_edge_flux(
     f2 = tl.where(hi_zc_gt, DH_a * UN_a * (VC * COSJ - UC * SINJ), f2)
     f3 = tl.where(hi_zc_gt, 4.905 * HI * HI, f3)
     hi_zc_le = hi_shallow & (~hi_zc_gt)
-    f0 = tl.where(hi_zc_le, 0.3 * tl.math.pow(HI, 1.5), f0)
+    f0 = tl.where(hi_zc_le, 0.3 * HI * tl.sqrt(HI), f0)
     f3 = tl.where(hi_zc_le, 4.905 * HI * HI, f3)
 
     # Case: HC <= HM2 (neighbor shallow)
@@ -338,7 +338,7 @@ def compute_edge_flux(
     f2 = tl.where(hc_zi_gt, DH_b * UN_b * QL_v, f2)
     f3 = tl.where(hc_zi_gt, 4.905 * HC1_b * HC1_b, f3)
     hc_zi_le = hc_shallow & (~hc_zi_gt)
-    f0 = tl.where(hc_zi_le, -0.3 * tl.math.pow(HC, 1.5), f0)
+    f0 = tl.where(hc_zi_le, -0.3 * HC * tl.sqrt(HC), f0)
     f1 = tl.where(hc_zi_le, HI * QL_u * QL_u, f1)
     f3 = tl.where(hc_zi_le, 4.905 * HI * HI, f3)
 
@@ -480,7 +480,7 @@ def shallow_water_kernel(
     DTAU = WDTA * WU
     DTAV = WDTA * WV
     speed = tl.sqrt(U1 * U1 + V1 * V1)
-    WSF = FNC_v * speed / tl.math.pow(H1, 0.33333)
+    WSF = FNC_v * speed / tl.exp(0.33333 * tl.log(H1))
     U2_wet = (QX1 - DTAU - DT * WSF * U1) / H2
     V2_wet = (QY1 - DTAV - DT * WSF * V1) / H2
     # Velocity cap at 15 m/s
