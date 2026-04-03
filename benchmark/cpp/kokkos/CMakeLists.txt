@@ -22,3 +22,6 @@ target_link_libraries(reduction_kokkos Kokkos::kokkos)
 
 add_executable(hydro_swe_kokkos hydro_swe.cpp)
 target_link_libraries(hydro_swe_kokkos Kokkos::kokkos)
+
+add_executable(hydro_swe_fp32_kokkos hydro_swe_fp32.cpp)
+target_link_libraries(hydro_swe_fp32_kokkos Kokkos::kokkos)
