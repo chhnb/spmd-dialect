@@ -19,7 +19,7 @@ MANNING_N = 0.03
 
 
 def run(N, steps=1, backend="cuda"):
-    ti.init(arch=ti.cuda if backend == "cuda" else ti.cpu, default_fp=ti.f64)
+    ti.init(arch=ti.cuda if backend == "cuda" else ti.cpu, default_fp=ti.f32)
     CEL = N * N
     dx = 1.0
     DT = 0.5 * dx / (ti.sqrt(G * 2.0) + 1e-6)
@@ -27,41 +27,41 @@ def run(N, steps=1, backend="cuda"):
     # --- Fields ---
     NAC = ti.field(dtype=ti.i32, shape=(5, CEL + 1))
     KLAS = ti.field(dtype=ti.i32, shape=(5, CEL + 1))
-    SIDE = ti.field(dtype=ti.f64, shape=(5, CEL + 1))
-    COSF = ti.field(dtype=ti.f64, shape=(5, CEL + 1))
-    SINF = ti.field(dtype=ti.f64, shape=(5, CEL + 1))
-    SLCOS = ti.field(dtype=ti.f64, shape=(5, CEL + 1))
-    SLSIN = ti.field(dtype=ti.f64, shape=(5, CEL + 1))
-    AREA = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    ZBC = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    FNC = ti.field(dtype=ti.f64, shape=(CEL + 1,))
+    SIDE = ti.field(dtype=ti.f32, shape=(5, CEL + 1))
+    COSF = ti.field(dtype=ti.f32, shape=(5, CEL + 1))
+    SINF = ti.field(dtype=ti.f32, shape=(5, CEL + 1))
+    SLCOS = ti.field(dtype=ti.f32, shape=(5, CEL + 1))
+    SLSIN = ti.field(dtype=ti.f32, shape=(5, CEL + 1))
+    AREA = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    ZBC = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    FNC = ti.field(dtype=ti.f32, shape=(CEL + 1,))
 
-    H_pre = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    U_pre = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    V_pre = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    Z_pre = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    W_pre = ti.field(dtype=ti.f64, shape=(CEL + 1,))
+    H_pre = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    U_pre = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    V_pre = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    Z_pre = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    W_pre = ti.field(dtype=ti.f32, shape=(CEL + 1,))
 
-    H_res = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    U_res = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    V_res = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    Z_res = ti.field(dtype=ti.f64, shape=(CEL + 1,))
-    W_res = ti.field(dtype=ti.f64, shape=(CEL + 1,))
+    H_res = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    U_res = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    V_res = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    Z_res = ti.field(dtype=ti.f32, shape=(CEL + 1,))
+    W_res = ti.field(dtype=ti.f32, shape=(CEL + 1,))
 
     # --- Mesh init on host, then copy to fields ---
     nac_np = np.zeros((5, CEL + 1), dtype=np.int32)
     klas_np = np.zeros((5, CEL + 1), dtype=np.int32)
-    side_np = np.zeros((5, CEL + 1), dtype=np.float64)
-    cosf_np = np.zeros((5, CEL + 1), dtype=np.float64)
-    sinf_np = np.zeros((5, CEL + 1), dtype=np.float64)
-    area_np = np.zeros(CEL + 1, dtype=np.float64)
-    fnc_np = np.full(CEL + 1, G * MANNING_N * MANNING_N, dtype=np.float64)
+    side_np = np.zeros((5, CEL + 1), dtype=np.float32)
+    cosf_np = np.zeros((5, CEL + 1), dtype=np.float32)
+    sinf_np = np.zeros((5, CEL + 1), dtype=np.float32)
+    area_np = np.zeros(CEL + 1, dtype=np.float32)
+    fnc_np = np.full(CEL + 1, G * MANNING_N * MANNING_N, dtype=np.float32)
 
     edge_cos = [0.0, 0.0, 1.0, 0.0, -1.0]
     edge_sin = [0.0, -1.0, 0.0, 1.0, 0.0]
 
-    h_np = np.full(CEL + 1, HM1, dtype=np.float64)
-    z_np = np.zeros(CEL + 1, dtype=np.float64)
+    h_np = np.full(CEL + 1, HM1, dtype=np.float32)
+    z_np = np.zeros(CEL + 1, dtype=np.float32)
 
     for i in range(N):
         for jj in range(N):
@@ -101,29 +101,29 @@ def run(N, steps=1, backend="cuda"):
     SLCOS.from_numpy(slcos_np)
     SLSIN.from_numpy(slsin_np)
     AREA.from_numpy(area_np)
-    ZBC.from_numpy(np.zeros(CEL + 1, dtype=np.float64))
+    ZBC.from_numpy(np.zeros(CEL + 1, dtype=np.float32))
     FNC.from_numpy(fnc_np)
     H_pre.from_numpy(h_np)
-    U_pre.from_numpy(np.zeros(CEL + 1, dtype=np.float64))
-    V_pre.from_numpy(np.zeros(CEL + 1, dtype=np.float64))
+    U_pre.from_numpy(np.zeros(CEL + 1, dtype=np.float32))
+    V_pre.from_numpy(np.zeros(CEL + 1, dtype=np.float32))
     Z_pre.from_numpy(z_np)
-    W_pre.from_numpy(np.zeros(CEL + 1, dtype=np.float64))
+    W_pre.from_numpy(np.zeros(CEL + 1, dtype=np.float32))
 
     # ------------------------------------------------------------------
     # Taichi functions
     # ------------------------------------------------------------------
     @ti.func
-    def QF(h: ti.f64, u: ti.f64, v: ti.f64) -> ti.types.vector(4, ti.f64):
+    def QF(h: ti.f32, u: ti.f32, v: ti.f32) -> ti.types.vector(4, ti.f32):
         f0 = h * u
         return ti.Vector([f0, f0 * u, f0 * v, HALF_G * h * h])
 
     @ti.func
-    def osher(QL: ti.types.vector(3, ti.f64),
-              QR: ti.types.vector(3, ti.f64),
-              FIL_in: ti.f64, H_pos: ti.f64) -> ti.types.vector(4, ti.f64):
+    def osher(QL: ti.types.vector(3, ti.f32),
+              QR: ti.types.vector(3, ti.f32),
+              FIL_in: ti.f32, H_pos: ti.f32) -> ti.types.vector(4, ti.f32):
         CR = ti.sqrt(G * QR[0])
-        FIR_v = QR[1] - 2.0 * CR
-        UA = (FIL_in + FIR_v) / 2.0
+        FIR_v = QR[1] - ti.cast(2.0, ti.f32) * CR
+        UA = (FIL_in + FIR_v) / ti.cast(2.0, ti.f32)
         CA = ti.abs((FIL_in - FIR_v) / 4.0)
         CL_v = ti.sqrt(G * H_pos)
 
@@ -164,55 +164,55 @@ def run(N, steps=1, backend="cuda"):
         # Each case is a sequence of (T, sign) pairs.
         if K1 == 1:
             if K2 == 1:
-                US = fil / 3.0; HS = US * US / G
+                US = fil / ti.cast(3.0, ti.f32); HS = US * US / ti.cast(G, ti.f32)
                 FLR += QF(HS, US, QL[2])
             elif K2 == 2:
-                ua_ = (fil + fir) / 2.0; fil = fil - ua_; HA = fil * fil / (4.0 * G)
+                ua_ = (fil + fir) / ti.cast(2.0, ti.f32); fil = fil - ua_; HA = fil * fil / (ti.cast(4.0, ti.f32) * ti.cast(G, ti.f32))
                 FLR += QF(HA, ua_, QL[2])
             elif K2 == 3:
-                ua_ = (fil + fir) / 2.0; fir = fir - ua_; HA = fir * fir / (4.0 * G)
+                ua_ = (fil + fir) / ti.cast(2.0, ti.f32); fir = fir - ua_; HA = fir * fir / (ti.cast(4.0, ti.f32) * ti.cast(G, ti.f32))
                 FLR += QF(HA, ua_, QR[2])
             else:  # K2 == 4
-                US = fir / 3.0; HS = US * US / G
+                US = fir / ti.cast(3.0, ti.f32); HS = US * US / ti.cast(G, ti.f32)
                 FLR += QF(HS, US, QR[2])
         elif K1 == 2:
             if K2 == 1:
                 FLR += QF(QL[0], QL[1], QL[2])
             elif K2 == 2:
                 FLR += QF(QL[0], QL[1], QL[2])
-                US2 = fil / 3.0; HS2 = US2 * US2 / G
+                US2 = fil / ti.cast(3.0, ti.f32); HS2 = US2 * US2 / ti.cast(G, ti.f32)
                 FLR -= QF(HS2, US2, QL[2])
-                ua_ = (fil + fir) / 2.0; fil = fil - ua_; HA = fil * fil / (4.0 * G)
+                ua_ = (fil + fir) / ti.cast(2.0, ti.f32); fil = fil - ua_; HA = fil * fil / (ti.cast(4.0, ti.f32) * ti.cast(G, ti.f32))
                 FLR += QF(HA, ua_, QL[2])
             elif K2 == 3:
                 FLR += QF(QL[0], QL[1], QL[2])
-                US2 = fil / 3.0; HS2 = US2 * US2 / G
+                US2 = fil / ti.cast(3.0, ti.f32); HS2 = US2 * US2 / ti.cast(G, ti.f32)
                 FLR -= QF(HS2, US2, QL[2])
-                ua_ = (fil + fir) / 2.0; fir = fir - ua_; HA = fir * fir / (4.0 * G)
+                ua_ = (fil + fir) / ti.cast(2.0, ti.f32); fir = fir - ua_; HA = fir * fir / (ti.cast(4.0, ti.f32) * ti.cast(G, ti.f32))
                 FLR += QF(HA, ua_, QR[2])
             else:  # K2 == 4
                 FLR += QF(QL[0], QL[1], QL[2])
-                US2 = fil / 3.0; HS2 = US2 * US2 / G
+                US2 = fil / ti.cast(3.0, ti.f32); HS2 = US2 * US2 / ti.cast(G, ti.f32)
                 FLR -= QF(HS2, US2, QL[2])
-                US6 = fir / 3.0; HS6 = US6 * US6 / G
+                US6 = fir / ti.cast(3.0, ti.f32); HS6 = US6 * US6 / ti.cast(G, ti.f32)
                 FLR += QF(HS6, US6, QR[2])
         elif K1 == 3:
             if K2 == 1:
-                US2 = fil / 3.0; HS2 = US2 * US2 / G
+                US2 = fil / ti.cast(3.0, ti.f32); HS2 = US2 * US2 / ti.cast(G, ti.f32)
                 FLR += QF(HS2, US2, QL[2])
-                US6 = fir / 3.0; HS6 = US6 * US6 / G
+                US6 = fir / ti.cast(3.0, ti.f32); HS6 = US6 * US6 / ti.cast(G, ti.f32)
                 FLR -= QF(HS6, US6, QR[2])
                 FLR += QF(QR[0], QR[1], QR[2])
             elif K2 == 2:
-                ua_ = (fil + fir) / 2.0; fil = fil - ua_; HA = fil * fil / (4.0 * G)
+                ua_ = (fil + fir) / ti.cast(2.0, ti.f32); fil = fil - ua_; HA = fil * fil / (ti.cast(4.0, ti.f32) * ti.cast(G, ti.f32))
                 FLR += QF(HA, ua_, QL[2])
-                US6 = fir / 3.0; HS6 = US6 * US6 / G
+                US6 = fir / ti.cast(3.0, ti.f32); HS6 = US6 * US6 / ti.cast(G, ti.f32)
                 FLR -= QF(HS6, US6, QR[2])
                 FLR += QF(QR[0], QR[1], QR[2])
             elif K2 == 3:
-                ua_ = (fil + fir) / 2.0; fir = fir - ua_; HA = fir * fir / (4.0 * G)
+                ua_ = (fil + fir) / ti.cast(2.0, ti.f32); fir = fir - ua_; HA = fir * fir / (ti.cast(4.0, ti.f32) * ti.cast(G, ti.f32))
                 FLR += QF(HA, ua_, QR[2])
-                US6b = fir / 3.0; HS6b = US6b * US6b / G
+                US6b = fir / ti.cast(3.0, ti.f32); HS6b = US6b * US6b / ti.cast(G, ti.f32)
                 FLR -= QF(HS6b, US6b, QR[2])
                 FLR += QF(QR[0], QR[1], QR[2])
             else:  # K2 == 4
@@ -220,30 +220,30 @@ def run(N, steps=1, backend="cuda"):
         else:  # K1 == 4
             if K2 == 1:
                 FLR += QF(QL[0], QL[1], QL[2])
-                US6 = fir / 3.0; HS6 = US6 * US6 / G
+                US6 = fir / ti.cast(3.0, ti.f32); HS6 = US6 * US6 / ti.cast(G, ti.f32)
                 FLR -= QF(HS6, US6, QR[2])
                 FLR += QF(QR[0], QR[1], QR[2])
             elif K2 == 2:
                 FLR += QF(QL[0], QL[1], QL[2])
-                US2 = fil / 3.0; HS2 = US2 * US2 / G
+                US2 = fil / ti.cast(3.0, ti.f32); HS2 = US2 * US2 / ti.cast(G, ti.f32)
                 FLR -= QF(HS2, US2, QL[2])
-                ua_ = (fil + fir) / 2.0; fil = fil - ua_; HA = fil * fil / (4.0 * G)
+                ua_ = (fil + fir) / ti.cast(2.0, ti.f32); fil = fil - ua_; HA = fil * fil / (ti.cast(4.0, ti.f32) * ti.cast(G, ti.f32))
                 FLR += QF(HA, ua_, QL[2])
-                US6 = fir / 3.0; HS6 = US6 * US6 / G
+                US6 = fir / ti.cast(3.0, ti.f32); HS6 = US6 * US6 / ti.cast(G, ti.f32)
                 FLR -= QF(HS6, US6, QR[2])
                 FLR += QF(QR[0], QR[1], QR[2])
             elif K2 == 3:
                 FLR += QF(QL[0], QL[1], QL[2])
-                US2 = fil / 3.0; HS2 = US2 * US2 / G
+                US2 = fil / ti.cast(3.0, ti.f32); HS2 = US2 * US2 / ti.cast(G, ti.f32)
                 FLR -= QF(HS2, US2, QL[2])
-                ua_ = (fil + fir) / 2.0; fir = fir - ua_; HA = fir * fir / (4.0 * G)
+                ua_ = (fil + fir) / ti.cast(2.0, ti.f32); fir = fir - ua_; HA = fir * fir / (ti.cast(4.0, ti.f32) * ti.cast(G, ti.f32))
                 FLR += QF(HA, ua_, QR[2])
-                US6 = fir / 3.0; HS6 = US6 * US6 / G
+                US6 = fir / ti.cast(3.0, ti.f32); HS6 = US6 * US6 / ti.cast(G, ti.f32)
                 FLR -= QF(HS6, US6, QR[2])
                 FLR += QF(QR[0], QR[1], QR[2])
             else:  # K2 == 4
                 FLR += QF(QL[0], QL[1], QL[2])
-                US2 = fil / 3.0; HS2 = US2 * US2 / G
+                US2 = fil / ti.cast(3.0, ti.f32); HS2 = US2 * US2 / ti.cast(G, ti.f32)
                 FLR -= QF(HS2, US2, QL[2])
                 FLR += QF(QR[0], QR[1], QR[2])
 
@@ -278,7 +278,7 @@ def run(N, steps=1, backend="cuda"):
 
                 QL = ti.Vector([HI, UI * COSJ + VI * SINJ, VI * COSJ - UI * SINJ])
                 CL_v = ti.sqrt(G * HI)
-                FIL_v = QL[1] + 2.0 * CL_v
+                FIL_v = QL[1] + ti.cast(2.0, ti.f32) * CL_v
 
                 HC = 0.0; BC = 0.0; ZC = 0.0; UC = 0.0; VC = 0.0
                 if NC != 0:
@@ -341,7 +341,7 @@ def run(N, steps=1, backend="cuda"):
                         QR_vec = ti.Vector([QR_h, QR_u, QR_v_])
                         FLR_OS = osher(QL, QR_vec, FIL_v, H_pre[pos])
                         flux[0] = FLR_OS[0]
-                        flux[1] = FLR_OS[1] + (1.0 - ratio) * HC * UR * UR / 2.0
+                        flux[1] = FLR_OS[1] + (1.0 - ratio) * HC * UR * UR / ti.cast(2.0, ti.f32)
                         flux[2] = FLR_OS[2]
                         flux[3] = FLR_OS[3]
                     else:
@@ -353,7 +353,7 @@ def run(N, steps=1, backend="cuda"):
                             V_pre[NC] * COSJ1 - U_pre[NC] * SINJ1,
                         ])
                         CL1 = ti.sqrt(G * H_pre[NC])
-                        FIL1 = QL1[1] + 2.0 * CL1
+                        FIL1 = QL1[1] + ti.cast(2.0, ti.f32) * CL1
                         HC2 = ti.max(HI, HM1)
                         ZC1 = ti.max(ZBC[pos], ZI)
                         QR1_h = ti.max(ZC1 - ZBC[NC], HM1)
@@ -366,7 +366,7 @@ def run(N, steps=1, backend="cuda"):
                         QR1_vec = ti.Vector([QR1_h, QR1_u, QR1_v_])
                         FLR1 = osher(QL1, QR1_vec, FIL1, H_pre[NC])
                         flux[0] = -FLR1[0]
-                        flux[1] = FLR1[1] + (1.0 - ratio1) * HC2 * UR1 * UR1 / 2.0
+                        flux[1] = FLR1[1] + (1.0 - ratio1) * HC2 * UR1 * UR1 / ti.cast(2.0, ti.f32)
                         flux[2] = FLR1[2]
                         ZA = ti.sqrt(FLR1[3] / HALF_G) + BC
                         HC3 = ti.max(ZA - ZBC[pos], 0.0)
