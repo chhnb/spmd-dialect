@@ -146,3 +146,27 @@ Theory:                  44.3 ms  (100% BW)
 
 4. **Backend choice**: lower to C++ with Kokkos-style Views (gets nvcc optimizations)
    rather than LLVM NVPTX (Taichi's path, known to be weaker)
+
+## 6. Critical Finding: Register Pressure is the Real Bottleneck
+
+### Experiment: Vary -maxrregcount (CUDA SWE, N=4096, 10 steps)
+
+| Max Regs | Actual | Blocks/SM | Occupancy | Time (ms) | Speedup |
+|----------|--------|-----------|-----------|-----------|---------|
+| 255 | 122 | 2 | 25% | 29.6 | 1.00x |
+| 96 | 96 | 2 | 25% | 28.1 | 1.05x |
+| 80 | 80 | 3 | 37% | 22.0 | **1.35x** |
+| 64 | 64 | 4 | 50% | **21.2** | **1.40x** |
+
+CUDA(64 regs): 21.2ms — beats Kokkos (23.8ms) by 11%.
+
+### Compute Breakdown
+
+Full kernel: 80% compute (OSHER), 20% memory.
+Low occupancy (25%) fails to hide memory stalls during compute.
+Doubling occupancy to 50% gives 1.40x speedup.
+
+### SPMD IR Implication
+
+RegisterPressureTuning pass: auto-select optimal register limit.
+Well-defined, automatable, 1.40x validated gain.
