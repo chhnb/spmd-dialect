@@ -170,3 +170,51 @@ Doubling occupancy to 50% gives 1.40x speedup.
 
 RegisterPressureTuning pass: auto-select optimal register limit.
 Well-defined, automatable, 1.40x validated gain.
+
+## 7. E2E Validation: All Optimizations Combined
+
+### Results (N=4096, fp64, 10 steps, real OSHER kernel)
+
+| Config | Time (ms) | vs Baseline | Correct |
+|--------|----------|-------------|---------|
+| Original CUDA (122 regs, transfer) | 29.6 | 1.00x | ✓ |
+| Kokkos (113 regs, transfer) | 23.8 | 1.24x | ✓ |
+| CUDA + swap + 64 regs | **18.6** | **1.59x** | ✓ |
+| CUDA + prefetch + swap + 128 regs | 20.9 | 1.42x | ✓ |
+| CUDA + prefetch + swap + 96 regs | 22.3 | 1.33x | ✓ |
+
+### Finding: Prefetch conflicts with register tuning
+
+Prefetch needs MORE registers (hold 2 edges simultaneously).
+Register tuning needs FEWER registers (higher occupancy).
+These two optimizations compete for the same resource.
+
+At maxreg=128: prefetch helps (+22% vs baseline at same regs)
+At maxreg=64: prefetch hurts (-8% vs baseline at same regs)
+Overall best: maxreg=64 without prefetch (18.6ms)
+
+### Compute-Memory Breakdown (64 regs, N=4096)
+
+```
+Full kernel:      18.5ms (100%)
+├── Memory:        6.8ms (37%)
+└── Compute:      11.7ms (63%)
+
+Compute and memory are 100% serial (zero overlap).
+The gap is filled by warp scheduling (occupancy).
+```
+
+### Pipeline Stall Model
+
+```
+FP64 instruction latency: 4 cycles
+Warp scheduling: 1 cycle/switch
+
+25% occ (16 warps): 4 warps/scheduler → 4 cycles → barely covers FP64 latency
+50% occ (32 warps): 8 warps/scheduler → 8 cycles → comfortable margin
+
+Stall from compute→memory transition:
+  Each edge: ~400 cycles (2-step gather dependency)
+  4 edges × 400 = 1600 cycles stall per cell
+  Hidden by warp switching IF enough warps available
+```
