@@ -311,3 +311,46 @@ The 51% divergence overhead is cheaper than 240% predication overhead.
 
 Crossover: ~5-10 FP64 ops per gather.
 OSHER at ~50 ops → deep in occupancy territory.
+
+## 10. Dependency Chain Analysis: The Deeper Bottleneck
+
+### Root cause: stalls are serial because of a long dependency chain
+
+```
+Per edge: NAC→H[NAC]→sqrt(G*H)→FIL→K1→branch→QF→flux
+Cycles:   200  200     20       4    4   ~50    ~200  = ~680 cycles
+× 4 edges = ~2700 cycles/cell
+```
+
+### Breaking the chain: precompute sqrt
+
+Precomputing `sqrt(G*H[i])` as a separate field converts a compute
+dependency into a memory load (parallel with other loads):
+
+```
+Original: H[NAC] → sqrt(G*H) → FIL    (serial: 200 + 20 = 220 cy)
+Optimized: H[NAC] ↗ → FIL              (parallel loads: 200 cy)
+           SH[NAC] ↗                    (loaded simultaneously)
+```
+
+Result: main kernel 12% faster (0.577→0.506ms), but precompute kernel
+adds 0.063ms overhead → net E2E gain needs kernel fusion.
+
+### Optimization interaction map
+
+```
+                    Register↓     Prefetch↗     DepChain↓     Swap↓
+Register tuning     ★ 1.40x       CONFLICT      ORTHOGONAL    STACK
+Prefetch            CONFLICT      6-20%         —             STACK
+Dep chain breaking  ORTHOGONAL    —             12%           STACK
+Buffer swap         STACK         STACK         STACK         ★ 1.13x
+```
+
+### Best achievable (validated + projected)
+
+```
+Original CUDA:     29.6ms  (1.00x)
++ register tuning: 21.2ms  (1.40x) ✓ validated
++ buffer swap:     18.6ms  (1.59x) ✓ validated
++ dep chain (fused):~16.5ms (~1.79x) projected (12% from dep chain)
+```
