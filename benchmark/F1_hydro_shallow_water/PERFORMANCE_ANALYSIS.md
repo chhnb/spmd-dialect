@@ -218,3 +218,47 @@ Stall from compute→memory transition:
   4 edges × 400 = 1600 cycles stall per cell
   Hidden by warp switching IF enough warps available
 ```
+
+## 8. Prefetch vs Occupancy: The Fundamental Tradeoff
+
+### The Conflict
+
+Both strategies hide gather latency but compete for the same resource:
+- **Prefetch**: needs MORE registers (hold 2 edges) → lower occupancy
+- **Occupancy**: needs FEWER registers (more warps) → no prefetch
+
+### Parametric Study: When Does Each Win?
+
+| Compute/Edge | Sequential | Prefetch | Speedup | Winner |
+|-------------|-----------|---------|---------|--------|
+| 0 ops (memory only) | 0.299ms | 0.277ms | **1.08x** | Prefetch |
+| 2 ops (light) | 0.365ms | 0.303ms | **1.20x** | Prefetch |
+| 5 ops (moderate) | 0.478ms | 0.443ms | **1.08x** | Prefetch |
+| 10 ops (≈OSHER) | 0.746ms | 0.731ms | 1.02x | Tie |
+| 20 ops (heavy) | 1.334ms | 1.356ms | 0.98x | Occupancy |
+| 50 ops (extreme) | 3.161ms | 3.174ms | 1.00x | Tie |
+
+### Crossover Point
+
+```
+Compute density < 5 FP64 ops/edge  → Prefetch wins (up to +20%)
+Compute density > 10 FP64 ops/edge → Occupancy wins (prefetch hurts)
+5-10 ops                           → Tie zone (need autotuning)
+```
+
+OSHER: ~50 ops/edge → deep in occupancy territory
+→ Register tuning (1.59x) >> Prefetch (0% gain)
+
+### Compiler Decision Model
+
+```
+compute_ops = count_fp64_ops(gather_to_next_gather)
+if compute_ops < 5:
+    apply_prefetch()          # sacrifice occupancy for overlap
+    set maxreg = default      # keep registers for prefetch
+elif compute_ops > 10:
+    apply_reg_tuning()        # sacrifice prefetch for occupancy  
+    set maxreg = optimal_for_occupancy()
+else:
+    autotune(prefetch, reg_tuning)  # try both, pick best
+```
