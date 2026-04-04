@@ -262,3 +262,52 @@ elif compute_ops > 10:
 else:
     autotune(prefetch, reg_tuning)  # try both, pick best
 ```
+
+## 9. Complete Pipeline Stall Taxonomy
+
+### Layer-by-layer decomposition (N=4096, 64 regs, 1 step)
+
+| Layer | Kernel | Time (ms) | Incremental |
+|-------|--------|----------|-------------|
+| L0 | Memory only (gather) | 0.295 | 0.295 (47%) |
+| L1 | + FMA compute | 0.313 | 0.018 (3%) |
+| L2 | + sqrt/MUFU | 0.499 | 0.190 (30%) |
+| L3 | + OSHER no branch | 0.490 | -0.009 (0%) |
+| L4 | + OSHER 16-case | 0.633 | 0.143 (23%) |
+
+### Optimization attempts for each stall type
+
+| Stall | Optimization | Result | Status |
+|-------|-------------|--------|--------|
+| Gather (47%) | Register tuning | **1.40x** | ✓ Validated |
+| Gather (47%) | Prefetch | Conflicts with reg tuning | ✗ |
+| sqrt (30%) | CSE (hoist out of loop) | 0% (nvcc already does it) | ✗ |
+| sqrt (30%) | rsqrt+Newton | 0% (B200 same speed) | ✗ |
+| Branch (23%) | Predicated (Triton-style) | **-240%** (much slower!) | ✗ |
+| Branch (23%) | Cell-type grouping | ~2% (97% are interior) | ✗ |
+| FMA (3%) | Not a bottleneck | — | — |
+
+### Branch Divergence: Why Predication Fails
+
+```
+No divergence (fixed path):  0.381ms (ideal)
+With divergence (16-case):   0.577ms (+51% overhead)
+Predicated (compute all):    1.295ms (+240% overhead!)
+```
+
+Predication computes ALL 16 paths then selects → 16x more compute.
+The 51% divergence overhead is cheaper than 240% predication overhead.
+
+### Prefetch vs Occupancy Crossover
+
+| Compute ops/gather | Prefetch speedup | Winner |
+|-------------------|-----------------|--------|
+| 0 (memory only) | +8% | Prefetch |
+| 2 (light) | +20% | Prefetch |
+| 5 (moderate) | +8% | Prefetch |
+| 10 (≈OSHER) | +2% | Tie |
+| 20 (heavy) | -2% | Occupancy |
+| 50 (extreme) | 0% | Tie |
+
+Crossover: ~5-10 FP64 ops per gather.
+OSHER at ~50 ops → deep in occupancy territory.
