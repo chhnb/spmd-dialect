@@ -1,6 +1,6 @@
 # Research Plan v2: The Launch Overhead Wall
 
-**Version:** 2.0
+**Version:** 2.1
 **Date:** 2026-04-05
 **Status:** Draft for advisor discussion
 **Supersedes:** research-plan-v1.md (SPMD IR)
@@ -9,7 +9,7 @@
 
 ## 1. One-Sentence Summary
 
-> Python GPU simulation DSLs (Taichi, Warp) waste 60–85% of GPU cycles on launch overhead for typical engineering meshes; we characterize this "Launch Overhead Wall" across 60+ kernel types, show it worsens with each GPU generation, and build a compiler transformation (persistent kernel fusion) that recovers 2.7x automatically.
+> Python GPU simulation DSLs (Taichi, Warp) waste 60–85% of GPU cycles on launch overhead for typical engineering meshes; we characterize this "Launch Overhead Wall" across 60+ kernel types, show it worsens with each GPU generation, and build a compiler framework that automatically selects and applies the optimal overhead elimination strategy (CUDA Graph auto-capture for static loops, persistent kernel fusion for dynamic loops) — recovering up to 2.9x with zero user code changes.
 
 ---
 
@@ -113,44 +113,106 @@ Deliverables:
 - Analysis of why Taichi deprecated its async engine
 - Codegen quality gap: Taichi LLVM NVPTX vs Warp LLVM vs nvcc
 
-### Contribution 3: Persistent Kernel Fusion (编译器变换)
+### Contribution 3: Automatic Overhead Elimination Framework (编译器框架)
 
-**核心技术贡献：自动将 time-stepping loop + 多 kernel 融合为单个 persistent kernel。**
+**核心技术贡献：编译器自动分析 time-stepping loop，选择并应用最优的 overhead 消除策略。**
 
-The transformation:
+#### 3a. Strategy Selection (策略选择)
+
+编译器分析循环特征，自动选择最优方案：
+
 ```
-INPUT (what the user writes):
-  for step in range(N):
-      kernel_1(args_1)     # e.g., flux calculation
-      kernel_2(args_2)     # e.g., cell update
-
-OUTPUT (what the compiler generates):
-  @cooperative_launch(grid=max(grid_1, grid_2))
-  def fused_persistent(args_1, args_2, steps=N):
-      for step in range(steps):
-          # Phase 1: kernel_1 logic
-          if tid < problem_size_1:
-              kernel_1_body(args_1)
-          grid_sync()
-          # Phase 2: kernel_2 logic
-          if tid < problem_size_2:
-              kernel_2_body(args_2)
-          grid_sync()
+分析 time-stepping loop:
+  ├─ 纯固定步数 (for i in range(N)，无 break/条件退出)
+  │   ├─ grid size ≤ cooperative limit → Persistent Kernel (2.7x)
+  │   └─ grid size > cooperative limit → CUDA Graph auto-capture (2.9x)
+  │
+  ├─ 有 convergence check / adaptive dt / 条件退出
+  │   ├─ grid size ≤ cooperative limit → Persistent Kernel (支持 dynamic flow)
+  │   └─ grid size > cooperative limit → Async loop + sync elimination (1.9x)
+  │
+  └─ 有 host-side data dependency (每步读回数据)
+      └─ 不可融合 → Async loop + sync elimination (1.9x)
 ```
+
+#### 3b. CUDA Graph Auto-Capture (静态循环)
+
+对纯固定步数循环，自动插入 Graph capture/replay：
+
+```
+INPUT (用户写的):                     OUTPUT (编译器生成的):
+for step in range(N):                 # 编译器自动插入
+    kernel_1(args)                    stream.begin_capture()
+    kernel_2(args)                    for step in range(N):
+                                          kernel_1(args, stream=stream)
+                                          kernel_2(args, stream=stream)
+                                      graph = stream.end_capture()
+                                      graph.replay()  # GPU 自行回放，0 launch overhead
+```
+
+- 适用条件：步数固定，无 host-side 数据依赖，无条件退出
+- 优点：无 grid size 限制，性能最优（2.9x）
+- 实现：在 DSL runtime 层插入 capture/replay API 调用
+
+#### 3c. Persistent Kernel Fusion (动态循环或小网格)
+
+对有 dynamic control flow 的循环，或 grid 足够小的情况：
+
+```
+INPUT:                                OUTPUT:
+for step in range(N):                 @cooperative_launch(grid=max(g1,g2))
+    kernel_1(args_1)                  def fused(args_1, args_2, N):
+    kernel_2(args_2)                      for step in range(N):
+    if converged(): break                     if tid < size_1: kernel_1_body()
+                                              grid_sync()
+                                              if tid < size_2: kernel_2_body()
+                                              grid_sync()
+                                              if converged(): break  # ← Graph做不到
+```
+
+- 适用条件：grid blocks ≤ SM_count × occupancy
+- 优点：支持 dynamic control flow（CUDA Graph 不支持）
+- 关键技术：cooperative groups grid-level sync
+
+#### 3d. Async Loop + Sync Elimination (Fallback)
+
+对无法融合的循环，至少消除不必要的 per-step sync：
+
+```
+INPUT (Taichi 默认行为):              OUTPUT:
+for step in range(N):                 for step in range(N):
+    kernel_1(args)                        kernel_1(args)  # 不同步
+    cudaDeviceSynchronize()  ← 多余       kernel_2(args)  # 不同步
+    kernel_2(args)                    cudaDeviceSynchronize()  # 只在最后同步一次
+    cudaDeviceSynchronize()  ← 多余
+```
+
+- 适用条件：kernel 之间无 host-side 数据读回
+- 优点：始终可用，实现最简单（1.9x）
 
 Key challenges:
-1. **Grid size unification**: different kernels may need different grid sizes → use max, guard with bounds check
-2. **Applicability analysis**: detect which loops are fusible (no host-side data dependency between steps)
-3. **Cooperative launch limit**: grid blocks ≤ SM_count × max_blocks_per_SM → may need tiling
-4. **Escape hatches**: periodic output (every N steps), convergence checks → insert host sync points
-5. **Register pressure**: fused kernel has union of all kernels' register usage → may need tuning
+1. **Applicability analysis**: 静态分析循环体，判断是否有 host-side 数据依赖
+2. **Strategy selection**: 根据 grid size、cooperative limit、control flow 特征选择最优方案
+3. **Grid size unification** (persistent): 不同 kernel 的 grid size 不同 → use max + bounds check
+4. **Cooperative launch limit** (persistent): grid blocks ≤ SM × occupancy → 超限时 fallback to Graph
+5. **Escape hatches**: 周期性输出（每 N 步 dump）→ 在 Graph 中分段 capture，或 persistent 中插入 host sync point
+6. **Register pressure** (persistent): fused kernel 的寄存器用量 = 所有 kernel 的并集 → 可能需要 register tuning
 
-### Contribution 4: Evaluation Framework
+### Contribution 4: Single-Kernel Optimization (补充)
+
+对 compute-dominated 的 kernel（大网格，overhead 占比 <20%），提供互补的单 kernel 优化：
+
+- **Register pressure tuning**: 限制寄存器数量 → 提升 occupancy → 1.4x（已验证）
+- **Buffer swap**: 消除 transfer kernel → 1.13x（已验证）
+- 这些优化与 overhead 消除正交，可叠加
+
+### Contribution 5: Evaluation Framework
 
 - Before/after GPU utilization on 60+ kernels
-- Comparison with CUDA Graph (our approach works with dynamic control flow; Graph doesn't)
+- Strategy selection accuracy: 编译器选的策略 vs 最优策略的匹配率
+- CUDA Graph vs Persistent Kernel: 适用范围、性能对比、互补性
 - End-to-end simulation speedup on real-world cases (hydro-cal, LBM, wave equation)
-- Scalability across GPU generations (3060, A100, B200)
+- Scalability across GPU generations (3060, B200)
 
 ---
 
@@ -200,10 +262,10 @@ Secondary:
 |---|---|
 | Taichi (default) | Current Python DSL performance |
 | Warp (default) | Alternative DSL comparison |
-| CUDA Graph | Best-case runtime solution (manual) |
+| CUDA Graph (manual) | Best-case runtime solution (manual API) |
 | C++ async loop (Kokkos) | Best-case without Python overhead |
 | Raw CUDA (sync per step) | Overhead without Python layer |
-| **Our persistent kernel** | **Compiler-automatic solution** |
+| **Our framework (auto)** | **Compiler selects Graph / Persistent / Async** |
 
 ---
 
@@ -221,51 +283,73 @@ Secondary:
 
 产出：`benchmark/CHARACTERIZATION_RESULTS.md` + 绘图脚本
 
-### Phase 2: Persistent Kernel 变换原型（4–6 周）
+### Phase 2: 双策略手动验证原型（4–6 周）
 
-**目标**: 手动验证变换在 10+ 个代表性 kernel 上的正确性和性能
+**目标**: 手动验证 CUDA Graph auto-capture 和 Persistent Kernel 在 10+ 个代表性 kernel 上的正确性和性能
 
-- [ ] 手写 persistent kernel 版本覆盖 5 大类 kernel
+- [ ] **CUDA Graph auto-capture 验证**（静态循环路径）
+  - Stencil (Heat2D, Wave2D, Jacobi) — 固定步数
+  - Multi-field (Gray-Scott, Allen-Cahn) — 固定步数
+  - CFD (SWE, LBM) — 固定步数
+  - hydro-cal — 固定步数（900 steps/day）
+  - 验证：capture + replay 结果与逐步执行 bit-exact
+- [ ] **Persistent Kernel 验证**（动态循环路径）
   - Stencil (Heat2D) ✅ 已验证
   - Multi-field (Gray-Scott) ✅ 已验证
   - Unstructured mesh (hydro-cal) ✅ 已验证
   - Particle (N-body)
   - Multi-kernel step (LBM: stream + collide)
-- [ ] 处理边界情况
-  - 周期性输出（每 N 步 dump 数据）
-  - 条件退出（convergence check）
-  - Grid size 超出 cooperative limit → tiling / fallback to Graph
-- [ ] 正确性验证：fused vs original bit-exact 对比
-- [ ] 性能对比表：fused vs Taichi vs Graph vs Kokkos
+  - Iterative solver (Jacobi with convergence check) ← Graph 做不了
+- [ ] **边界情况**
+  - 周期性输出（每 N 步 dump 数据）→ Graph 分段 / Persistent 插入 host sync
+  - 条件退出（convergence check）→ Persistent only
+  - Grid 超 cooperative limit → fallback to Graph
+- [ ] **策略选择验证**：对每个 kernel，手动标注最优策略 vs 规则选择的策略
+- [ ] 性能对比表：{Graph, Persistent, Async} × {Taichi, Warp, Kokkos, CUDA}
 
-产出：`benchmark/persistent_kernels/` 目录 + 10+ 手写验证用例
+产出：`benchmark/overhead_elimination/` 目录 + 10+ 手写验证用例 + 策略选择规则
 
-### Phase 3: 自动变换工具（6–8 周）
+### Phase 3: 自动化框架（6–8 周）
 
-**目标**: 构建能自动做 persistent kernel fusion 的工具
+**目标**: 构建自动分析 + 策略选择 + 代码变换工具
 
-两种路径（选其一或并行）：
+三个子模块：
 
-**路径 A: Taichi Compiler Plugin**
-- 在 Taichi IR (CHI IR) 层面识别 time-stepping pattern
-- 插入 grid sync，融合多 kernel 为单 kernel
-- 优点：直接集成到 Taichi 编译流程
-- 缺点：Taichi 内部 API 不稳定
+**模块 1: Loop Analyzer（循环分析器）**
+- 分析 time-stepping loop 的特征
+- 输出：{固定步数?, 有条件退出?, 有 host 数据依赖?, grid size, kernel 数量}
+- 实现：Python AST 分析（轻量）或 MLIR pass（学术性更强）
 
-**路径 B: MLIR Pass (复用 spmd-dialect 基础设施)**
-- 定义一个 `sim.timestep_loop` op
-- 编写 fusion pass：`sim.timestep_loop { kernel1; kernel2 }` → `sim.persistent_kernel`
-- lowering 到 `gpu.launch_cooperative`
-- 优点：与现有 MLIR 工作衔接，可独立于 Taichi/Warp
+**模块 2: Strategy Selector（策略选择器）**
+- 输入：Loop Analyzer 的输出 + 硬件信息（SM 数, cooperative limit）
+- 输出：最优策略（Graph / Persistent / Async）
+- 实现：基于规则的决策树（从 Phase 2 验证中提炼）
+
+**模块 3: Code Transformer（代码变换器）**
+- Graph 路径：自动插入 capture/replay API
+- Persistent 路径：kernel fusion + cooperative launch
+- Async 路径：sync elimination
+
+**实现路径**（选一）：
+
+**路径 A: Python-level runtime layer**
+- 在 Taichi/Warp 外层包一个 runtime，透明地拦截 kernel launch
+- 自动检测 loop pattern，注入 Graph capture 或 persistent kernel
+- 优点：不改框架内部，最快落地
+- 缺点：不能做 persistent kernel fusion（需要改 kernel 代码）
+
+**路径 B: MLIR Pass（复用 spmd-dialect 基础设施）**
+- Loop Analyzer + Transformer 实现为 MLIR pass
+- 定义 `sim.timestep_loop` op + fusion/graph-capture lowering
+- 优点：学术贡献清晰，支持完整的三种策略
 - 缺点：需要前端桥接
 
-**路径 C: Source-to-Source (最轻量)**
-- Python AST 分析：识别 `for ... in range(): kernel()` pattern
-- 生成等价 CUDA persistent kernel 代码
-- 优点：快速原型，不依赖框架内部
-- 缺点：不能直接集成
+**路径 C: Source-to-Source（折中）**
+- Python AST → 分析 → 生成等价 CUDA 代码（Graph / Persistent / Async）
+- 优点：不依赖框架内部，可独立演示
+- 缺点：不能直接集成到 Taichi/Warp
 
-**推荐**: 路径 B（MLIR Pass），因为复用已有基础设施，且学术贡献更清晰。
+**推荐**: 路径 B（MLIR Pass），复用已有基础设施。但如果时间紧，路径 C 作为 fallback。
 
 ### Phase 4: 评估 & 论文（4–6 周）
 
@@ -308,7 +392,7 @@ Secondary:
 ### Title (候选)
 
 1. "The Launch Overhead Wall: Why Faster GPUs Make Python Simulation DSLs Relatively Slower"
-2. "Closing the DSL-Metal Gap: Automatic Persistent Kernel Fusion for Python GPU Simulations"
+2. "Closing the DSL-Metal Gap: Automatic Overhead Elimination for GPU Simulation Frameworks"
 3. "When Launch Overhead Exceeds Compute: Characterization and Compiler Solutions for GPU Simulation DSLs"
 
 ### Structure
@@ -318,10 +402,12 @@ Secondary:
    - 它们隐含的承诺: "write Python, get GPU speed"
    - 这个承诺在大多数真实工作负载上被打破了
    - 代际趋势: 问题在恶化
+   - 我们的解决方案: 编译器自动选择 Graph / Persistent / Async
 
 2. **Background** (1 page)
    - Taichi/Warp 编译 & 执行模型
-   - CUDA kernel launch anatomy
+   - CUDA kernel launch anatomy (6-layer overhead)
+   - CUDA Graph API & 限制
    - Cooperative groups / persistent kernels
 
 3. **Characterization** (3 pages) — Contribution 1 & 2
@@ -331,28 +417,34 @@ Secondary:
    - 代际趋势数据 (3060 vs B200)
    - Classification: overhead-dominated / compute-dominated
 
-4. **Persistent Kernel Fusion** (3 pages) — Contribution 3
-   - Transformation algorithm
-   - Applicability analysis (what patterns are fusible)
-   - Handling edge cases (periodic output, convergence, grid limit)
-   - Implementation (MLIR pass)
+4. **Automatic Overhead Elimination** (3 pages) — Contribution 3
+   - 4.1 策略空间: Graph vs Persistent vs Async — 各自的适用条件和限制
+   - 4.2 Loop Analysis: 如何静态分析循环特征（步数固定性、数据依赖、control flow）
+   - 4.3 Strategy Selection: 决策算法（输入: 循环特征 + 硬件参数 → 输出: 最优策略）
+   - 4.4 CUDA Graph auto-capture: 自动插入 capture/replay
+   - 4.5 Persistent kernel fusion: kernel 融合 + cooperative launch
+   - 4.6 Edge cases: 周期性输出、convergence check、grid 超限 fallback
 
-5. **Evaluation** (3 pages) — Contribution 4
-   - Setup: 60+ kernels × {Taichi, Warp, CUDA, Kokkos, our tool}
-   - GPU utilization before / after
-   - vs CUDA Graph: we handle dynamic control flow
-   - Real-world case study: hydro-cal
-   - Cross-generation: 3060 vs B200
+5. **Evaluation** (3 pages) — Contribution 4 & 5
+   - Setup: 60+ kernels × {Taichi, Warp, CUDA, Kokkos, our framework}
+   - GPU utilization before / after (primary metric)
+   - Strategy selection accuracy: 自动选的 vs oracle 最优
+   - Graph vs Persistent: 各自 win 的场景（static vs dynamic loop）
+   - Real-world case study: hydro-cal (Graph: 2.9x, Persistent: 2.7x)
+   - Cross-generation: 3060 vs B200 (overhead wall worsens)
 
 6. **Discussion** (1 page)
-   - Framework implications (what Taichi/Warp should change)
-   - Limitations (grid size limit, register pressure)
-   - Future: combined with single-kernel optimizations
+   - Framework implications (what Taichi/Warp should adopt)
+   - Limitations (persistent: grid size; graph: static only; both: register pressure)
+   - Complementarity with single-kernel optimizations (register tuning 1.4x)
+   - Future: integration into DSL compilers
 
 7. **Related Work** (1 page)
-   - CUDA Graph, Triton, Halide, persistent threads literature
-   - Taichi async engine (deprecated)
-   - GPU kernel fusion in ML compilers (XLA, TorchInductor)
+   - CUDA Graph: 我们自动化它 + 提供 dynamic flow 的 persistent 路径
+   - Taichi async engine (deprecated): 我们解释为什么失败 + 提供可行替代
+   - Persistent threads [Gupta 2012]: 我们用于 DSL overhead，而非 GPU scheduling
+   - ML compiler fusion (XLA, TorchInductor): 不同的 fusion 对象（DAG vs time-stepping）
+   - Triton / Halide: complementary (single-kernel vs cross-kernel)
 
 ---
 
@@ -360,14 +452,19 @@ Secondary:
 
 | Work | What They Do | How We Differ |
 |---|---|---|
-| CUDA Graph | Runtime API for launch batching | We do this as compiler transformation, no API change |
-| Taichi Async Engine | Tried to eliminate sync (deprecated) | We explain why it failed + provide working alternative |
-| Triton | Single-kernel optimization | We target cross-kernel overhead, complementary |
-| XLA/TorchInductor fusion | Fuse ML ops | We target simulation kernels (time-stepping, not DAG) |
-| Persistent threads [Gupta 2012] | GPU scheduling technique | We apply it to DSL overhead elimination, with compiler automation |
-| Halide | Schedule-based optimization | Different domain (image processing), no launch overhead focus |
+| CUDA Graph | Runtime API for launch batching | 我们**自动化**它（无需用户改代码），并提供 persistent 路径补充 dynamic flow |
+| Taichi Async Engine | 尝试消除 sync（已废弃） | 我们解释为什么失败 + 提供可行的替代方案 |
+| Triton | Single-kernel optimization | 互补：我们做 cross-kernel overhead，Triton 做 kernel 内部优化 |
+| XLA/TorchInductor fusion | Fuse ML ops (DAG-based) | 我们针对 simulation 的 time-stepping loop（循环结构 vs 计算图） |
+| Persistent threads [Gupta 2012] | GPU scheduling 技术 | 我们用于 DSL overhead 消除，且自动化为编译器 pass |
+| Halide | Schedule-based optimization | 不同领域（image processing），无 launch overhead 关注 |
+| PyTorch CUDA Graph integration | Manual capture API | 我们做自动检测 + 自动 capture，对用户透明 |
 
-**Our unique position:** 我们是第一个 (a) 系统量化 Python GPU DSL 的 launch overhead，(b) 证明它在代际趋势上恶化，(c) 提出编译器自动的 persistent kernel fusion 作为解决方案。
+**Our unique position:** 我们是第一个：
+- (a) 系统量化 Python GPU DSL 的 launch overhead（60+ 种模拟 kernel）
+- (b) 证明 overhead wall 在每一代 GPU 上恶化（V100 → B200 → future）
+- (c) 提出**统一的编译器框架**，自动选择 Graph / Persistent / Async 策略
+- (d) CUDA Graph 和 Persistent Kernel 互补覆盖 static + dynamic 两类循环
 
 ---
 
@@ -375,12 +472,12 @@ Secondary:
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| 3060 cooperative limit 不够 | High | Tiling + fallback to Graph |
-| Persistent kernel 性能不如 Graph | Medium | 两者互补：persistent 支持 dynamic flow |
-| Fused kernel register pressure 爆炸 | Medium | Register tuning pass (已验证 1.4x) |
+| 3060 cooperative limit 不够 | High | 自动 fallback to Graph（这恰好展示了策略选择的价值） |
+| Fused kernel register pressure 爆炸 | Medium | Register tuning pass（已验证 1.4x）+ 策略回退 |
 | Taichi/Warp 内部 API 变动 | High | 用 MLIR pass 独立实现，不绑定框架 |
 | 只有 3060 数据不够有说服力 | Medium | B200 数据已有；争取借用 A100/H100 |
-| 审稿人认为 "just use CUDA Graph" | High | 强调: (1) Graph 不支持 dynamic flow, (2) 我们是 compiler-automatic |
+| 审稿人认为 "just use CUDA Graph" | Medium | (1) 我们自动化了 Graph（用户不需要改代码），(2) Graph 不支持 dynamic flow，persistent 补充，(3) 核心贡献是 characterization + 统一框架 |
+| Graph + Persistent 覆盖不了所有情况 | Low | Async sync-elimination 作为 universal fallback（1.9x） |
 
 ---
 
@@ -405,11 +502,31 @@ Secondary:
 | Taichi (default) | 14.9 μs | 15.0 μs | ~15 μs (est.) | baseline |
 | CUDA Sync loop | 12.9 μs | 17.5 μs | 15.2 μs | 1.0x |
 | C++ Async loop | 8.1 μs | 12.3 μs | 8.2 μs | 1.4–1.9x |
-| CUDA Graph | 3.3 μs | 5.7 μs | 5.3 μs | 2.7–3.9x |
+| **CUDA Graph** | **3.3 μs** | **5.7 μs** | **5.3 μs** | **2.7–3.9x** |
 | **Persistent kernel** | **4.8 μs** | **6.5 μs** | **5.7 μs** | **2.4–2.7x** |
 
-### B. 60-Kernel Classification
+### B. Strategy Selection Matrix (从实验数据提炼)
+
+| 场景 | 最优策略 | 原因 |
+|---|---|---|
+| 固定步数 + 小网格 (≤ coop limit) | Graph 或 Persistent（均可） | Graph 略快，Persistent 更独立 |
+| 固定步数 + 大网格 (> coop limit) | **CUDA Graph** | Persistent 不适用（grid 超限） |
+| 有 convergence check + 小网格 | **Persistent Kernel** | Graph 不支持 dynamic control flow |
+| 有 convergence check + 大网格 | **Async (sync elimination)** | Graph/Persistent 均不适用 |
+| 每步有 host 数据读回 | **Async (sync elimination)** | 无法消除 host 同步 |
+
+### C. 60-Kernel Classification
 
 - Overhead-dominated (>60%): 54/60 at typical mesh sizes
 - Compute-dominated (<20%): 2/60
 - Transitional: 4/60
+
+### D. Single-Kernel Optimization (Complementary, Compute-Dominated Only)
+
+| Optimization | Speedup | Applicable When |
+|---|---|---|
+| Register pressure tuning (-maxrregcount) | 1.4x | High-register fp64 kernels |
+| Buffer swap (double buffering) | 1.13x | Kernels with separate transfer step |
+| Prefetch | ~1.1x | <5 FP64 ops/gather (conflicts with register tuning) |
+
+Note: 这些优化只对 compute-dominated (大网格) 有效，与 overhead 消除正交可叠加。
