@@ -30,3 +30,6 @@ target_link_libraries(notransfer_test Kokkos::kokkos)
 
 add_executable(hydro_swe_swap hydro_swe_swap.cpp)
 target_link_libraries(hydro_swe_swap Kokkos::kokkos)
+
+add_executable(hydro_refactored_kokkos hydro_refactored.cpp)
+target_link_libraries(hydro_refactored_kokkos Kokkos::kokkos)
