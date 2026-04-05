@@ -10,3 +10,4 @@ benchmark/F1_hydro_shallow_water/gather_experiment
 benchmark/F1_hydro_shallow_water/gather_experiment_fp32
 benchmark/F1_hydro_shallow_water/__pycache__/
 *.pyc
+benchmark/cpp/kokkos/build-*/

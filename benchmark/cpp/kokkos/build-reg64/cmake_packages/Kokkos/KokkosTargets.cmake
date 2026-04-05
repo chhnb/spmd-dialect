@@ -1,1 +1,0 @@
-include(/home/scratch.huanhuanc_gpu/spmd/spmd-dialect/benchmark/cpp/kokkos/build-reg64/kokkos/KokkosTargets.cmake)
