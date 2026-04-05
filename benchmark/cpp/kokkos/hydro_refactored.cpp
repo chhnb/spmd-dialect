@@ -235,16 +235,12 @@ struct UpdateCell {
     }
 };
 
-// ===== Simple file reader =====
-std::vector<std::string> readLines(const std::string& path) {
-    std::ifstream f(path);
-    std::vector<std::string> lines;
-    std::string line;
-    while (std::getline(f, line)) {
-        if (!line.empty() && line[0] != '!' && line[0] != '#')
-            lines.push_back(line);
-    }
-    return lines;
+// ===== Binary file loader =====
+template<typename T>
+void loadBinary(const std::string& path, T* dst, int count) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) { fprintf(stderr, "Cannot open %s\n", path.c_str()); exit(1); }
+    f.read(reinterpret_cast<char*>(dst), count * sizeof(T));
 }
 
 int main(int argc, char* argv[]) {
@@ -252,19 +248,18 @@ int main(int argc, char* argv[]) {
     {
         int steps = (argc > 1) ? atoi(argv[1]) : 900;
         int repeat = (argc > 2) ? atoi(argv[2]) : 10;
+        std::string bin = "/home/scratch.huanhuanc_gpu/spmd/spmd-dialect/benchmark/F2_hydro_refactored/data/binary/";
 
-        // Load mesh data (hardcoded path relative to benchmark dir)
-        std::string data = "../../benchmark/F2_hydro_refactored/data/";
-
-        auto gl = readLines(data + "GIRD.DAT");
-        int NOD = std::stoi(gl[0]), CELL = std::stoi(gl[1]);
-        auto dl = readLines(data + "DEPTH.DAT");
-        float HM1 = std::stof(dl[0]), HM2 = std::stof(dl[1]);
-        float DT = 4.0f; // from CALTIME.DAT
-
+        // Read params line by line
+        std::ifstream pf(bin + "params.txt");
+        std::string line;
+        std::getline(pf, line); int CELL = std::stoi(line);
+        std::getline(pf, line); float HM1 = std::stof(line);
+        std::getline(pf, line); float HM2 = std::stof(line);
+        std::getline(pf, line); float DT = std::stof(line);
+        std::getline(pf, line); int steps_per_day = std::stoi(line);
         printf("CELL=%d, HM1=%.4f, HM2=%.4f, DT=%.1f, steps=%d\n", CELL, HM1, HM2, DT, steps);
 
-        // Allocate
         int nSides = CELL * 4;
         View1Df H("H", CELL), U("U", CELL), V("V", CELL), Z("Z", CELL), W("W", CELL);
         View1Df ZBC_v("ZBC", CELL), ZB1("ZB1", CELL), AREA("AREA", CELL), FNC("FNC", CELL);
@@ -275,15 +270,27 @@ int main(int argc, char* argv[]) {
         View1Df FLUX0("FLUX0", nSides), FLUX1("FLUX1", nSides);
         View1Df FLUX2("FLUX2", nSides), FLUX3("FLUX3", nSides);
 
-        // Host mirrors
-        auto h_H = Kokkos::create_mirror_view(H);
-        auto h_NAC = Kokkos::create_mirror_view(NAC);
-        auto h_KLAS = Kokkos::create_mirror_view(KLAS);
-
-        // TODO: load actual mesh data from files (for now use placeholder)
-        // This is a structural benchmark — actual data loading would match mesh_loader.py
-        printf("NOTE: Full mesh loading not implemented in Kokkos version.\n");
-        printf("Use CUDA baseline for correctness, Kokkos for performance comparison.\n");
+        // Load from binary files via host mirrors
+        {
+            auto hH=Kokkos::create_mirror_view(H); loadBinary(bin+"H.bin",hH.data(),CELL); Kokkos::deep_copy(H,hH);
+            auto hU=Kokkos::create_mirror_view(U); loadBinary(bin+"U.bin",hU.data(),CELL); Kokkos::deep_copy(U,hU);
+            auto hV=Kokkos::create_mirror_view(V); loadBinary(bin+"V.bin",hV.data(),CELL); Kokkos::deep_copy(V,hV);
+            auto hZ=Kokkos::create_mirror_view(Z); loadBinary(bin+"Z.bin",hZ.data(),CELL); Kokkos::deep_copy(Z,hZ);
+            auto hW=Kokkos::create_mirror_view(W); loadBinary(bin+"W.bin",hW.data(),CELL); Kokkos::deep_copy(W,hW);
+            auto hZBC=Kokkos::create_mirror_view(ZBC_v); loadBinary(bin+"ZBC.bin",hZBC.data(),CELL); Kokkos::deep_copy(ZBC_v,hZBC);
+            auto hZB1=Kokkos::create_mirror_view(ZB1); loadBinary(bin+"ZB1.bin",hZB1.data(),CELL); Kokkos::deep_copy(ZB1,hZB1);
+            auto hAR=Kokkos::create_mirror_view(AREA); loadBinary(bin+"AREA.bin",hAR.data(),CELL); Kokkos::deep_copy(AREA,hAR);
+            auto hFNC=Kokkos::create_mirror_view(FNC); loadBinary(bin+"FNC.bin",hFNC.data(),CELL); Kokkos::deep_copy(FNC,hFNC);
+            auto hNAC=Kokkos::create_mirror_view(NAC); loadBinary(bin+"NAC.bin",hNAC.data(),nSides); Kokkos::deep_copy(NAC,hNAC);
+            auto hKL=Kokkos::create_mirror_view(KLAS); loadBinary(bin+"KLAS.bin",hKL.data(),nSides); Kokkos::deep_copy(KLAS,hKL);
+            auto hSD=Kokkos::create_mirror_view(SIDE_v); loadBinary(bin+"SIDE.bin",hSD.data(),nSides); Kokkos::deep_copy(SIDE_v,hSD);
+            auto hCF=Kokkos::create_mirror_view(COSF); loadBinary(bin+"COSF.bin",hCF.data(),nSides); Kokkos::deep_copy(COSF,hCF);
+            auto hSF=Kokkos::create_mirror_view(SINF); loadBinary(bin+"SINF.bin",hSF.data(),nSides); Kokkos::deep_copy(SINF,hSF);
+            auto hSC=Kokkos::create_mirror_view(SLCOS); loadBinary(bin+"SLCOS.bin",hSC.data(),nSides); Kokkos::deep_copy(SLCOS,hSC);
+            auto hSS=Kokkos::create_mirror_view(SLSIN); loadBinary(bin+"SLSIN.bin",hSS.data(),nSides); Kokkos::deep_copy(SLSIN,hSS);
+        }
+        Kokkos::fence();
+        printf("Mesh loaded: %d cells, %d sides\n", CELL, nSides);
 
         // Benchmark
         CalcFlux flux_fn{CELL, HM1, HM2, H, U, V, Z, ZBC_v, ZB1, NAC, KLAS, SIDE_v, COSF, SINF, FLUX0, FLUX1, FLUX2, FLUX3};
