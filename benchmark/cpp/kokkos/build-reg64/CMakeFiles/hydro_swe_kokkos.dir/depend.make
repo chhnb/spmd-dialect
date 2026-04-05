@@ -1,0 +1,2 @@
+# Empty dependencies file for hydro_swe_kokkos.
+# This may be replaced when dependencies are built.

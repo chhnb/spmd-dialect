@@ -30,7 +30,7 @@ HALF_G = 4.905
 def safe_copysign(x: float, val: float) -> float:
     """copysign(x, val): return |x| with the sign of val."""
     ax = wp.abs(x)
-    return wp.select(val >= 0.0, ax, -ax)
+    return wp.where(val >= 0.0, ax, -ax)
 
 
 @wp.func
@@ -242,8 +242,8 @@ def calculate_flux_kernel(
     UI = U1
     VI = V1
     if HI <= HM2:
-        UI = wp.select(UI >= 0.0, 0.001, -0.001)
-        VI = wp.select(VI >= 0.0, 0.001, -0.001)
+        UI = wp.where(UI >= 0.0, 0.001, -0.001)
+        VI = wp.where(VI >= 0.0, 0.001, -0.001)
     ZI = wp.max(Z[i], ZBC[i])
 
     # Edge geometry
@@ -330,7 +330,7 @@ def calculate_flux_kernel(
             ratio = wp.min(HC / QR_h, 1.5)
             QR_u = UR * ratio
             if HC <= HM2 or QR_h <= HM2:
-                QR_u = wp.select(UR >= 0.0, 0.001, -0.001)
+                QR_u = wp.where(UR >= 0.0, 0.001, -0.001)
             QR_v_ = VC * COSJ - UC * SINJ
             FLR_OS = osher_solver(HI, QL_u, QL_v, QR_h, QR_u, QR_v_, FIL_v, H[i])
             flux0 = FLR_OS[0]
@@ -352,7 +352,7 @@ def calculate_flux_kernel(
             ratio1 = wp.min(HC2 / QR1_h, 1.5)
             QR1_u = UR1 * ratio1
             if HC2 <= HM2 or QR1_h <= HM2:
-                QR1_u = wp.select(UR1 >= 0.0, 0.001, -0.001)
+                QR1_u = wp.where(UR1 >= 0.0, 0.001, -0.001)
             QR1_v_ = VI * COSJ1 - UI * SINJ1
             FLR1 = osher_solver(QL1_h, QL1_u, QL1_v, QR1_h, QR1_u, QR1_v_, FIL1, H[NC])
             flux0 = -FLR1[0]
@@ -439,8 +439,8 @@ def update_cell_kernel(
     V2 = float(0.0)
     if H2 > HM1:
         if H2 <= HM2:
-            U2 = wp.select(U1 >= 0.0, wp.min(VMIN, wp.abs(U1)), -wp.min(VMIN, wp.abs(U1)))
-            V2 = wp.select(V1 >= 0.0, wp.min(VMIN, wp.abs(V1)), -wp.min(VMIN, wp.abs(V1)))
+            U2 = wp.where(U1 >= 0.0, wp.min(VMIN, wp.abs(U1)), -wp.min(VMIN, wp.abs(U1)))
+            V2 = wp.where(V1 >= 0.0, wp.min(VMIN, wp.abs(V1)), -wp.min(VMIN, wp.abs(V1)))
         else:
             QX1 = H1 * U1
             QY1 = H1 * V1
@@ -450,8 +450,8 @@ def update_cell_kernel(
             U2 = (QX1 - DTAU - DT * WSF * U1) / H2
             V2 = (QY1 - DTAV - DT * WSF * V1) / H2
             if H2 > HM2:
-                U2 = wp.select(U2 >= 0.0, wp.min(wp.abs(U2), 15.0), -wp.min(wp.abs(U2), 15.0))
-                V2 = wp.select(V2 >= 0.0, wp.min(wp.abs(V2), 15.0), -wp.min(wp.abs(V2), 15.0))
+                U2 = wp.where(U2 >= 0.0, wp.min(wp.abs(U2), 15.0), -wp.min(wp.abs(U2), 15.0))
+                V2 = wp.where(V2 >= 0.0, wp.min(wp.abs(V2), 15.0), -wp.min(wp.abs(V2), 15.0))
 
     H[i] = H2
     U[i] = U2
