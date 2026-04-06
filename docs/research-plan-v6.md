@@ -482,22 +482,66 @@ R_fused = max(R_i) for full fusion (寄存器压力取最大)
 
 ## 5. Related Work & Positioning
 
-### 5.1 Gap Analysis
+### 5.1 Comprehensive Related Work
 
-| 工作 | 做了什么 | 没做什么 |
-|---|---|---|
-| **TVM** (OSDI 2018) | Intra-kernel auto-tune (tile, bind, vectorize) | 不管 kernel 之间；不管 time-stepping |
-| **Halide** (PLDI 2013) | Algorithm-schedule 分离 for image processing | 同 TVM |
-| **PERKS** (ICS 2023) | 单 kernel persistent + register cache, 2.12x stencil | 不做 multi-kernel fusion；不做 strategy selection；不建模 |
-| **PyGraph** (arXiv 2025) | Auto CUDA Graph for PyTorch, Graph vs Stream cost model | 不考虑 Persistent；只做 ML workload |
-| **AsyncTaichi** (arXiv 2020) | SFG + megakernel fusion for Taichi, 1.87x | **废弃** (sparse SNode 追踪太复杂)；无 cost model |
-| **HFuse** (CGO 2022) | Horizontal fusion + register analysis for ML | ML DAG 结构；不是 time-stepping |
-| **FLUDA** (NASA AIAA 2023) | 手动 CFD kernel fusion, 4x | 手动、单应用 (CFD)、无通用模型 |
-| **Kernel Batching** (arXiv 2025) | CUDA Graph batch size model | 只做 Graph；不做 Persistent/register caching |
-| **FreeStencil** (ICPP 2024) | JIT stencil fusion, 3.29x | 只做结构化 stencil |
-| **Leonid** (ICS 2025) | Kokkos auto fusion, 1.26x GPU | 不做 persistent；不做 register caching |
-| **Roofline** (CACM 2009) | Compute vs memory bandwidth 建模 | 不建模 launch overhead；不建模 SM utilization |
-| **Top-Down CPU** (ISPASS 2014) | CPU pipeline slot 4 层分解, 500+ citations | CPU 专属；无 GPU simulation 对应物 |
+#### A. GPU Performance Modeling & Analysis
+
+| 工作 | Venue | 做了什么 | 与我们的关系 |
+|---|---|---|---|
+| **Roofline** (Williams et al.) | CACM 2009 | Compute vs memory bandwidth 二维分析 | 我们 L3+L5 的基础；但不建模 launch overhead 和 SM utilization |
+| **Hong & Kim** (MWP/CWP) | ISCA 2009 | 首个 GPU 解析模型: compute + memory cycles | L3 (occupancy) 理论基础；不建模 kernel 间 overhead |
+| **Volkov** (Occupancy vs ILP) | GTC 2010, Berkeley PhD 2016 | **证明低 occupancy + 高 ILP 可达 peak** | 直接解释我们 register sweep 数据；EBISU 也引用此工作 |
+| **Yasin** (Top-Down CPU) | ISPASS 2014 (500+ cit.) | CPU pipeline slot 四层分解 → VTune | **我们的直接类比**: GPU 五层分解 |
+| **Instruction Roofline** (Yang et al.) | ISPASS 2020 | 用 instruction count 扩展 roofline | L5 测量方法参考 |
+| **PPT-GPU** (Arafa et al.) | ISPASS 2021 | 无 cycle-level 仿真的 GPU 解析模型，15% 误差 | 方法论参考: 解析模型也能足够准确 |
+
+#### B. Kernel Fusion & Launch Overhead
+
+| 工作 | Venue | 做了什么 | 与我们的关系 |
+|---|---|---|---|
+| **Wahib & Maruyama** | SC 2014 | Scalable fusion search for memory-bound FD stencils | 早期 HPC fusion 工作；无 persistent/graph 选项 |
+| **KLAP** (El Hajj et al.) | MICRO 2016 | Kernel launch aggregation compiler, 6.58x | 编译器 launch 聚合；针对 dynamic parallelism |
+| **AsyncTaichi** (Hu et al.) | arXiv 2020 | SFG megakernel fusion for Taichi, 1.87x → **废弃** | 前车之鉴: 通用方法太复杂；无 cost model |
+| **HFuse** (Li et al.) | CGO 2022 | Horizontal fusion + register pressure for ML | register pressure 分析方法参考；但 ML DAG 非 time-stepping |
+| **PERKS** (Zhang et al.) | ICS 2023 | **单 kernel persistent + register cache, 2.12x stencil** | **直接 baseline**; 不做 multi-kernel; 不建模 |
+| **EBISU** (Matsumura et al.) | ICS 2023 | **低 occupancy + deep temporal blocking, 2.53x** | 关键 insight: 故意降低 occupancy 换更深 time tiling |
+| **FreeStencil** (Zhu et al.) | ICPP 2024 | JIT stencil solver fusion, 3.29x, DRAM 减 34% | 只做结构化线性 solver |
+| **Kernel Batching** | arXiv 2025 | CUDA Graph batch size 解析模型 for simulation | Graph-only model; 我们加 Persistent + Async |
+| **PyGraph** (Ghosh et al.) | arXiv 2025 | Auto CUDA Graph for ML; 发现 **25% Graph 反而降速** | 验证 cost model 必要性; 但只做 Graph vs Stream |
+| **Leonid** | ICS 2025 | Kokkos auto fusion, 1.58x GPU | 无 persistent; 无 cost model |
+
+#### C. Simulation-Specific & GPU-Driven Execution
+
+| 工作 | Venue | 做了什么 | 与我们的关系 |
+|---|---|---|---|
+| **Korch & Werner** | PPAM 2019 | ODE time-step fusion via hexagonal tiling on GPU | 直接相关: 跨 timestep fusion; 但需 limited access distance |
+| **FLUDA** (NASA) | AIAA 2023 | 手动 CFD kernel fusion for FUN3D, 4x | 真实 CFD 验证; 但手动、单应用 |
+| **ARK** (Hwang et al.) | **NSDI 2023** | **GPU-driven persistent loop kernel (无 CPU 干预)** | 和我们 persistent 思路一致; 但做 ML distributed |
+| **Yamazaki** | SC'24 Workshop | Async + fusion for 大气模型 NICAM, 37%+10% | **直接验证 overhead wall thesis**; 但单应用无模型 |
+| **Mirage** (Jia et al.) | **OSDI 2025** | Multi-GPU LLM inference megakernel, 1.2-6.7x | Persistent megakernel 最大规模应用; 但 ML 无 cost model |
+| **PyFuser** (Al-Awar et al.) | **ISSTA 2025** | **Python HPC kernel 动态 fusion via PyKokkos, 3.8x** | **直接竞争对手**; 但无 persistent/graph 无 hardware-aware selection |
+
+#### D. Auto-Tuning Frameworks
+
+| 工作 | Venue | 做了什么 | 与我们的关系 |
+|---|---|---|---|
+| **Halide** (Ragan-Kelley et al.) | PLDI 2013 | Algorithm-schedule 分离 | 思想先驱 |
+| **TVM** (Chen et al.) | OSDI 2018 | Intra-kernel auto-tune for ML | 我们 intra-kernel 部分类似; 但 TVM 不管 inter-kernel |
+| **ATF** (Rasch et al.) | HPDC 2018, TPDS 2021 | 约束搜索空间剪枝 auto-tuning | 约束处理参考 (类似 coop_limit) |
+| **Kernel Tuner** (van Werkhoven) | FGCS 2019 | Python GPU kernel auto-tuning for HPC | **HPC auto-tuning 标杆**; 只做 intra-kernel |
+| **AN5D** (Matsumura et al.) | CGO 2020 | 自动化 temporal blocking codegen with perf model | 有 perf model 指导参数选择; 只做 stencil |
+| **KTT** (Petrovič et al.) | SPE 2022 | C++ runtime auto-tuning，支持 kernel composition | Kernel composition 概念接近我们的 inter-kernel |
+
+#### E. Memory Traffic & Compute-Communication Overlap
+
+| 工作 | Venue | 做了什么 | 与我们的关系 |
+|---|---|---|---|
+| **BrickLib** (Zhao et al.) | SC 2019 | Brick 数据布局，cache miss 减 19x | L4 数据布局参考 |
+| **ConvStencil** (Chen et al.) | PPoPP 2024 | Stencil→GEMM on Tensor Cores | 正交方向 |
+| **LoRAStencil** (Zhang et al.) | SC 2024 | Low-rank stencil on TC, 2.16x | Memory redundancy 消除 |
+| **FlashFFTStencil** (Han et al.) | PPoPP 2025 | FFT stencil on FP64 TC + kernel fusion, 2.57x | 激进 temporal fusion 方向 |
+| **ConCCL** (Agrawal et al.) | **ISPASS 2025** | **GPU DMA engine overlap; naive C3 只有 21% ideal** | **最接近我们 DMA 工作**; 验证 DMA > SM-based overlap |
+| **Punniyamurthy et al.** | SC 2024 | GPU-initiated fused compute+comm, 22% | Fine-grained overlap 参考 |
 
 ### 5.2 定位
 
