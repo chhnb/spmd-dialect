@@ -1,4 +1,4 @@
-# Research Plan v6: Legality-Aware Loop-Level Configuration Selection for GPU Simulation
+# Research Plan v6: Legality-Aware Loop-Level Step-Time Model for GPU Simulation
 
 **Date:** 2026-04-06 (updated 2026-04-07)
 **Status:** Draft for advisor discussion
@@ -6,7 +6,7 @@
 
 ### 论文定位（一句话）
 
-> 给定一个 iterative GPU simulation loop，在 legality 约束下自动选择最优 (execution strategy, launch geometry, cross-timestep reuse) 配置。
+> We present a legality-aware loop-level model and selector for iterative GPU simulation, jointly choosing execution strategy, launch geometry, and persistent-only cross-step reuse to minimize end-to-end step time.
 
 ### 三层叙事结构
 
@@ -35,7 +35,7 @@ Layer 3 — 验证 (跨框架回归):
 
 ### 1.1 现象
 
-Python GPU simulation DSLs (Taichi, Warp) 让用户用几十行 Python 就能写出 GPU 加速的 PDE solver。但我们的测量发现，GPU 实际利用率极低——**超过 60-95% 的 GPU 周期在做无用功**：
+Python GPU simulation DSLs (Taichi, Warp) 让用户用几十行 Python 就能写出 GPU 加速的 PDE solver。但我们的测量发现，**end-to-end step time 中有 60-95% 来自 frontend overhead 或暴露出的设备侧低效，而非真正的数值计算**：
 
 | 工况 (RTX 3060, fp64) | T_measured | T_compute_best | **GPU 利用率** |
 |---|---|---|---|
@@ -319,11 +319,13 @@ B200 上 Persistent/Graph/Kokkos 三者非常接近 (11-14 μs)，因为 148 SMs
 
 ---
 
-## 3. Legality-Aware GPU Utilization Model (L0-L5)
+## 3. Legality-Aware Loop-Level Step-Time Model
 
-基于以上实验数据，我们提出以下分析框架。与 v4/v5 的关键区别：**在性能建模之前先做合法性过滤 (L0)**。
+基于以上实验数据，我们提出以下分析框架：**legality filter + five-loss step-time model**。
 
-### 3.0 L0: Legality — "这个配置能不能跑？"
+### 3.0 Legality Filter — "这个配置能不能跑？"
+
+注意：Legality 不是一个 "loss layer"，而是 **前置过滤器**。很多配置不是 "慢"，而是根本非法。
 
 很多 (strategy, B, N) 组合不是 "慢"，而是 **根本不合法**：
 
@@ -350,18 +352,34 @@ L0 的作用是把搜索空间从 ~200K 砍到 **~2000-5000 可行配置**。
 
 > **注**: CUDA Graph 在 CUDA 12.x 中已支持 conditional IF/WHILE/SWITCH nodes (预实例化的条件分支)。但这些 conditional body graphs 仍有 node type、memory、dynamic parallelism 等限制。对于需要 host-side decision 的自适应 simulation (如 convergence check, adaptive dt)，Persistent kernel 仍然更灵活。论文中应表述为"Graph 支持受约束的动态控制流"而非"Graph 不支持动态控制流"。
 
-### 3.1 模型结构 (L1-L5)
+### 3.1 模型结构
 
-通过 L0 legality filter 后，对每个可行配置预测性能：
+通过 legality filter 后，对每个可行配置预测 step time：
 
 ```
-T_step = T_overhead + T_compute
+feasible(config) ∈ {0, 1}                          ← Legality filter
 
-T_overhead = f(strategy, K)                            ← L1 Temporal
-T_compute  = T_ideal / (η_S × η_O × η_M × η_C)       ← L2-L5
-
-总利用率 η = T_ideal / T_step
+T_step(config) = T_frontend(config) + T_device(config) + T_exposed_copy(config)
 ```
+
+其中：
+- **T_frontend**: L1 — launch/sync/Python runtime overhead (kernel 之间的空闲时间)
+- **T_device**: L2-L5 — 设备端真正忙碌的时间
+- **T_exposed_copy**: DMA 传输中没有被 compute overlap 掉的部分
+
+T_device 用 **wave model** 近似 (比 η 乘法更稳):
+```
+T_device ≈ waves(config) × t_wave(config) + t_tail(config)
+```
+- `waves` 由 L2 (coverage, n_blocks, resident_per_SM) 决定
+- `t_wave` 由 L3 (scheduler/latency hiding), L4 (memory traffic), L5 (compute) 决定
+
+**派生指标**:
+- e2e efficiency: η_e2e = T_lower_bound / T_step
+- temporal busy ratio: T_device / T_step
+- coverage: min(1, n_blocks / S)
+
+> **为什么不用 T_ideal / (η₁×η₂×η₃×η₄)**: 因为各层的 η 不独立 (B 同时影响 coverage 和 occupancy)。Wave model 更物理地分离了"跑几轮" (L2) 和"每轮多快" (L3-L5)。
 
 ### 3.2 L1: Temporal Efficiency — "GPU 有没有在跑？"
 
@@ -390,29 +408,51 @@ T_overhead =  ┤ Async:      K × T_launch               ≈ K × 20 μs
 - F2 Sync (K=2): 预测 T_overhead = 2 × (10+15) = 50 μs; 实测 84.3 - 6.1 = 78.2 μs → 还有 ~28 μs 来自 driver scheduling + Python runtime
 - Heat2D Sync: 预测 ~50 μs overhead; 实测 73.7 - 3.5 = 70.2 μs → 类似
 
-### 3.3 L2: Spatial Efficiency — "多少 SM 在工作？"
+### 3.3 L2: Coverage & Wave Efficiency — "SM 覆盖率 + wave 利用率"
+
+L2 必须区分两类效应：(a) **SM 覆盖不足** — blocks < SMs 导致部分 SM 完全空闲；(b) **wave 尾部浪费** — 最后一个 wave 的 block 数不足。
 
 ```
-η_S = min(1, blocks_active / (max_blocks_per_SM(B,R) × S))
-blocks_active = ceil(N / (B × C))
+n_blocks = ceil(N / B)
+resident_per_SM = max_blocks_per_SM(B, R)    // occupancy calculator
+
+// SM 覆盖率: 至少分到一个 block 的 SM 占比
+coverage = min(1, n_blocks / S)
+
+// Wave model
+total_slots = resident_per_SM × S
+waves = ceil(n_blocks / total_slots)
 ```
 
-**实测验证 (F1 OSHER 32², Persistent)**:
-- B=256: blocks=4, η_S ≈ 4/(2×28) = 0.07 (理论); T=71.8 μs
-- B=128: blocks=8, η_S ≈ 8/(4×28) = 0.07 (理论); T=38.5 μs
-- 预测 speedup = 2x (SM 利用率翻倍); **实测 1.86x** → 误差 7.5%
+**关键**: 当 n_blocks < S 时, coverage < 1, **大量 SM 完全空闲**。
 
-**crossover 观察**: 当 blocks ≈ S (28 on 3060) 时，B 选择最敏感。
-- 32² (4-8 blocks << 28 SMs): B 影响极大 (1.86x)
-- 64² (16-32 blocks ≈ 28 SMs): tradeoff 区 (1.10x)
-- 128² (64 blocks >> 28 SMs): B 影响极小 (1.03x)
+设备端忙碌时间近似：
+```
+T_device ≈ waves × t_wave + t_tail
+         // t_wave 由 L3/L4/L5 决定
+```
 
-### 3.4 L3: Occupancy Efficiency — "每个 SM 跑得满吗？"
+**数据验证 (F1 OSHER 32², Persistent, 3060)**:
+- B=256: n_blocks=4, coverage=4/28=**0.14** → 只有 4 个 SM 有活
+- B=128: n_blocks=8, coverage=8/28=**0.29** → 8 个 SM 有活
+- 预测 speedup = 0.29/0.14 = **2.0x**; 实测 **1.86x** → 误差 7.5%
+- F1 128², B=256: n_blocks=64, coverage=**1.0** → SM 全满, B 不再敏感 (实测 1.03x)
+
+> **旧公式 bug**: `η_S = blocks / (max_blocks_per_SM × S)` 对 B=256 和 B=128 都给出 ~0.07，无法区分。新公式用 `coverage = blocks/S` 正确捕捉了 SM 空闲效应。
+
+**crossover**: 当 n_blocks ≈ S 时，B 选择最敏感。blocks << S → coverage 主导; blocks >> S → wave 尾部主导 (影响更小)。
+
+### 3.4 L3: Scheduler / Latency-Hiding Efficiency — "被覆盖的 SM 跑得顺不顺？"
+
+L3 决定每个 **被覆盖的 SM** 的执行效率。achieved occupancy 是一个 proxy，但真正相关的是 eligible warps、issue efficiency、register spill 等。
 
 ```
-occupancy = active_warps / max_warps_per_SM
-η_O ≈ α(occupancy)     // α 是经验函数，待标定
+// t_wave 的 latency-hiding 分量:
+// 更多 active warps → 更好的 memory latency hiding → t_wave 更小
+// 但 register spill → 额外 local memory traffic → t_wave 可能增大
 ```
+
+注: `cudaOccupancyMaxActiveBlocksPerMultiprocessor()` 可用于估计 resident blocks/SM。
 
 **实测数据 (F1 OSHER register sweep)**:
 | maxrregcount | Regs est. | Occupancy est. | 32² μs | vs default |
@@ -617,13 +657,13 @@ R_fused = max(R_i) for full fusion (寄存器压力取最大)
 
 | Contribution | 具体内容 | vs 前人 |
 |---|---|---|
-| **C1: L0-L5 利用率模型** | Legality + Temporal + Spatial + Occupancy + Memory + Compute 六层分解 | 首次统一建模合法性约束 + kernel 间 + kernel 内的性能损失 |
-| **C2: 调优空间定义** | Inter-kernel + cross-timestep + intra-kernel 三类旋钮 | TVM 只覆盖 intra-kernel；PERKS 不覆盖 strategy selection |
-| **C3: 解析 cost model + selector** | 预测 T_step(config)，自动选最优 (strategy, B) | 不需要 ML，可解释，可跨 GPU 迁移；首次对 simulation loop 做 auto-tuning |
-| **C4: Regime switching 分析** | 最优配置随 (kernel, N, GPU) 翻转 + crossover boundary 预测 | 比单一 speedup 更有论文价值；前人只报告一种策略的加速比 |
-| **C5: 跨框架动机 + 验证** | 4 框架 (Taichi/Warp/Kokkos/CUDA) × 代表性 kernel 子集 | 动机: 证明问题跨框架存在；验证: 模型能解释各框架默认行为 |
+| **C1: Legality filter + five-loss step-time model** | 合法性过滤 + Temporal/Coverage/Scheduler/Memory/Compute 五层分解 | 统一了 kernel 间 (PERKS 不覆盖) 和 kernel 内 (Roofline 不覆盖 launch OH) 的损失建模 |
+| **C2: Compact configuration space** | Strategy × launch geometry × persistent-only cross-step reuse | PERKS 只做 persistent; PyGraph 只做 Graph; 我们把 scattered approaches 放入统一选择框架 |
+| **C3: Analytical selector** | 预测 T_step(config)，near-oracle 配置选择 | 不需要 ML，可解释; 验证指标: MAPE, top-1 accuracy, gap-to-oracle |
+| **C4: Regime map** | 最优配置随 (kernel, N, GPU) 翻转 + crossover boundary | 比单一 speedup 更有价值; 前人各自报告一种策略的加速比，没有对比 |
+| **C5: Cross-framework evidence** | 4 框架 × 代表性 kernel 子集 | 证明 utilization wall 不是单个 DSL 的 artifact; 模型能解释各框架默认行为 |
 
-> **注**: C5 不是 "框架排行榜"，而是动机层和验证层。主战场 (C1-C4) 全部在 CUDA 上完成。
+> **注**: C5 是动机层和验证层，不是排行榜。主战场 (C1-C4) 全部在 CUDA 上，控制变量。
 
 ---
 
@@ -720,11 +760,15 @@ def predict_T_step(kernel_info, hardware, config):
 - 报告: MAPE (mean absolute percentage error) across all configurations
 - Selection accuracy: 模型选的最优 vs oracle 最优的匹配率
 
-#### 实验 5: 跨 GPU 泛化 (C3)
+#### 实验 5: 跨 GPU Few-Shot Transfer (C3)
 
-- 在 3060 上标定模型参数
-- 只改 hardware 参数 (S=148, BW, ...) → 预测 B200 上的最优配置
-- 在 B200 上实测验证
+模型参数分两类:
+- **Zero-shot transferable**: legality boundary, coverage, resident block capacity (纯硬件查表)
+- **Few-parameter recalibration**: T_launch, T_sync, T_graph_replay + 1-2 个 scheduler 参数 (需要几个测量点)
+
+方法: 在 3060 上完整标定 → 只用 B200 上 2-3 个测量点 recalibrate overhead 常数 → 预测其余配置
+
+> 不做 zero-shot 跨 GPU 预测的硬 claim，改为 "one-shot or few-shot transfer"，更可信。
 
 ### 6.3 Timeline
 
@@ -818,6 +862,8 @@ def predict_T_step(kernel_info, hardware, config):
 - 5.6 **Layer 3: 跨框架验证**: 模型预测 Taichi ≈ Sync? Kokkos ≈ Async? 是否匹配实测?
   - 不是排行榜, 而是模型解释力的验证
   - 代表性子集: F1 OSHER + Heat2D + Jacobi2D (非全部 36 kernels)
+
+> **实验范围**: 正文 **2 个 flagship kernels** 做完整 oracle matrix (F1 OSHER + HotSpot/Jacobi2D)，2-3 个 support kernels 做 selector generalization。其余 kernel 放 artifact/appendix。
 
 **6. Discussion** (0.5p)
 - Limitations: 不处理 irregular workload, multi-GPU, dynamic mesh
