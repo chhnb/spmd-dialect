@@ -1,8 +1,33 @@
-# Research Plan v6: GPU Utilization Model for Simulation Time-Stepping
+# Research Plan v6: Legality-Aware Loop-Level Configuration Selection for GPU Simulation
 
-**Date:** 2026-04-06
+**Date:** 2026-04-06 (updated 2026-04-07)
 **Status:** Draft for advisor discussion
 **Supersedes:** v4 (strategy selection), v5 (+ block size)
+
+### 论文定位（一句话）
+
+> 给定一个 iterative GPU simulation loop，在 legality 约束下自动选择最优 (execution strategy, launch geometry, cross-timestep reuse) 配置。
+
+### 三层叙事结构
+
+```
+Layer 1 — 动机 (跨框架):
+  Taichi / Warp / Kokkos / CUDA 默认执行同一 simulation loop
+  → 都遇到 e2e utilization wall (5-35%)
+  → 差异能看出 temporal loss, spatial loss, runtime overhead 的影子
+  → 证明: 问题跨框架存在，不是某一个 DSL 的 bug
+
+Layer 2 — 核心 (CUDA-only):
+  L0-L5 模型 + 完整配置矩阵 + cost model + auto-selector
+  → 控制变量: 同一 kernel, 同一 GPU, 只变 (strategy, B, reg_cache)
+  → 这是论文的主战场
+
+Layer 3 — 验证 (跨框架回归):
+  模型能解释为什么 Taichi ≈ CUDA Sync, Kokkos ≈ CUDA Async
+  → 不是排行榜，而是"模型的解释力"
+```
+
+**Triton**: 仅作为旁证说明 operator-centric kernel DSL 不适用于 simulation time-stepping loop，不纳入主评测。
 
 ---
 
@@ -594,9 +619,11 @@ R_fused = max(R_i) for full fusion (寄存器压力取最大)
 |---|---|---|
 | **C1: L0-L5 利用率模型** | Legality + Temporal + Spatial + Occupancy + Memory + Compute 六层分解 | 首次统一建模合法性约束 + kernel 间 + kernel 内的性能损失 |
 | **C2: 调优空间定义** | Inter-kernel + cross-timestep + intra-kernel 三类旋钮 | TVM 只覆盖 intra-kernel；PERKS 不覆盖 strategy selection |
-| **C3: 解析 cost model** | 预测每层 η 和 T_step(config) | 不需要 ML，可解释，可跨 GPU 迁移 |
-| **C4: 自动配置选择** | 枚举可行配置，model 预测，选最优 | 首次对 simulation loop 做 auto-tuning |
-| **C5: 全面 characterization** | 60+ kernels × 5 框架 × 2 GPUs 的系统测量 | 首次系统量化 simulation workload 的 GPU 利用率 |
+| **C3: 解析 cost model + selector** | 预测 T_step(config)，自动选最优 (strategy, B) | 不需要 ML，可解释，可跨 GPU 迁移；首次对 simulation loop 做 auto-tuning |
+| **C4: Regime switching 分析** | 最优配置随 (kernel, N, GPU) 翻转 + crossover boundary 预测 | 比单一 speedup 更有论文价值；前人只报告一种策略的加速比 |
+| **C5: 跨框架动机 + 验证** | 4 框架 (Taichi/Warp/Kokkos/CUDA) × 代表性 kernel 子集 | 动机: 证明问题跨框架存在；验证: 模型能解释各框架默认行为 |
+
+> **注**: C5 不是 "框架排行榜"，而是动机层和验证层。主战场 (C1-C4) 全部在 CUDA 上完成。
 
 ---
 
@@ -604,21 +631,19 @@ R_fused = max(R_i) for full fusion (寄存器压力取最大)
 
 ### 6.1 已完成 vs 待完成
 
-| 工作项 | 状态 | 说明 |
-|---|---|---|
-| Benchmark infrastructure (36 kernels, 5 frameworks) | ✅ 完成 | 130+ 配置已测 |
-| Overhead characterization (3060 + B200) | ✅ 完成 | 所有 kernel 有 Sync 基线 |
-| Strategy comparison (Sync/Async/Graph/Persistent) | ✅ 完成 | F1, F2, Heat2D 上验证 |
-| Block size sweep + adaptive B | ✅ 完成 | F1 OSHER 上验证 |
-| Register limit sweep | ✅ 完成 | F1 OSHER, 4 个 maxrregcount |
-| Cross-framework comparison (Taichi/Warp/Kokkos/CUDA) | ✅ 完成 | F1 OSHER + Heat/Wave/N-body |
-| Compute-communication overlap (async DMA) | ✅ 完成 | F2 Hydro 上验证 |
-| **五层分解的 ncu/nsys 精确测量** | ❌ 待做 | 需要对代表性 kernel 做 profiling |
-| **解析 cost model 实现 + 验证** | ❌ 待做 | Python 工具 |
-| **Register caching 实现** | ❌ 待做 | 在 persistent kernel 中实现 |
-| **完整配置矩阵 (strategy × B × reg_caching)** | ❌ 待做 | 120 配置 × 3 grid sizes |
-| **Auto-configuration selector** | ❌ 待做 | 模型驱动的自动选择 |
-| **跨 GPU 泛化验证** | ❌ 待做 | 3060 标定 → B200 预测 |
+| 工作项 | Layer | 状态 | 说明 |
+|---|---|---|---|
+| Cross-framework characterization (Taichi/Warp/Kokkos/CUDA) | L1 动机 | ✅ 完成 | F1 OSHER + Heat/Wave/N-body; 36 kernels Taichi baseline |
+| Strategy comparison (Sync/Async/Graph/Persistent) | L2 核心 | ✅ 完成 | F1, F2, Heat2D, + PK kernels on 3060/B200 |
+| Block size sweep + adaptive B | L2 核心 | ✅ 完成 | F1 OSHER on 3060 |
+| Register limit sweep | L2 核心 | ✅ 完成 | F1 OSHER, 4 个 maxrregcount |
+| Compute-communication overlap (async DMA) | L2 核心 | ✅ 完成 | F2 Hydro 上验证 |
+| **PK 配置矩阵 (4 kernels × 4 N × 5 B × 4 strategy)** | L2 核心 | 🔄 B200完成, 3060待跑 | pk_matrix_benchmark.cu |
+| **ncu/nsys 五层精确测量** | L2 核心 | ❌ 待做 | 代表性 kernel profiling |
+| **Cost model + selector 实现** | L2 核心 | ❌ 待做 | Python; 用配置矩阵数据验证 |
+| **Register caching 实现** | L2 核心 | ❌ 待做 | Heat2D PoC → F1 OSHER |
+| **跨 GPU 泛化验证** | L2 核心 | ❌ 待做 | 3060 标定 → B200 预测 |
+| **模型解释跨框架行为** | L3 验证 | ❌ 待做 | Taichi≈Sync? Kokkos≈Async? 模型是否预测到 |
 
 ### 6.2 实验计划
 
@@ -747,57 +772,62 @@ def predict_T_step(kernel_info, hardware, config):
 ### Structure
 
 **1. Introduction** (1.5p)
-- GPU simulation DSLs 利用率只有 5-35% (我们的数据)
-- 不是单一瓶颈: launch overhead, SM starvation, occupancy, memory traffic 同时作用
-- 现有优化各解一层: TVM (intra-kernel), PERKS (persistent), PyGraph (Graph)
-- 没有人统一建模 → 无法自动选择最优配置
-- 我们: 五层分解模型 + 调优空间定义 + 自动配置选择
-- 在真实 CFD solver (OSHER) 上验证: **3.57x end-to-end 加速**
+- GPU simulation 的 e2e 利用率只有 5-35% (跨 Taichi/Warp/Kokkos/CUDA 均如此)
+- 不是单一瓶颈: legality constraints + temporal/spatial/occupancy/memory 多层损失
+- PERKS 只做 persistent; PyGraph 只做 Graph; PyFuser 只做 fusion → 没人统一建模
+- **核心发现: 最优配置随 (kernel, grid_size, GPU) 翻转 — regime switching**
+- 我们: legality-aware L0-L5 model + auto-selector
+- 在 4 类 PERKS/Rodinia kernel × 2 GPUs 上验证
 
-**2. Background & Motivation** (1.5p)
-- Taichi/Warp 执行模型 + overhead 来源
-- GPU 硬件: SM, warp, register, memory hierarchy
-- 代际趋势: overhead 不变而 compute 越来越快 → 利用率持续恶化
-- 已有解: Graph, Persistent, Async — 各有适用范围和限制
+**2. Background & Motivation** (2p) — **Layer 1: 跨框架动机**
+- 2.1 GPU simulation execution model: Taichi/Warp → Python → CUDA driver → launch → sync
+- 2.2 代际趋势: compute 越来越快, overhead 不变 → utilization wall 恶化
+- 2.3 **跨框架观察** (代表性 kernel 子集, 5-8 个):
+  - Taichi ≈ CUDA Sync (每步 launch + sync, ~80-190 μs floor)
+  - Warp: 有自己的 overhead floor (~130 μs), 比 Taichi 快 ~30%
+  - Kokkos ≈ CUDA Async (C++ loop 无 sync, 但仍有 per-kernel launch)
+  - **问题跨框架存在**, 不是某一个 DSL 的 bug
+- 2.4 三种已有解 (Graph, Persistent, Async) + 各自局限
+  - Graph: 支持受约束的条件分支 (CUDA 12.x), 但不支持一般自适应 simulation
+  - Persistent: 最灵活, 但受 cooperative launch grid limit
+  - 没有人把这三种方案放在统一的选择框架里
 
-**3. Characterization: Where Do the Cycles Go?** (2.5p) — C5
-- 3.1 Benchmark suite: 36 kernels, 130 configs, 5 frameworks, 2 GPUs
-- 3.2 Overhead 分解 (Hydro F2: 91% overhead; Heat2D: 94% at 128²)
-- 3.3 Overhead vs grid size curve (77-94% at ≤512², 20-45% at ≥1024²)
-- 3.4 Cross-framework: Taichi ≈ CUDA Sync; Kokkos ≈ CUDA Async
-- 3.5 Block size vs register limit (1.86x vs 1.16x)
-- 3.6 代际趋势 (3060 vs B200)
+**3. The L0-L5 Model** (3p) — **Layer 2 核心, C1**
+- 3.1 L0 Legality: cooperative limit, Graph constraints, reg_cache 前提
+- 3.2 模型结构: T_step = T_overhead + T_ideal / (η_S × η_O × η_M × η_C)
+- 3.3 L1 Temporal: overhead model + 实测常数
+- 3.4 L2 Spatial: SM utilization model + block size 的 1.86x 效应
+- 3.5 L3 Occupancy: register-occupancy tradeoff (Volkov insight)
+- 3.6 L4 Memory Traffic: redundancy analysis + register caching (Persistent-only)
+- 3.7 L5 Compute: divergence + precision (作为下界)
+- 3.8 层间耦合: B ↔ coop_limit ↔ strategy; reg_limit ↔ spill ↔ η_M
 
-**4. The Five-Level Model** (3p) — C1 (核心)
-- 4.1 模型结构: T_step = T_overhead + T_ideal / (η_S × η_O × η_M × η_C)
-- 4.2 L1 Temporal: overhead model + 实测常数
-- 4.3 L2 Spatial: SM utilization model + block size effect
-- 4.4 L3 Occupancy: register-occupancy tradeoff
-- 4.5 L4 Memory Traffic: redundancy analysis + register caching
-- 4.6 L5 Compute: divergence + precision
-- 4.7 Layer coupling analysis
+**4. Auto-Configuration Selector** (2p) — **C2, C3**
+- 4.1 调优空间: strategy × B × reg_cache (+ constraints)
+- 4.2 Analytical cost model: predict T_step(config)
+- 4.3 Enumeration + select: 遍历 ~40 可行配置, 取 predicted best
+- 4.4 **Regime switching analysis**: 什么时候 Graph 胜, 什么时候 Persistent 胜, boundary 在哪
+**5. Evaluation** (3p) — **Layer 2 核心 + Layer 3 验证**
+- 5.1 **Configuration matrix** (CUDA-only): 4 kernels × 4 sizes × 5 B × 4 strategies × 2 GPUs
+  - 实测 oracle vs default (最高 29.6x improvement)
+  - Regime switching: 3060 Persistent 胜 vs B200 Graph 胜
+- 5.2 **Model accuracy**: predicted T_step vs measured, MAPE
+- 5.3 **Selection accuracy**: model top-1 vs oracle top-1 匹配率 + gap-to-oracle
+- 5.4 **Register caching** (if implemented): memory traffic reduction + additional speedup
+- 5.5 **Cross-GPU generalization**: 3060 标定 → B200 预测
+- 5.6 **Layer 3: 跨框架验证**: 模型预测 Taichi ≈ Sync? Kokkos ≈ Async? 是否匹配实测?
+  - 不是排行榜, 而是模型解释力的验证
+  - 代表性子集: F1 OSHER + Heat2D + Jacobi2D (非全部 36 kernels)
 
-**5. Tuning Space & Auto-Configuration** (2p) — C2, C3, C4
-- 5.1 调优旋钮: inter-kernel, cross-timestep, intra-kernel
-- 5.2 Constraints (coop limit, dynamic flow, ...)
-- 5.3 Analytical cost model
-- 5.4 Auto-configuration algorithm (enumerate + predict + select)
-- 5.5 Relationship to TVM/Halide
-
-**6. Evaluation** (3p)
-- 6.1 Five-level decomposition results (6-8 kernels × 3 sizes)
-- 6.2 Model accuracy: MAPE across configurations
-- 6.3 Auto-selection accuracy: model vs oracle
-- 6.4 End-to-end speedup: default → auto-configured (10+ kernels)
-- 6.5 Register caching: memory traffic reduction + speedup
-- 6.6 Cross-GPU generalization: 3060 → B200
-- 6.7 Cross-framework: explaining Taichi/Warp/Kokkos differences
-
-**7. Discussion** (0.5p)
+**6. Discussion** (0.5p)
 - Limitations: 不处理 irregular workload, multi-GPU, dynamic mesh
-- 如何集成到 DSL 框架 (Taichi, Warp)
+- 如何集成到 DSL 框架 (Taichi runtime / Warp backend)
+- Triton 作为旁证: operator-centric kernel DSL 不适用 simulation loop-level 优化
 
-**8. Related Work** (1p)
+**7. Related Work** (1p)
+- 核心 8-10 篇: PERKS, Kernel Batching, PyFuser, Leonid, PyGraph, EBISU, Yamazaki, ConCCL
+- 方法论: TVM/Halide (intra-kernel auto-tune), Yasin (Top-Down CPU)
+- 背景: Roofline, Volkov, AN5D
 
 ---
 
