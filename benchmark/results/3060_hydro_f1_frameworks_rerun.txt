@@ -1,0 +1,39 @@
+================================================================================
+F1 Hydro SWE — Cross-Framework Comparison (Complete OSHER Solver)
+================================================================================
+
+--- Taichi (CUDA) ---
+[Taichi] version 1.7.4, llvm 15.0.4, commit b4b956fd, linux, python 3.12.12
+[Taichi] Starting on arch=cuda
+[Taichi] Starting on arch=cuda
+  N=  32 (  1024 cells):   5847.6 μs/step  (1169.5 ms total)
+[Taichi] Starting on arch=cuda
+[Taichi] Starting on arch=cuda
+  N=  64 (  4096 cells):   5800.0 μs/step  (1160.0 ms total)
+[Taichi] Starting on arch=cuda
+[Taichi] Starting on arch=cuda
+  N= 128 ( 16384 cells):   6140.2 μs/step  (1228.0 ms total)
+
+--- Warp (CUDA) ---
+Warp 1.12.0 initialized:
+   CUDA Toolkit 12.9, Driver 12.6
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 3060 Laptop GPU" (6 GiB, sm_86, mempool enabled)
+   Kernel cache:
+     /home/chh/.cache/warp/1.12.0
+  N=  32 (  1024 cells):     51.5 μs/step  (10.3 ms total)
+  N=  64 (  4096 cells):    123.0 μs/step  (24.6 ms total)
+  N= 128 ( 16384 cells):    460.2 μs/step  (92.0 ms total)
+
+--- NumPy (CPU) ---
+  N=  32 (  1024 cells):    116.6 μs/step  (5.8 ms total)
+  N=  64 (  4096 cells):    480.6 μs/step  (24.0 ms total)
+  N= 128: skipped (too slow for CPU)
+
+--- Summary ---
+For CUDA (Sync/Async/Graph/Persistent) comparison, run:
+  ./hydro_cuda_osher
+
+Key: all frameworks use the SAME complete OSHER Riemann solver
+     on the SAME structured dam-break mesh.

@@ -76,21 +76,21 @@ Overhead 分解:
 
 ### 3.4 跨框架对比：Hydro-cal F1 (完整 OSHER, 3060)
 
-统一口径：**μs/step**。Taichi/Warp 来自 [run_all_frameworks.py](/home/chh/spmd-dialect/benchmark/F1_hydro_shallow_water/run_all_frameworks.py)，CUDA 4 策略来自 [3060_hydro_f1_osher.txt](/home/chh/spmd-dialect/benchmark/results/3060_hydro_f1_osher.txt)。
+统一口径：**μs/step**。Taichi/Warp 来自 [3060_hydro_f1_frameworks_rerun.txt](/home/chh/spmd-dialect/benchmark/results/3060_hydro_f1_frameworks_rerun.txt)，CUDA 4 策略来自 [3060_hydro_f1_osher_rerun.txt](/home/chh/spmd-dialect/benchmark/results/3060_hydro_f1_osher_rerun.txt)。
 
 | 框架 | 32² | 64² | 128² |
 |---|---|---|---|
-| **Taichi (CUDA, fp64)** | 5736.5 | 5907.4 | 6435.1 |
-| **Warp (CUDA, fp64)** | 38.6 | 126.2 | 491.2 |
-| CUDA (Sync) | 171.8 | 190.8 | 234.5 |
-| CUDA (Async) | 160.9 | 131.5 | 150.8 |
-| **CUDA (Graph)** | **73.1** | **50.2** | **147.2** |
-| **CUDA (Persistent)** | **72.6** | 50.9 | 153.0 |
+| **Taichi (CUDA, fp64)** | 5847.6 | 5800.0 | 6140.2 |
+| **Warp (CUDA, fp64)** | 51.5 | 123.0 | 460.2 |
+| CUDA (Sync) | 145.5 | 116.0 | 248.7 |
+| CUDA (Async) | 76.1 | 55.3 | 154.4 |
+| **CUDA (Graph)** | **75.7** | **52.3** | **147.2** |
+| **CUDA (Persistent)** | **51.6** | **51.0** | 153.4 |
 
 结论：
 - **Warp 已经接近优化后的 CUDA 路径**，尤其在 `32²/64²` 上明显快于 sync baseline。
-- **Graph/Persistent 在小网格上仍然必要**：`64²` 时 `190.8 -> 50.2 μs`，约 `3.8x`。
-- `128²` 时 `Graph/Persistent` 仍领先 sync，但优势已经收敛到 `~1.5-1.6x`。
+- **Graph/Persistent 在小网格上仍然必要**：`64²` 时 `116.0 -> 52.3 μs`，约 `2.2x`。
+- `128²` 时 `Graph/Persistent` 仍领先 sync，但优势已经收敛到 `~1.6-1.7x`。
 - **Taichi 在完整 OSHER F1 上明显存在固定成本问题**，这正是后续策略优化需要回答的对象。
 
 ### 3.5 跨框架对比：其他 kernel (3060)
