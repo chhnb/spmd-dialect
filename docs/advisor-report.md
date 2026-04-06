@@ -31,23 +31,42 @@ Python GPU simulation DSLs（Taichi, Warp）每个 timestep 都要经过 Python 
 
 ## 3. 实验结果
 
-### 3.1 核心数据：Hydro-cal 真实工程案例 (6675 cells, 非结构化网格)
+### 3.1 核心数据：Hydro-cal 完整 OSHER Solver (B200, 24020 cells, 真实网格数据)
+
+**注意：这是用完整 OSHER Riemann solver + 真实二进制网格数据的结果，和 Taichi/Kokkos 实现完全对齐。**
+
+| 方案 | B200 (μs/step) | 加速比 |
+|---|---|---|
+| Sync loop (Taichi 模式：每步 sync) | 22.3 | 1.0x |
+| Async loop (Kokkos 模式：无逐步 sync) | 11.4 | 2.0x |
+| CUDA Graph (录制 900 步回放) | **8.2** | **2.7x** |
+| Persistent Kernel (cooperative grid sync) | 9.6 | 2.3x |
+| GPU 纯计算 (flux + update) | ~9.5 | — |
+
+Overhead 分解 (B200, 完整 OSHER)：
+
+| 组件 | μs |
+|---|---|
+| GPU compute (flux 5.1 + update 4.6) | 9.5 |
+| Launch overhead (Async - Graph) | 3.2 |
+| Sync overhead (Sync - Async) | 10.9 |
+| **Total overhead** | **12.8 μs = 56% of Sync** |
+
+**即使用完整 OSHER solver，overhead 仍占 56%，Graph 给 2.7x 加速。**
+
+### 3.1b 简化 Rusanov Solver (3060 vs B200, 6675 cells)
+
+之前的简化 solver 实验（仅用于 overhead 极端情况分析）：
 
 | 方案 | 3060 (μs/step) | 3060 加速 | B200 (μs/step) | B200 加速 |
 |---|---|---|---|---|
-| Sync loop (Taichi默认) | 84.3 | 1.0x | 15.2 | 1.0x |
+| Sync loop | 84.3 | 1.0x | 15.2 | 1.0x |
 | Async loop | 31.8 | 2.7x | 8.2 | 1.9x |
 | CUDA Graph | 7.6 | **11.1x** | 5.3 | **2.9x** |
 | Persistent Kernel | 6.1 | **13.9x** | 5.7 | **2.7x** |
+| OH 占比 | 91% | — | 65% | — |
 
-Overhead 分解：
-
-| | 3060 | B200 |
-|---|---|---|
-| GPU compute（Graph 下界）| 7.6 μs | 5.3 μs |
-| Launch overhead | 24.2 μs | 2.9 μs |
-| Sync overhead | 52.6 μs | 7.0 μs |
-| **Total overhead** | **76.7 μs (91%)** | **9.9 μs (65%)** |
+**简化 solver 的 overhead 更高（65-91%），但完整 OSHER 下仍有 56%。**
 
 ### 3.2 4 策略对比（结构化网格 Heat2D, 3060）
 
