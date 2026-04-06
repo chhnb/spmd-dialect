@@ -1,18 +1,20 @@
 """
-Overhead Characterization: 30 kernel types × multiple sizes
+Overhead Characterization: 36 kernel types × multiple sizes
 Measures Taichi per-step time to quantify launch overhead fraction.
 
 Kernel categories:
-  Stencil (9):    Heat2D/3D, Wave2D, Jacobi, Burgers, ConvDiff, AllenCahn, CahnHilliard, GrayScott
+  Stencil (9):    Heat2D/3D, Wave2D, Jacobi2D, Burgers, ConvDiff, AllenCahn, CahnHilliard, GrayScott
   CFD (4):        SWE, LBM, StableFluids (pressure project), Euler1D
   Particle (5):   NBody, SPH, DEM, PIC1D, MolecularDynamics(LJ)
   EM (2):         FDTD Maxwell, Helmholtz
-  FEM (2):        ExplicitFEM, MassSpring/Cloth
-  Transport (2):  SemiLagrangian, Advection1D-WENO
+  FEM/Struc (3):  ExplicitFEM, Cloth, MassSpring1D
+  Transport (2):  SemiLagrangian, Upwind1D
   PDE misc (3):   Poisson(Jacobi iter), Schrodinger, KuramotoSivashinsky
-  Other (3):      Reduction, Prefix-sum pattern, MonteCarlo
+  Other (2):      Reduction, MonteCarlo
+  Classic (6):    Jacobi3D(Parboil/PERKS), HotSpot(Rodinia), SRAD(Rodinia),
+                  SpMV(CG building block), CG_Solver, LULESH-like(ECP proxy app)
 
-Total: 30 distinct kernel types × 2-5 sizes each = ~100 configurations
+Total: 36 distinct kernel types × 2-6 sizes each = ~120 configurations
 
 Usage: python run_overhead_characterization.py
 """
@@ -703,6 +705,222 @@ for N in [1024, 4096, 16384]:
     ti.reset()
 
 # =====================================================================
+# CLASSIC BENCHMARKS (6 types) — Tier 1/2 from Rodinia/Parboil/ECP
+# =====================================================================
+
+# --- 31. Jacobi 3D 7-point (Parboil/PERKS standard) ---
+section("31. Jacobi 3D 7-point (Parboil/PERKS)")
+for N in [32, 64, 128]:
+    ti.init(arch=ti.cuda, default_fp=ti.f32)
+    j3a=ti.field(ti.f32,(N,N,N));j3b=ti.field(ti.f32,(N,N,N))
+    @ti.kernel
+    def jacobi3d():
+        for i,j,k in ti.ndrange((1,N-1),(1,N-1),(1,N-1)):
+            j3b[i,j,k]=1.0/6.0*(j3a[i-1,j,k]+j3a[i+1,j,k]+j3a[i,j-1,k]+j3a[i,j+1,k]+j3a[i,j,k-1]+j3a[i,j,k+1])
+        for i,j,k in j3a: j3a[i,j,k]=j3b[i,j,k]
+    run_and_record("Jacobi3D_7pt","Classic",f"{N}^3",N**3,jacobi3d,200 if N<=64 else 50)
+    ti.reset()
+
+# --- 32. HotSpot (Rodinia) ---
+section("32. HotSpot (Rodinia)")
+for N in [128, 256, 512, 1024]:
+    ti.init(arch=ti.cuda, default_fp=ti.f32)
+    temp=ti.field(ti.f32,(N,N));power=ti.field(ti.f32,(N,N));temp2=ti.field(ti.f32,(N,N))
+    @ti.kernel
+    def hotspot_init():
+        for i,j in power: power[i,j]=0.5 if (N//4<i<3*N//4 and N//4<j<3*N//4) else 0.0
+        for i,j in temp: temp[i,j]=300.0
+    @ti.kernel
+    def hotspot():
+        # Thermal RC model: dT/dt = (P + K*Lap(T) - T/R) / C
+        cap=0.5; res=0.1; k_th=0.01; dt=0.001; amb=300.0
+        for i,j in ti.ndrange((1,N-1),(1,N-1)):
+            lap=temp[i-1,j]+temp[i+1,j]+temp[i,j-1]+temp[i,j+1]-4*temp[i,j]
+            temp2[i,j]=temp[i,j]+dt/cap*(power[i,j]+k_th*lap-(temp[i,j]-amb)/res)
+        for i,j in temp: temp[i,j]=temp2[i,j]
+    hotspot_init()
+    run_and_record("HotSpot","Classic",f"{N}^2",N*N,hotspot,500 if N<=512 else 100)
+    ti.reset()
+
+# --- 33. SRAD (Rodinia — Speckle Reducing Anisotropic Diffusion) ---
+section("33. SRAD (Rodinia)")
+for N in [128, 256, 512]:
+    ti.init(arch=ti.cuda, default_fp=ti.f32)
+    img=ti.field(ti.f32,(N,N));img2=ti.field(ti.f32,(N,N))
+    @ti.kernel
+    def srad_init():
+        for i,j in img: img[i,j]=ti.random()*100+50
+    @ti.kernel
+    def srad():
+        q0sq=0.05; dt=0.05
+        for i,j in ti.ndrange((1,N-1),(1,N-1)):
+            Jc=img[i,j]
+            dN=img[i-1,j]-Jc;dS=img[i+1,j]-Jc;dE=img[i,j+1]-Jc;dW=img[i,j-1]-Jc
+            G2=(dN*dN+dS*dS+dE*dE+dW*dW)/(Jc*Jc+1e-10)
+            L=(dN+dS+dE+dW)/(Jc+1e-10)
+            num=0.5*G2-1.0/16.0*L*L
+            den=1.0+0.25*L
+            qsq=num/(den*den+1e-10)
+            c=1.0/(1.0+(qsq-q0sq)/(q0sq*(1+q0sq)+1e-10))
+            img2[i,j]=Jc+dt*(c*dN+c*dS+c*dE+c*dW)
+        for i,j in img: img[i,j]=img2[i,j]
+    srad_init()
+    run_and_record("SRAD","Classic",f"{N}^2",N*N,srad,500)
+    ti.reset()
+
+# --- 34. SpMV (Sparse Matrix-Vector multiply, inside CG) ---
+section("34. SpMV (CSR, synthetic banded)")
+for N in [1024, 4096, 16384]:
+    ti.init(arch=ti.cuda, default_fp=ti.f32)
+    # 5-diagonal sparse matrix (2D Laplacian flattened)
+    nnz_per_row = 5
+    x_sp=ti.field(ti.f32,N);y_sp=ti.field(ti.f32,N)
+    val=ti.field(ti.f32,N*nnz_per_row);col=ti.field(ti.i32,N*nnz_per_row)
+    rowptr=ti.field(ti.i32,N+1)
+    @ti.kernel
+    def spmv_init():
+        for i in x_sp: x_sp[i]=1.0
+        sq=int(ti.sqrt(float(N)))
+        for i in range(N):
+            rowptr[i]=i*5
+            base=i*5
+            cnt=0
+            if i-sq>=0: val[base+cnt]=-1.0;col[base+cnt]=i-sq;cnt+=1
+            if i-1>=0: val[base+cnt]=-1.0;col[base+cnt]=i-1;cnt+=1
+            val[base+cnt]=4.0;col[base+cnt]=i;cnt+=1
+            if i+1<N: val[base+cnt]=-1.0;col[base+cnt]=i+1;cnt+=1
+            if i+sq<N: val[base+cnt]=-1.0;col[base+cnt]=i+sq;cnt+=1
+            while cnt<5: val[base+cnt]=0.0;col[base+cnt]=i;cnt+=1
+        rowptr[N]=N*5
+    @ti.kernel
+    def spmv():
+        for i in range(N):
+            s=0.0
+            for k in range(rowptr[i],rowptr[i+1]):
+                s+=val[k]*x_sp[col[k]]
+            y_sp[i]=s
+    spmv_init()
+    run_and_record("SpMV_CSR","Classic",f"N={N}",N,spmv,500)
+    ti.reset()
+
+# --- 35. CG Solver (Conjugate Gradient, 2D Poisson) ---
+section("35. CG Solver (Jacobi-preconditioned)")
+for N in [64, 128, 256]:
+    ti.init(arch=ti.cuda, default_fp=ti.f32)
+    N2=N*N
+    x_cg=ti.field(ti.f32,N2);r_cg=ti.field(ti.f32,N2);p_cg=ti.field(ti.f32,N2)
+    Ap=ti.field(ti.f32,N2);b_cg=ti.field(ti.f32,N2)
+    dot_r=ti.field(ti.f32,());dot_pAp=ti.field(ti.f32,());dot_rnew=ti.field(ti.f32,())
+    @ti.kernel
+    def cg_init():
+        for i in range(N2):
+            b_cg[i]=1.0; x_cg[i]=0.0; r_cg[i]=b_cg[i]; p_cg[i]=r_cg[i]
+    @ti.kernel
+    def cg_matvec():
+        # Apply 2D Laplacian (5-point stencil) as sparse matvec
+        for idx in range(N2):
+            i=idx//N; j=idx%N; s=4.0*x_cg[idx]
+            if i>0: s-=x_cg[idx-N]
+            if i<N-1: s+=(-x_cg[idx+N]) if True else 0.0
+            if j>0: s-=x_cg[idx-1]
+            if j<N-1: s-=x_cg[idx+1]
+            Ap[idx]=s
+    @ti.kernel
+    def cg_dots():
+        dr=0.0;dpAp=0.0
+        for i in range(N2): dr+=r_cg[i]*r_cg[i]; dpAp+=p_cg[i]*Ap[i]
+        dot_r[None]=dr; dot_pAp[None]=dpAp
+    @ti.kernel
+    def cg_update(alpha:ti.f32):
+        for i in range(N2):
+            x_cg[i]+=alpha*p_cg[i]
+            r_cg[i]-=alpha*Ap[i]
+    @ti.kernel
+    def cg_direction(beta:ti.f32):
+        dn=0.0
+        for i in range(N2): dn+=r_cg[i]*r_cg[i]
+        dot_rnew[None]=dn
+        for i in range(N2): p_cg[i]=r_cg[i]+beta*p_cg[i]
+    def cg_step():
+        cg_matvec()
+        cg_dots()
+        alpha=dot_r[None]/(dot_pAp[None]+1e-20)
+        cg_update(alpha)
+        old_rr=dot_r[None]
+        cg_direction(0.0)  # compute new r dot r
+        beta=dot_rnew[None]/(old_rr+1e-20)
+        cg_direction(beta)
+        dot_r[None]=dot_rnew[None]
+    cg_init()
+    # CG step = matvec + 2 dots + 2 updates = 5 kernels per step
+    run_and_record("CG_Solver","Classic",f"{N}^2={N2}",N2,cg_step,200)
+    ti.reset()
+
+# --- 36. LULESH-like (Sedov blast, simplified Lagrangian hydro 2D) ---
+section("36. LULESH-like (simplified Lagrangian hydro 2D)")
+for N in [32, 64, 128]:
+    ti.init(arch=ti.cuda, default_fp=ti.f32)
+    ne=N*N  # quad elements
+    nn=(N+1)*(N+1)  # nodes
+    # Node quantities
+    xn=ti.Vector.field(2,ti.f32,nn);vn=ti.Vector.field(2,ti.f32,nn);fn=ti.Vector.field(2,ti.f32,nn)
+    mass=ti.field(ti.f32,nn)
+    # Element quantities
+    p_el=ti.field(ti.f32,ne);vol=ti.field(ti.f32,ne);rho_el=ti.field(ti.f32,ne);e_el=ti.field(ti.f32,ne)
+    @ti.kernel
+    def lulesh_init():
+        for i,j in ti.ndrange(N+1,N+1):
+            nid=i*(N+1)+j
+            xn[nid]=[float(i)/N,float(j)/N]
+            mass[nid]=1.0/nn
+        for i,j in ti.ndrange(N,N):
+            eid=i*N+j
+            rho_el[eid]=1.0; e_el[eid]=1.0 if (i<3 and j<3) else 0.0  # Sedov energy deposit
+            vol[eid]=1.0/(N*N)
+            p_el[eid]=(1.4-1)*rho_el[eid]*e_el[eid]
+    @ti.kernel
+    def lulesh_forces():
+        # Reset forces
+        for i in fn: fn[i]=[0.0,0.0]
+        # Pressure gradient force per element → scatter to nodes
+        for i,j in ti.ndrange(N,N):
+            eid=i*N+j
+            n0=i*(N+1)+j; n1=(i+1)*(N+1)+j; n2=(i+1)*(N+1)+j+1; n3=i*(N+1)+j+1
+            pr=p_el[eid]; a=vol[eid]
+            # Simplified: pressure force = -p * area * normal (uniform quad)
+            f=pr*a*0.25
+            fn[n0]+=ti.Vector([-f,-f]); fn[n1]+=ti.Vector([f,-f])
+            fn[n2]+=ti.Vector([f,f]); fn[n3]+=ti.Vector([-f,f])
+    @ti.kernel
+    def lulesh_update():
+        dt=0.0001
+        for i in vn:
+            if mass[i]>0:
+                vn[i]+=fn[i]/mass[i]*dt
+                xn[i]+=vn[i]*dt
+    @ti.kernel
+    def lulesh_eos():
+        # Update volume, density, pressure (equation of state)
+        for i,j in ti.ndrange(N,N):
+            eid=i*N+j
+            n0=i*(N+1)+j; n1=(i+1)*(N+1)+j; n2=(i+1)*(N+1)+j+1; n3=i*(N+1)+j+1
+            # Shoelace for quad area
+            x0=xn[n0];x1=xn[n1];x2=xn[n2];x3=xn[n3]
+            new_vol=0.5*abs((x1[0]-x3[0])*(x2[1]-x0[1])-(x2[0]-x0[0])*(x1[1]-x3[1]))
+            if new_vol>1e-10:
+                rho_el[eid]=mass[n0]*4/new_vol  # approximate
+                vol[eid]=new_vol
+                p_el[eid]=(1.4-1)*rho_el[eid]*e_el[eid]
+    def lulesh_step():
+        lulesh_forces()
+        lulesh_update()
+        lulesh_eos()
+    lulesh_init()
+    # LULESH step = 3 kernels: forces + update + EOS
+    run_and_record("LULESH_like","Classic",f"{N}^2={ne}elem",ne,lulesh_step,200)
+    ti.reset()
+
+# =====================================================================
 # SUMMARY
 # =====================================================================
 print(f"\n{'='*80}")
@@ -721,13 +939,15 @@ for name,domain,size,nelem,us in results:
     print(f"{name:<30} {domain:<12} {size:>10} {us:>9.1f} {cls:>10}")
 
 print(f"\nClassification: OH-dominated={oh_dom}  Transitional={trans}  Compute-dominated={compute_dom}")
-print(f"Total: {len(results)} configs across 30 kernel types")
+print(f"Total: {len(results)} configs across 36 kernel types")
 print(f"\nKernel types by domain:")
-print(f"  Stencil:   Heat2D/3D, Wave2D, Jacobi, GrayScott, AllenCahn, CahnHilliard, Burgers, ConvDiff (9)")
-print(f"  CFD:       SWE, LBM, StableFluids, Euler1D (4)")
-print(f"  Particle:  NBody, SPH, DEM, MD_LJ, PIC (5)")
-print(f"  EM:        FDTD, Helmholtz (2)")
-print(f"  FEM/Struc: ExplicitFEM, Cloth, MassSpring1D (3)")
-print(f"  Transport: SemiLagrangian, Upwind1D (2)")
-print(f"  PDE:       Poisson, Schrodinger, KuramotoSivashinsky (3)")
-print(f"  Other:     Reduction, MonteCarlo (2)")
+print(f"  Stencil:    Heat2D/3D, Wave2D, Jacobi2D, GrayScott, AllenCahn, CahnHilliard, Burgers, ConvDiff (9)")
+print(f"  CFD:        SWE, LBM, StableFluids, Euler1D (4)")
+print(f"  Particle:   NBody, SPH, DEM, MD_LJ, PIC (5)")
+print(f"  EM:         FDTD, Helmholtz (2)")
+print(f"  FEM/Struc:  ExplicitFEM, Cloth, MassSpring1D (3)")
+print(f"  Transport:  SemiLagrangian, Upwind1D (2)")
+print(f"  PDE:        Poisson, Schrodinger, KuramotoSivashinsky (3)")
+print(f"  Other:      Reduction, MonteCarlo (2)")
+print(f"  Classic:    Jacobi3D, HotSpot, SRAD, SpMV, CG_Solver, LULESH-like (6)")
+print(f"  TOTAL:      36 distinct kernel types")
