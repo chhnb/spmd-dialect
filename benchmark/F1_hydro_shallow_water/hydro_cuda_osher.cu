@@ -1014,7 +1014,11 @@ double bench_persistent(MeshData &m, int STEPS, int threads) {
 int main() {
     int Ns[]    = {32, 64, 128};
     int STEPS   = 500;
-    int THREADS = 256;
+
+    auto pick_threads = [](int CEL) {
+        if (CEL <= 1024) return 128;
+        return 256;
+    };
 
     printf("===================================================================\n");
     printf("  Shallow Water (Osher) CUDA Benchmark — fp64, STEPS=%d\n", STEPS);
@@ -1030,6 +1034,7 @@ int main() {
     for (int ni = 0; ni < 3; ni++) {
         int N = Ns[ni];
         int CEL = N * N;
+        int THREADS = pick_threads(CEL);
         int blocks = (CEL + THREADS - 1) / THREADS;
 
         MeshData m;

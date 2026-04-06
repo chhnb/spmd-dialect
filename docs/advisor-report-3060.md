@@ -144,6 +144,15 @@ Overhead 分解:
 - 而 CUDA Graph 在相同 kernel 上只需 4-7 μs
 - **DSL 的 Python runtime + CUDA driver overhead 是固定的，与计算量无关**
 
+### 发现 5: 小网格下 block size 比寄存器限制更关键
+- 对 F1 32² 做 `ncu` / `nsys` 后，默认 CUDA 的主 kernel 是 `256 threads x 4 blocks`，而 3060 有 `30 SMs`，明显喂不满机器
+- Kokkos 在 `64²` 上用的是 `128 threads x 32 blocks`，寄存器并不更少（Kokkos `112 regs/thread` vs CUDA `106 regs/thread`），但 launch geometry 更合理
+- 把 CUDA 小网格改成自适应 threads 后，性能立刻改善：
+  - `32²`: `CUDA Persistent 38.49 μs` vs `Kokkos 52.5 μs`
+  - `64²`: `CUDA Persistent 56.07 μs` vs `Kokkos 57.0 μs`
+  - `128²`: `CUDA Graph 144.35 μs` vs `Kokkos 154.7 μs`
+- 这说明在小 grid / 轻 workload 上，**block size / grid size 是必须建模的策略输入**；单纯限制 `maxrregcount` 并不能稳定带来收益
+
 ---
 
 ## 5. 与前人工作的定位
@@ -160,7 +169,8 @@ Overhead 分解:
 
 ### 方向 A: Cost-Benefit Model + Strategy Selection
 - 建 fusion cost-benefit model: 什么时候 persistent vs Graph vs async 最优
-- 输入: kernel 寄存器数、grid size、SM 数 → 预测最优策略
+- 输入: kernel 寄存器数、**block size**、grid size、SM 数、cooperative limit → 预测最优策略
+- 先解决小 grid launch geometry，再决定要不要 graph / persistent
 - 用 36 种 kernel × 多 size 验证模型精度
 - 投 ICS / PPoPP / CGO
 
@@ -191,7 +201,7 @@ Overhead 分解:
 - 结论：**Graph / Persistent / DMA overlap 都有效，但适用区间不同**
 
 ### Slide 3: 问题
-- **方向 A**: 做 cost model / strategy selection
+- **方向 A**: 做 cost model / strategy selection（把 register、block size、grid size 都纳入）
 - **方向 B**: 做大规模 characterization / analysis
 - **方向 C**: 聚焦 persistent + DMA overlap 这个技术点
 - 希望老师帮助判断：先走哪条路线最合适
