@@ -1,0 +1,47 @@
+[Taichi] version 1.7.4, llvm 15.0.4, commit b4b956fd, linux, python 3.12.12
+[taichi_cuda] N=256...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda       256x256  min=  34.319ms  median=  39.013ms  avg=  41.994ms  max=  61.601ms
+[taichi_cuda] N=512...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda       512x512  min=  31.311ms  median=  31.670ms  avg=  31.784ms  max=  32.687ms
+[taichi_cuda] N=1024...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda     1024x1024  min=  31.272ms  median=  32.257ms  avg=  32.700ms  max=  35.539ms
+[taichi_cpu] N=256...
+[Taichi] Starting on arch=x64
+  Taichi       cpu        256x256  min= 305.109ms  median= 318.185ms  avg= 318.312ms  max= 343.017ms
+[taichi_cpu] N=512...
+[Taichi] Starting on arch=x64
+  Taichi       cpu        512x512  min= 314.447ms  median= 325.502ms  avg= 330.008ms  max= 360.748ms
+[taichi_cpu] N=1024...
+[Taichi] Starting on arch=x64
+  Taichi       cpu      1024x1024  min= 480.284ms  median= 490.974ms  avg= 498.346ms  max= 560.104ms
+[warp_cuda] N=256...
+Warp 1.12.0 initialized:
+   CUDA Toolkit 12.9, Driver 12.6
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 3060 Laptop GPU" (6 GiB, sm_86, mempool enabled)
+   Kernel cache:
+     /home/chh/.cache/warp/1.12.0
+Module fluid_warp 264164b load on device 'cuda:0' took 4.20 ms  (cached)
+  Warp         cuda       256x256  min=  19.422ms  median=  20.798ms  avg=  21.356ms  max=  24.185ms
+[warp_cuda] N=512...
+  Warp         cuda       512x512  min=  18.629ms  median=  19.781ms  avg=  19.997ms  max=  22.833ms
+[warp_cuda] N=1024...
+  Warp         cuda     1024x1024  min=  20.171ms  median=  21.485ms  avg=  21.574ms  max=  22.978ms
+
+================================================================================
+Taichi       cuda       256x256  min=  34.319ms  median=  39.013ms  avg=  41.994ms  max=  61.601ms
+Taichi       cuda       512x512  min=  31.311ms  median=  31.670ms  avg=  31.784ms  max=  32.687ms
+Taichi       cuda     1024x1024  min=  31.272ms  median=  32.257ms  avg=  32.700ms  max=  35.539ms
+Taichi       cpu        256x256  min= 305.109ms  median= 318.185ms  avg= 318.312ms  max= 343.017ms
+Taichi       cpu        512x512  min= 314.447ms  median= 325.502ms  avg= 330.008ms  max= 360.748ms
+Taichi       cpu      1024x1024  min= 480.284ms  median= 490.974ms  avg= 498.346ms  max= 560.104ms
+Warp         cuda       256x256  min=  19.422ms  median=  20.798ms  avg=  21.356ms  max=  24.185ms
+Warp         cuda       512x512  min=  18.629ms  median=  19.781ms  avg=  19.997ms  max=  22.833ms
+Warp         cuda     1024x1024  min=  20.171ms  median=  21.485ms  avg=  21.574ms  max=  22.978ms
+================================================================================
+
+Results saved to results.csv

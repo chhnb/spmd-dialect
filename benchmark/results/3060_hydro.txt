@@ -1,0 +1,20 @@
+GPU: NVIDIA GeForce RTX 3060 Laptop GPU (SMs=30)
+Hydro-cal: 6675 cells, 26700 edges, 9000 steps
+
+[1] Sync loop (Taichi-like):    84.34 us/step  (  75.9 ms/day)
+[2] Async loop (Kokkos):        31.76 us/step  (  28.6 ms/day)
+[3] CUDA Graph (900-step):       7.59 us/step  (   6.8 ms/day)
+
+  Persistent: need 105 blocks, max 120 (4 blk/SM x 30 SMs)
+[4] Persistent kernel:           6.09 us/step  (   5.5 ms/day)
+
+=== Speedup vs Sync ===
+  Async:      2.66x
+  Graph:      11.11x
+  Persistent: 13.85x
+
+=== Overhead breakdown ===
+  GPU compute:  ~7.6 us (Graph lower bound)
+  Launch OH:     24.2 us
+  Sync OH:       52.6 us
+  Total OH:      76.8 us (91% of Sync)

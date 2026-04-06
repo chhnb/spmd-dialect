@@ -28,7 +28,6 @@ def run(nx, ny=None, steps=1, backend="cuda"):
 
     @ti.func
     def f_eq(i, j):
-        eu = vel[i, j].dot(ti.Vector([e[k][0], e[k][1]], dt=ti.f32))
         usq = vel[i, j].dot(vel[i, j])
         result = ti.Vector.zero(ti.f32, 9)
         for k in ti.static(range(9)):

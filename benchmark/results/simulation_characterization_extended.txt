@@ -1,0 +1,147 @@
+[Taichi] version 1.7.4, llvm 15.0.4, commit b4b956fd, linux, python 3.12.12
+
+====================================================================
+  16. LBM D2Q9
+====================================================================
+[Taichi] Starting on arch=cuda
+  LBM_D2Q9                              512x256   2871.9 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  LBM_D2Q9                             1024x512  11243.7 us  OH~  0%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  LBM_D2Q9                            2048x1024  54325.3 us  OH~  0%  [COMPUTE]
+
+====================================================================
+  17. SPH Neighbor Grid
+====================================================================
+[Taichi] Starting on arch=cuda
+  SPH_Grid                               N=1024    769.6 us  OH~  2%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SPH_Grid                               N=4096   1012.7 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SPH_Grid                              N=16384    822.5 us  OH~  2%  [COMPUTE]
+
+====================================================================
+  18. MPM88
+====================================================================
+[Taichi] Starting on arch=cuda
+  MPM88                            grid64_p4096    128.1 us  OH~ 12%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  MPM88                           grid128_p8192    149.2 us  OH~ 10%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  MPM88                          grid256_p16384    133.2 us  OH~ 11%  [COMPUTE]
+
+====================================================================
+  19. Stable Fluids
+====================================================================
+[Taichi] Starting on arch=cuda
+  StableFluids                          128x128   6804.2 us  OH~  0%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  StableFluids                          256x256   6777.6 us  OH~  0%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  StableFluids                          512x512   6713.8 us  OH~  0%  [COMPUTE]
+
+====================================================================
+  20. Hydro SWE (Osher)
+====================================================================
+[Taichi] Starting on arch=cuda
+  HydroSWE_Osher                          32x32   1303.5 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  HydroSWE_Osher                          64x64   1341.9 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  HydroSWE_Osher                        128x128   1717.6 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  HydroSWE_Osher                        256x256   5494.4 us  OH~  0%  [COMPUTE]
+
+====================================================================
+  21. Hydro Refactored
+====================================================================
+[Taichi] Starting on arch=cuda
+  HydroRefactored                  6675cells_1d 128727.7 us  OH~  0%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  HydroRefactored                  6675cells_5d 659073.4 us  OH~  0%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  HydroRefactored                 6675cells_10d 1276647.7 us  OH~  0%  [COMPUTE]
+
+====================================================================
+  22. Compressible Euler
+====================================================================
+[Taichi] Starting on arch=cuda
+  Euler2D_Rusanov                       128x128    884.6 us  OH~  2%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Euler2D_Rusanov                       256x256    901.2 us  OH~  2%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Euler2D_Rusanov                       512x512   1250.6 us  OH~  1%  [COMPUTE]
+
+====================================================================
+  23. PIC Electrostatic
+====================================================================
+[Taichi] Starting on arch=cuda
+  PIC1D                              p4096_g256   2740.5 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  PIC1D                             p16384_g512   3044.9 us  OH~  0%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  PIC1D                            p65536_g1024   3082.1 us  OH~  0%  [COMPUTE]
+
+====================================================================
+  24. Cloth Spring-Mass
+====================================================================
+[Taichi] Starting on arch=cuda
+  ClothSpring                             32x32   1699.7 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  ClothSpring                             64x64   1713.4 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  ClothSpring                           128x128   1710.9 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  ClothSpring                           256x256   2166.7 us  OH~  1%  [COMPUTE]
+
+====================================================================
+  25. DEM
+====================================================================
+[Taichi] Starting on arch=cuda
+  DEM_Grid                               N=2048    990.0 us  OH~  2%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  DEM_Grid                               N=8192   1677.0 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  DEM_Grid                              N=32768   1155.7 us  OH~  1%  [COMPUTE]
+
+========================================================================================
+  EXTENDED SUMMARY: 32 configurations across 10 additional kernel families
+========================================================================================
+Kernel                   Domain                       Size    us/step    OH%      Class
+----------------------------------------------------------------------------------------
+LBM_D2Q9                 CFD                       512x256    2871.9     1%    COMPUTE
+LBM_D2Q9                 CFD                      1024x512   11243.7     0%    COMPUTE
+LBM_D2Q9                 CFD                     2048x1024   54325.3     0%    COMPUTE
+SPH_Grid                 Particle                   N=1024     769.6     2%    COMPUTE
+SPH_Grid                 Particle                   N=4096    1012.7     1%    COMPUTE
+SPH_Grid                 Particle                  N=16384     822.5     2%    COMPUTE
+MPM88                    MultiKernel          grid64_p4096     128.1    12%    COMPUTE
+MPM88                    MultiKernel         grid128_p8192     149.2    10%    COMPUTE
+MPM88                    MultiKernel        grid256_p16384     133.2    11%    COMPUTE
+StableFluids             MultiKernel               128x128    6804.2     0%    COMPUTE
+StableFluids             MultiKernel               256x256    6777.6     0%    COMPUTE
+StableFluids             MultiKernel               512x512    6713.8     0%    COMPUTE
+HydroSWE_Osher           CFD                         32x32    1303.5     1%    COMPUTE
+HydroSWE_Osher           CFD                         64x64    1341.9     1%    COMPUTE
+HydroSWE_Osher           CFD                       128x128    1717.6     1%    COMPUTE
+HydroSWE_Osher           CFD                       256x256    5494.4     0%    COMPUTE
+HydroRefactored          MultiKernel          6675cells_1d  128727.7     0%    COMPUTE
+HydroRefactored          MultiKernel          6675cells_5d  659073.4     0%    COMPUTE
+HydroRefactored          MultiKernel         6675cells_10d 1276647.7     0%    COMPUTE
+Euler2D_Rusanov          CFD                       128x128     884.6     2%    COMPUTE
+Euler2D_Rusanov          CFD                       256x256     901.2     2%    COMPUTE
+Euler2D_Rusanov          CFD                       512x512    1250.6     1%    COMPUTE
+PIC1D                    ParticleGrid           p4096_g256    2740.5     1%    COMPUTE
+PIC1D                    ParticleGrid          p16384_g512    3044.9     0%    COMPUTE
+PIC1D                    ParticleGrid         p65536_g1024    3082.1     0%    COMPUTE
+ClothSpring              Structure                   32x32    1699.7     1%    COMPUTE
+ClothSpring              Structure                   64x64    1713.4     1%    COMPUTE
+ClothSpring              Structure                 128x128    1710.9     1%    COMPUTE
+ClothSpring              Structure                 256x256    2166.7     1%    COMPUTE
+DEM_Grid                 Particle                   N=2048     990.0     2%    COMPUTE
+DEM_Grid                 Particle                   N=8192    1677.0     1%    COMPUTE
+DEM_Grid                 Particle                  N=32768    1155.7     1%    COMPUTE
+
+Classification: OH-dominated=0  Transitional=0  Compute-dominated=32
+
+Results written to /home/chh/spmd-dialect/benchmark/results/simulation_characterization_extended.csv

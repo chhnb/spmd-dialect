@@ -1,0 +1,98 @@
+Jacobi 2D Benchmark: sizes=[512, 1024, 2048, 4096], steps=10
+Frameworks: ['numpy', 'taichi_cpu', 'taichi_cuda', 'warp_cpu', 'warp_cuda', 'triton_cuda']
+
+[numpy] N=512...
+  NumPy        cpu        512x512  min=  38.928ms  median=  40.101ms  avg=  40.159ms  max=  41.696ms
+[numpy] N=1024...
+  NumPy        cpu      1024x1024  min= 173.282ms  median= 176.839ms  avg= 178.206ms  max= 206.605ms
+[numpy] N=2048...
+  NumPy        cpu      2048x2048  min= 240.031ms  median= 258.129ms  avg= 258.364ms  max= 274.976ms
+[numpy] N=4096...
+  NumPy        cpu      4096x4096  min= 724.820ms  median= 785.177ms  avg= 787.292ms  max= 863.576ms
+[taichi_cpu] N=512...
+[Taichi] version 1.7.4, llvm 15.0.4, commit b4b956fd, linux, python 3.12.12
+[Taichi] Starting on arch=x64
+  Taichi       cpu        512x512  min=  12.330ms  median=  12.749ms  avg=  12.844ms  max=  13.778ms
+[taichi_cpu] N=1024...
+[Taichi] Starting on arch=x64
+  Taichi       cpu      1024x1024  min=  19.645ms  median=  20.037ms  avg=  20.903ms  max=  35.473ms
+[taichi_cpu] N=2048...
+[Taichi] Starting on arch=x64
+  Taichi       cpu      2048x2048  min=  61.900ms  median=  70.531ms  avg=  70.101ms  max=  77.855ms
+[taichi_cpu] N=4096...
+[Taichi] Starting on arch=x64
+  Taichi       cpu      4096x4096  min= 216.705ms  median= 247.917ms  avg= 250.889ms  max= 286.614ms
+[taichi_cuda] N=512...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda       512x512  min=   1.211ms  median=   1.389ms  avg=   1.414ms  max=   1.824ms
+[taichi_cuda] N=1024...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda     1024x1024  min=   1.198ms  median=   1.660ms  avg=   2.180ms  max=   3.588ms
+[taichi_cuda] N=2048...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda     2048x2048  min=   2.638ms  median=   3.297ms  avg=   3.231ms  max=   4.140ms
+[taichi_cuda] N=4096...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda     4096x4096  min=  13.919ms  median=  14.292ms  avg=  14.304ms  max=  14.967ms
+[warp_cpu] N=512...
+Warp 1.12.0 initialized:
+   CUDA Toolkit 12.9, Driver 12.6
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 3060 Laptop GPU" (6 GiB, sm_86, mempool enabled)
+   Kernel cache:
+     /home/chh/.cache/warp/1.12.0
+Module jacobi_warp 07f3bc9 load on device 'cpu' took 34.24 ms  (cached)
+  Warp         cpu        512x512  min=  38.068ms  median=  38.835ms  avg=  38.906ms  max=  39.898ms
+[warp_cpu] N=1024...
+  Warp         cpu      1024x1024  min= 152.960ms  median= 166.291ms  avg= 164.659ms  max= 168.776ms
+[warp_cpu] N=2048...
+  Warp         cpu      2048x2048  min= 609.714ms  median= 618.368ms  avg= 634.190ms  max= 667.683ms
+[warp_cpu] N=4096...
+  Warp         cpu      4096x4096  min=2646.156ms  median=2838.968ms  avg=2792.058ms  max=2876.941ms
+[warp_cuda] N=512...
+Module jacobi_warp f22753b load on device 'cuda:0' took 2.88 ms  (cached)
+  Warp         cuda       512x512  min=   0.750ms  median=   0.874ms  avg=   0.898ms  max=   1.558ms
+[warp_cuda] N=1024...
+  Warp         cuda     1024x1024  min=   0.865ms  median=   0.982ms  avg=   1.048ms  max=   1.843ms
+[warp_cuda] N=2048...
+  Warp         cuda     2048x2048  min=   2.940ms  median=   2.958ms  avg=   2.976ms  max=   3.054ms
+[warp_cuda] N=4096...
+  Warp         cuda     4096x4096  min=   9.872ms  median=  10.081ms  avg=  10.126ms  max=  11.392ms
+[triton_cuda] N=512...
+  Triton       cuda       512x512  min=   1.087ms  median=   1.393ms  avg=   1.731ms  max=   4.115ms
+[triton_cuda] N=1024...
+  Triton       cuda     1024x1024  min=   1.152ms  median=   3.552ms  avg=   2.749ms  max=   4.384ms
+[triton_cuda] N=2048...
+  Triton       cuda     2048x2048  min=   2.410ms  median=   2.930ms  avg=   2.969ms  max=   4.478ms
+[triton_cuda] N=4096...
+  Triton       cuda     4096x4096  min=  10.069ms  median=  10.391ms  avg=  10.493ms  max=  11.971ms
+
+================================================================================
+NumPy        cpu        512x512  min=  38.928ms  median=  40.101ms  avg=  40.159ms  max=  41.696ms
+NumPy        cpu      1024x1024  min= 173.282ms  median= 176.839ms  avg= 178.206ms  max= 206.605ms
+NumPy        cpu      2048x2048  min= 240.031ms  median= 258.129ms  avg= 258.364ms  max= 274.976ms
+NumPy        cpu      4096x4096  min= 724.820ms  median= 785.177ms  avg= 787.292ms  max= 863.576ms
+Taichi       cpu        512x512  min=  12.330ms  median=  12.749ms  avg=  12.844ms  max=  13.778ms
+Taichi       cpu      1024x1024  min=  19.645ms  median=  20.037ms  avg=  20.903ms  max=  35.473ms
+Taichi       cpu      2048x2048  min=  61.900ms  median=  70.531ms  avg=  70.101ms  max=  77.855ms
+Taichi       cpu      4096x4096  min= 216.705ms  median= 247.917ms  avg= 250.889ms  max= 286.614ms
+Taichi       cuda       512x512  min=   1.211ms  median=   1.389ms  avg=   1.414ms  max=   1.824ms
+Taichi       cuda     1024x1024  min=   1.198ms  median=   1.660ms  avg=   2.180ms  max=   3.588ms
+Taichi       cuda     2048x2048  min=   2.638ms  median=   3.297ms  avg=   3.231ms  max=   4.140ms
+Taichi       cuda     4096x4096  min=  13.919ms  median=  14.292ms  avg=  14.304ms  max=  14.967ms
+Warp         cpu        512x512  min=  38.068ms  median=  38.835ms  avg=  38.906ms  max=  39.898ms
+Warp         cpu      1024x1024  min= 152.960ms  median= 166.291ms  avg= 164.659ms  max= 168.776ms
+Warp         cpu      2048x2048  min= 609.714ms  median= 618.368ms  avg= 634.190ms  max= 667.683ms
+Warp         cpu      4096x4096  min=2646.156ms  median=2838.968ms  avg=2792.058ms  max=2876.941ms
+Warp         cuda       512x512  min=   0.750ms  median=   0.874ms  avg=   0.898ms  max=   1.558ms
+Warp         cuda     1024x1024  min=   0.865ms  median=   0.982ms  avg=   1.048ms  max=   1.843ms
+Warp         cuda     2048x2048  min=   2.940ms  median=   2.958ms  avg=   2.976ms  max=   3.054ms
+Warp         cuda     4096x4096  min=   9.872ms  median=  10.081ms  avg=  10.126ms  max=  11.392ms
+Triton       cuda       512x512  min=   1.087ms  median=   1.393ms  avg=   1.731ms  max=   4.115ms
+Triton       cuda     1024x1024  min=   1.152ms  median=   3.552ms  avg=   2.749ms  max=   4.384ms
+Triton       cuda     2048x2048  min=   2.410ms  median=   2.930ms  avg=   2.969ms  max=   4.478ms
+Triton       cuda     4096x4096  min=  10.069ms  median=  10.391ms  avg=  10.493ms  max=  11.971ms
+================================================================================
+
+Results saved to results.csv

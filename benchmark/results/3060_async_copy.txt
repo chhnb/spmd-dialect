@@ -1,0 +1,13 @@
+GPU: NVIDIA GeForce RTX 3060 Laptop GPU (SMs=30)
+Test: N=208, 2000 steps, save every 100 steps  (requested 256, reduced for coop launch)
+
+Need 169 blocks, max 180 (occ=6/SM × 30 SMs)
+
+[1] Persistent (no save):      11.70 ms total, 5.85 μs/step
+[2] Persistent + async copy:   13.17 ms total, 6.58 μs/step  (20 saves done)
+[3] Sync loop + sync save:     153.37 ms total, 76.69 μs/step
+[4] Graph (break at save):     18.68 ms total, 9.34 μs/step
+
+Key question: does Test 2 match Test 1?
+  If yes → async copy overlaps with persistent kernel (zero overhead saving)
+  If no  → async copy blocks (need to break out to save)

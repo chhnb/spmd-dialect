@@ -1,0 +1,54 @@
+[Taichi] version 1.7.4, llvm 15.0.4, commit b4b956fd, linux, python 3.12.12
+[taichi_cuda] N=32 (1024 cells)...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda         32x32  min=   1.253ms  median=   3.957ms  avg=   3.060ms  max=   3.970ms
+[taichi_cuda] N=64 (4096 cells)...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda         64x64  min=   1.292ms  median=   1.532ms  avg=   1.527ms  max=   1.757ms
+[taichi_cuda] N=128 (16384 cells)...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda       128x128  min=   1.710ms  median=   1.846ms  avg=   1.833ms  max=   1.944ms
+[taichi_cuda] N=256 (65536 cells)...
+[Taichi] Starting on arch=cuda
+  Taichi       cuda       256x256  min=   5.558ms  median=   5.569ms  avg=   5.590ms  max=   5.644ms
+[warp_cuda] N=32 (1024 cells)...
+Warp 1.12.0 initialized:
+   CUDA Toolkit 12.9, Driver 12.6
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 3060 Laptop GPU" (6 GiB, sm_86, mempool enabled)
+   Kernel cache:
+     /home/chh/.cache/warp/1.12.0
+Module hydro_warp 54ba781 load on device 'cuda:0' took 5.01 ms  (cached)
+  Warp         cuda         32x32  min=   1.278ms  median=   1.495ms  avg=   1.424ms  max=   1.499ms
+[warp_cuda] N=64 (4096 cells)...
+  Warp         cuda         64x64  min=   1.273ms  median=   1.304ms  avg=   1.295ms  max=   1.308ms
+[warp_cuda] N=128 (16384 cells)...
+  Warp         cuda       128x128  min=   1.361ms  median=   1.419ms  avg=   1.404ms  max=   1.433ms
+[warp_cuda] N=256 (65536 cells)...
+  Warp         cuda       256x256  min=   2.768ms  median=   2.857ms  avg=   3.119ms  max=   3.732ms
+[triton_cuda] N=32 (1024 cells)...
+  Triton       cuda         32x32  min=   3.144ms  median=   3.193ms  avg=   3.250ms  max=   3.414ms
+[triton_cuda] N=64 (4096 cells)...
+  Triton       cuda         64x64  min=   3.269ms  median=   3.350ms  avg=   3.329ms  max=   3.368ms
+[triton_cuda] N=128 (16384 cells)...
+  Triton       cuda       128x128  min=   8.876ms  median=   8.964ms  avg=   8.948ms  max=   9.003ms
+[triton_cuda] N=256 (65536 cells)...
+  Triton       cuda       256x256  min=  28.024ms  median=  28.268ms  avg=  28.203ms  max=  28.316ms
+
+================================================================================
+Taichi       cuda         32x32  min=   1.253ms  median=   3.957ms  avg=   3.060ms  max=   3.970ms
+Taichi       cuda         64x64  min=   1.292ms  median=   1.532ms  avg=   1.527ms  max=   1.757ms
+Taichi       cuda       128x128  min=   1.710ms  median=   1.846ms  avg=   1.833ms  max=   1.944ms
+Taichi       cuda       256x256  min=   5.558ms  median=   5.569ms  avg=   5.590ms  max=   5.644ms
+Warp         cuda         32x32  min=   1.278ms  median=   1.495ms  avg=   1.424ms  max=   1.499ms
+Warp         cuda         64x64  min=   1.273ms  median=   1.304ms  avg=   1.295ms  max=   1.308ms
+Warp         cuda       128x128  min=   1.361ms  median=   1.419ms  avg=   1.404ms  max=   1.433ms
+Warp         cuda       256x256  min=   2.768ms  median=   2.857ms  avg=   3.119ms  max=   3.732ms
+Triton       cuda         32x32  min=   3.144ms  median=   3.193ms  avg=   3.250ms  max=   3.414ms
+Triton       cuda         64x64  min=   3.269ms  median=   3.350ms  avg=   3.329ms  max=   3.368ms
+Triton       cuda       128x128  min=   8.876ms  median=   8.964ms  avg=   8.948ms  max=   9.003ms
+Triton       cuda       256x256  min=  28.024ms  median=  28.268ms  avg=  28.203ms  max=  28.316ms
+================================================================================
+
+Results saved to results.csv

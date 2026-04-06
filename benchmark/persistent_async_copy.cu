@@ -78,14 +78,37 @@ __global__ void heat2d_persistent_nosave(int N, float* u, float* v, int STEPS) {
 
 int main() {
     int N = 256;
-    int N2 = N * N;
     int STEPS = 2000;
     int SAVE_INTERVAL = 100;  // save every 100 steps
 
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, 0);
     printf("GPU: %s (SMs=%d)\n", prop.name, prop.multiProcessorCount);
-    printf("Test: N=%d, %d steps, save every %d steps\n\n", N, STEPS, SAVE_INTERVAL);
+
+    dim3 block(16, 16), grid;
+
+    // Fall back to the largest multiple-of-16 N that fits cooperative launch.
+    int numBSm = 0;
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm, heat2d_persistent_save, 256, 0);
+    int maxBlocks = numBSm * prop.multiProcessorCount;
+    int requestedN = N;
+    while (N >= 16) {
+        grid = dim3((N + 15) / 16, (N + 15) / 16);
+        int needBlocks = grid.x * grid.y;
+        if (needBlocks <= maxBlocks) break;
+        N -= 16;
+    }
+    if (N < 16) {
+        printf("No feasible cooperative-launch grid found for this GPU\n");
+        return 1;
+    }
+
+    int N2 = N * N;
+    printf("Test: N=%d, %d steps, save every %d steps", N, STEPS, SAVE_INTERVAL);
+    if (N != requestedN) {
+        printf("  (requested %d, reduced for coop launch)", requestedN);
+    }
+    printf("\n\n");
 
     float *u, *v, *save_buf0, *save_buf1;
     CHECK(cudaMalloc(&u, N2*4)); CHECK(cudaMalloc(&v, N2*4));
@@ -107,12 +130,7 @@ int main() {
     cudaStream_t copy_stream;
     CHECK(cudaStreamCreate(&copy_stream));
 
-    dim3 block(16, 16), grid((N+15)/16, (N+15)/16);
-
-    // Check cooperative launch feasibility
-    int numBSm = 0;
-    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm, heat2d_persistent_save, 256, 0);
-    int maxBlocks = numBSm * prop.multiProcessorCount;
+        // Check cooperative launch feasibility
     int needBlocks = grid.x * grid.y;
     printf("Need %d blocks, max %d (occ=%d/SM × %d SMs)\n", needBlocks, maxBlocks, numBSm, prop.multiProcessorCount);
     if (needBlocks > maxBlocks) { printf("Grid too large for cooperative launch\n"); return 1; }

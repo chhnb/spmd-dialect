@@ -1,0 +1,556 @@
+[Taichi] version 1.7.4, llvm 15.0.4, commit b4b956fd, linux, python 3.12.12
+
+============================================================
+  1. Heat 2D
+============================================================
+[Taichi] Starting on arch=cuda
+  Heat2D                               64^2     79.5 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Heat2D                              128^2    107.6 us  OH~ 14%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Heat2D                              256^2     83.5 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Heat2D                              512^2     89.0 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Heat2D                             1024^2     99.2 us  OH~ 15%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Heat2D                             2048^2    257.7 us  OH~  6%  [COMPUTE]
+
+============================================================
+  2. Heat 3D
+============================================================
+[Taichi] Starting on arch=cuda
+  Heat3D                               16^3     92.6 us  OH~ 16%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Heat3D                               32^3     87.6 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Heat3D                               64^3    156.1 us  OH~ 10%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Heat3D                              128^3    146.9 us  OH~ 10%  [COMPUTE]
+
+============================================================
+  3. Wave 2D
+============================================================
+[Taichi] Starting on arch=cuda
+  Wave2D                              128^2     94.5 us  OH~ 16%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Wave2D                              256^2     63.2 us  OH~ 24%  [TRANS]
+[Taichi] Starting on arch=cuda
+  Wave2D                              512^2     63.2 us  OH~ 24%  [TRANS]
+[Taichi] Starting on arch=cuda
+  Wave2D                             1024^2     83.7 us  OH~ 18%  [COMPUTE]
+
+============================================================
+  4. Jacobi 2D
+============================================================
+[Taichi] Starting on arch=cuda
+  Jacobi2D                             64^2    100.4 us  OH~ 15%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Jacobi2D                            256^2     80.7 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Jacobi2D                            512^2     81.2 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Jacobi2D                           1024^2     79.8 us  OH~ 19%  [COMPUTE]
+
+============================================================
+  5. Gray-Scott RD
+============================================================
+[Taichi] Starting on arch=cuda
+  GrayScott                           128^2     87.7 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  GrayScott                           256^2     81.9 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  GrayScott                           512^2     84.4 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  GrayScott                          1024^2    130.3 us  OH~ 12%  [COMPUTE]
+
+============================================================
+  6. Allen-Cahn
+============================================================
+[Taichi] Starting on arch=cuda
+  AllenCahn                           128^2     87.2 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  AllenCahn                           256^2     85.8 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  AllenCahn                           512^2     87.2 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  AllenCahn                          1024^2     91.6 us  OH~ 16%  [COMPUTE]
+
+============================================================
+  7. Cahn-Hilliard
+============================================================
+[Taichi] Starting on arch=cuda
+  CahnHilliard                        128^2    107.7 us  OH~ 14%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  CahnHilliard                        256^2    111.9 us  OH~ 13%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  CahnHilliard                        512^2     94.7 us  OH~ 16%  [COMPUTE]
+
+============================================================
+  8. Burgers 2D
+============================================================
+[Taichi] Starting on arch=cuda
+  Burgers2D                           128^2     84.5 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Burgers2D                           256^2     77.7 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Burgers2D                           512^2     80.6 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Burgers2D                          1024^2    127.9 us  OH~ 12%  [COMPUTE]
+
+============================================================
+  9. Convection-Diffusion
+============================================================
+[Taichi] Starting on arch=cuda
+  ConvDiff                            128^2     89.2 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  ConvDiff                            256^2     83.7 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  ConvDiff                            512^2     85.6 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  ConvDiff                           1024^2     96.9 us  OH~ 15%  [COMPUTE]
+
+============================================================
+  10. SWE Lax-Friedrichs
+============================================================
+[Taichi] Starting on arch=cuda
+  SWE_LaxFried                        128^2     82.5 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SWE_LaxFried                        256^2     86.6 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SWE_LaxFried                        512^2     84.8 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SWE_LaxFried                       1024^2    176.4 us  OH~  9%  [COMPUTE]
+
+============================================================
+  11. LBM D2Q9
+============================================================
+[Taichi] Starting on arch=cuda
+  LBM_D2Q9                             64^2     94.2 us  OH~ 16%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  LBM_D2Q9                            128^2     90.1 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  LBM_D2Q9                            256^2    152.8 us  OH~ 10%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  LBM_D2Q9                            512^2    262.7 us  OH~  6%  [COMPUTE]
+
+============================================================
+  12. Stable Fluids (Jacobi pressure)
+============================================================
+[Taichi] Starting on arch=cuda
+  StableFluids                         64^2   2123.0 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  StableFluids                        128^2   1875.8 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  StableFluids                        256^2   2054.2 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  StableFluids                        512^2   1922.2 us  OH~  1%  [COMPUTE]
+
+============================================================
+  13. Euler 1D (compressible, Lax-Friedrichs)
+============================================================
+[Taichi] Starting on arch=cuda
+  Euler1D                            N=1024     87.1 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Euler1D                            N=4096     77.1 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Euler1D                           N=16384    115.5 us  OH~ 13%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Euler1D                           N=65536     86.2 us  OH~ 17%  [COMPUTE]
+
+============================================================
+  14. N-body (brute force)
+============================================================
+[Taichi] Starting on arch=cuda
+  NBody                               N=256     75.0 us  OH~ 20%  [TRANS]
+[Taichi] Starting on arch=cuda
+  NBody                              N=1024    275.6 us  OH~  5%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  NBody                              N=4096   1114.5 us  OH~  1%  [COMPUTE]
+
+============================================================
+  15. SPH Density
+============================================================
+[Taichi] Starting on arch=cuda
+  SPH_Density                        N=1024     61.4 us  OH~ 24%  [TRANS]
+[Taichi] Starting on arch=cuda
+  SPH_Density                        N=4096     76.1 us  OH~ 20%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SPH_Density                       N=16384     81.8 us  OH~ 18%  [COMPUTE]
+
+============================================================
+  16. DEM (Discrete Element, spring-dashpot)
+============================================================
+[Taichi] Starting on arch=cuda
+  DEM                                 N=256     73.6 us  OH~ 20%  [TRANS]
+[Taichi] Starting on arch=cuda
+  DEM                                N=1024     71.9 us  OH~ 21%  [TRANS]
+[Taichi] Starting on arch=cuda
+  DEM                                N=4096     68.8 us  OH~ 22%  [TRANS]
+
+============================================================
+  17. MD Lennard-Jones
+============================================================
+[Taichi] Starting on arch=cuda
+  MD_LJ                               N=256     76.7 us  OH~ 20%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  MD_LJ                              N=1024     71.3 us  OH~ 21%  [TRANS]
+[Taichi] Starting on arch=cuda
+  MD_LJ                              N=4096    194.3 us  OH~  8%  [COMPUTE]
+
+============================================================
+  18. PIC 1D
+============================================================
+[Taichi] Starting on arch=cuda
+  PIC_1D                            NP=1024   1104.6 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  PIC_1D                            NP=4096   1231.5 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  PIC_1D                           NP=16384   1165.7 us  OH~  1%  [COMPUTE]
+
+============================================================
+  19. FDTD Maxwell 2D
+============================================================
+[Taichi] Starting on arch=cuda
+  FDTD_Maxwell                        128^2     83.6 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  FDTD_Maxwell                        256^2     94.6 us  OH~ 16%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  FDTD_Maxwell                        512^2     90.0 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  FDTD_Maxwell                       1024^2    147.1 us  OH~ 10%  [COMPUTE]
+
+============================================================
+  20. Helmholtz 2D (Jacobi iterative)
+============================================================
+[Taichi] Starting on arch=cuda
+  Helmholtz2D                         128^2     86.1 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Helmholtz2D                         256^2     88.0 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Helmholtz2D                         512^2     85.5 us  OH~ 18%  [COMPUTE]
+
+============================================================
+  21. Explicit FEM 2D
+============================================================
+[Taichi] Starting on arch=cuda
+  ExplicitFEM                      2048elem     96.0 us  OH~ 16%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  ExplicitFEM                      8192elem    111.8 us  OH~ 13%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  ExplicitFEM                     32768elem    105.7 us  OH~ 14%  [COMPUTE]
+
+============================================================
+  22. Cloth Mass-Spring
+============================================================
+[Taichi] Starting on arch=cuda
+  Cloth                                32^2    157.1 us  OH~ 10%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Cloth                                64^2     85.9 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Cloth                               128^2     99.9 us  OH~ 15%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Cloth                               256^2     84.9 us  OH~ 18%  [COMPUTE]
+
+============================================================
+  23. Mass-Spring 1D
+============================================================
+[Taichi] Starting on arch=cuda
+  MassSpring1D                        N=256     63.0 us  OH~ 24%  [TRANS]
+[Taichi] Starting on arch=cuda
+  MassSpring1D                       N=1024     68.9 us  OH~ 22%  [TRANS]
+[Taichi] Starting on arch=cuda
+  MassSpring1D                       N=4096     75.0 us  OH~ 20%  [TRANS]
+[Taichi] Starting on arch=cuda
+  MassSpring1D                      N=16384     69.0 us  OH~ 22%  [TRANS]
+
+============================================================
+  24. Semi-Lagrangian Advection
+============================================================
+[Taichi] Starting on arch=cuda
+  SemiLagrangian                      128^2     91.5 us  OH~ 16%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SemiLagrangian                      256^2     84.2 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SemiLagrangian                      512^2     79.1 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SemiLagrangian                     1024^2     79.2 us  OH~ 19%  [COMPUTE]
+
+============================================================
+  25. Upwind Advection 1D
+============================================================
+[Taichi] Starting on arch=cuda
+  Upwind1D                           N=1024     89.3 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Upwind1D                           N=4096     87.0 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Upwind1D                          N=16384     84.4 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Upwind1D                          N=65536     85.1 us  OH~ 18%  [COMPUTE]
+
+============================================================
+  26. Poisson 2D (Jacobi)
+============================================================
+[Taichi] Starting on arch=cuda
+  Poisson2D                           128^2     81.3 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Poisson2D                           256^2     81.6 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Poisson2D                           512^2     83.2 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Poisson2D                          1024^2     93.2 us  OH~ 16%  [COMPUTE]
+
+============================================================
+  27. Schrodinger 1D (FTCS)
+============================================================
+[Taichi] Starting on arch=cuda
+  Schrodinger1D                      N=1024     90.0 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Schrodinger1D                      N=4096     84.8 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Schrodinger1D                     N=16384     84.3 us  OH~ 18%  [COMPUTE]
+
+============================================================
+  28. Kuramoto-Sivashinsky 1D
+============================================================
+[Taichi] Starting on arch=cuda
+  KuramotoSivash                      N=256     81.6 us  OH~ 18%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  KuramotoSivash                     N=1024     77.9 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  KuramotoSivash                     N=4096     87.6 us  OH~ 17%  [COMPUTE]
+
+============================================================
+  29. Reduction (sum)
+============================================================
+[Taichi] Starting on arch=cuda
+  Reduction                          N=1024    111.4 us  OH~ 13%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Reduction                         N=16384    120.3 us  OH~ 12%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Reduction                        N=262144    104.2 us  OH~ 14%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Reduction                       N=1048576    111.3 us  OH~ 13%  [COMPUTE]
+
+============================================================
+  30. Monte Carlo Random Walk
+============================================================
+[Taichi] Starting on arch=cuda
+  MonteCarlo_RW                      N=1024     63.6 us  OH~ 24%  [TRANS]
+[Taichi] Starting on arch=cuda
+  MonteCarlo_RW                      N=4096     67.5 us  OH~ 22%  [TRANS]
+[Taichi] Starting on arch=cuda
+  MonteCarlo_RW                     N=16384     68.7 us  OH~ 22%  [TRANS]
+
+============================================================
+  31. Jacobi 3D 7-point (Parboil/PERKS)
+============================================================
+[Taichi] Starting on arch=cuda
+  Jacobi3D_7pt                         32^3     86.8 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Jacobi3D_7pt                         64^3     86.3 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  Jacobi3D_7pt                        128^3    141.1 us  OH~ 11%  [COMPUTE]
+
+============================================================
+  32. HotSpot (Rodinia)
+============================================================
+[Taichi] Starting on arch=cuda
+  HotSpot                             128^2     79.7 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  HotSpot                             256^2     87.6 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  HotSpot                             512^2     89.9 us  OH~ 17%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  HotSpot                            1024^2    107.8 us  OH~ 14%  [COMPUTE]
+
+============================================================
+  33. SRAD (Rodinia)
+============================================================
+[Taichi] Starting on arch=cuda
+  SRAD                                128^2     78.7 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SRAD                                256^2     80.5 us  OH~ 19%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  SRAD                                512^2     76.2 us  OH~ 20%  [COMPUTE]
+
+============================================================
+  34. SpMV (CSR, synthetic banded)
+============================================================
+[Taichi] Starting on arch=cuda
+  SpMV_CSR                           N=1024     64.0 us  OH~ 23%  [TRANS]
+[Taichi] Starting on arch=cuda
+  SpMV_CSR                           N=4096     69.4 us  OH~ 22%  [TRANS]
+[Taichi] Starting on arch=cuda
+  SpMV_CSR                          N=16384     67.3 us  OH~ 22%  [TRANS]
+
+============================================================
+  35. CG Solver (Jacobi-preconditioned)
+============================================================
+[Taichi] Starting on arch=cuda
+  CG_Solver                       64^2=4096   2058.0 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  CG_Solver                      128^2=16384   1937.9 us  OH~  1%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  CG_Solver                      256^2=65536   2193.0 us  OH~  1%  [COMPUTE]
+
+============================================================
+  36. LULESH-like (simplified Lagrangian hydro 2D)
+============================================================
+[Taichi] Starting on arch=cuda
+  LULESH_like                    32^2=1024elem    222.2 us  OH~  7%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  LULESH_like                    64^2=4096elem    201.3 us  OH~  7%  [COMPUTE]
+[Taichi] Starting on arch=cuda
+  LULESH_like                    128^2=16384elem    220.1 us  OH~  7%  [COMPUTE]
+
+================================================================================
+  SUMMARY: 130 configurations across 30 kernel types
+================================================================================
+Kernel                         Domain             Size    us/step      Class
+---------------------------------------------------------------------------
+Heat2D                         Stencil            64^2      79.5    COMPUTE
+Heat2D                         Stencil           128^2     107.6    COMPUTE
+Heat2D                         Stencil           256^2      83.5    COMPUTE
+Heat2D                         Stencil           512^2      89.0    COMPUTE
+Heat2D                         Stencil          1024^2      99.2    COMPUTE
+Heat2D                         Stencil          2048^2     257.7    COMPUTE
+Heat3D                         Stencil            16^3      92.6    COMPUTE
+Heat3D                         Stencil            32^3      87.6    COMPUTE
+Heat3D                         Stencil            64^3     156.1    COMPUTE
+Heat3D                         Stencil           128^3     146.9    COMPUTE
+Wave2D                         Stencil           128^2      94.5    COMPUTE
+Wave2D                         Stencil           256^2      63.2      TRANS
+Wave2D                         Stencil           512^2      63.2      TRANS
+Wave2D                         Stencil          1024^2      83.7    COMPUTE
+Jacobi2D                       Stencil            64^2     100.4    COMPUTE
+Jacobi2D                       Stencil           256^2      80.7    COMPUTE
+Jacobi2D                       Stencil           512^2      81.2    COMPUTE
+Jacobi2D                       Stencil          1024^2      79.8    COMPUTE
+GrayScott                      Stencil           128^2      87.7    COMPUTE
+GrayScott                      Stencil           256^2      81.9    COMPUTE
+GrayScott                      Stencil           512^2      84.4    COMPUTE
+GrayScott                      Stencil          1024^2     130.3    COMPUTE
+AllenCahn                      Stencil           128^2      87.2    COMPUTE
+AllenCahn                      Stencil           256^2      85.8    COMPUTE
+AllenCahn                      Stencil           512^2      87.2    COMPUTE
+AllenCahn                      Stencil          1024^2      91.6    COMPUTE
+CahnHilliard                   Stencil           128^2     107.7    COMPUTE
+CahnHilliard                   Stencil           256^2     111.9    COMPUTE
+CahnHilliard                   Stencil           512^2      94.7    COMPUTE
+Burgers2D                      Stencil           128^2      84.5    COMPUTE
+Burgers2D                      Stencil           256^2      77.7    COMPUTE
+Burgers2D                      Stencil           512^2      80.6    COMPUTE
+Burgers2D                      Stencil          1024^2     127.9    COMPUTE
+ConvDiff                       Stencil           128^2      89.2    COMPUTE
+ConvDiff                       Stencil           256^2      83.7    COMPUTE
+ConvDiff                       Stencil           512^2      85.6    COMPUTE
+ConvDiff                       Stencil          1024^2      96.9    COMPUTE
+SWE_LaxFried                   CFD               128^2      82.5    COMPUTE
+SWE_LaxFried                   CFD               256^2      86.6    COMPUTE
+SWE_LaxFried                   CFD               512^2      84.8    COMPUTE
+SWE_LaxFried                   CFD              1024^2     176.4    COMPUTE
+LBM_D2Q9                       CFD                64^2      94.2    COMPUTE
+LBM_D2Q9                       CFD               128^2      90.1    COMPUTE
+LBM_D2Q9                       CFD               256^2     152.8    COMPUTE
+LBM_D2Q9                       CFD               512^2     262.7    COMPUTE
+StableFluids                   CFD                64^2    2123.0    COMPUTE
+StableFluids                   CFD               128^2    1875.8    COMPUTE
+StableFluids                   CFD               256^2    2054.2    COMPUTE
+StableFluids                   CFD               512^2    1922.2    COMPUTE
+Euler1D                        CFD              N=1024      87.1    COMPUTE
+Euler1D                        CFD              N=4096      77.1    COMPUTE
+Euler1D                        CFD             N=16384     115.5    COMPUTE
+Euler1D                        CFD             N=65536      86.2    COMPUTE
+NBody                          Particle          N=256      75.0      TRANS
+NBody                          Particle         N=1024     275.6    COMPUTE
+NBody                          Particle         N=4096    1114.5    COMPUTE
+SPH_Density                    Particle         N=1024      61.4      TRANS
+SPH_Density                    Particle         N=4096      76.1    COMPUTE
+SPH_Density                    Particle        N=16384      81.8    COMPUTE
+DEM                            Particle          N=256      73.6      TRANS
+DEM                            Particle         N=1024      71.9      TRANS
+DEM                            Particle         N=4096      68.8      TRANS
+MD_LJ                          Particle          N=256      76.7    COMPUTE
+MD_LJ                          Particle         N=1024      71.3      TRANS
+MD_LJ                          Particle         N=4096     194.3    COMPUTE
+PIC_1D                         Particle        NP=1024    1104.6    COMPUTE
+PIC_1D                         Particle        NP=4096    1231.5    COMPUTE
+PIC_1D                         Particle       NP=16384    1165.7    COMPUTE
+FDTD_Maxwell                   EM                128^2      83.6    COMPUTE
+FDTD_Maxwell                   EM                256^2      94.6    COMPUTE
+FDTD_Maxwell                   EM                512^2      90.0    COMPUTE
+FDTD_Maxwell                   EM               1024^2     147.1    COMPUTE
+Helmholtz2D                    EM                128^2      86.1    COMPUTE
+Helmholtz2D                    EM                256^2      88.0    COMPUTE
+Helmholtz2D                    EM                512^2      85.5    COMPUTE
+ExplicitFEM                    FEM            2048elem      96.0    COMPUTE
+ExplicitFEM                    FEM            8192elem     111.8    COMPUTE
+ExplicitFEM                    FEM           32768elem     105.7    COMPUTE
+Cloth                          Structure          32^2     157.1    COMPUTE
+Cloth                          Structure          64^2      85.9    COMPUTE
+Cloth                          Structure         128^2      99.9    COMPUTE
+Cloth                          Structure         256^2      84.9    COMPUTE
+MassSpring1D                   Structure         N=256      63.0      TRANS
+MassSpring1D                   Structure        N=1024      68.9      TRANS
+MassSpring1D                   Structure        N=4096      75.0      TRANS
+MassSpring1D                   Structure       N=16384      69.0      TRANS
+SemiLagrangian                 Transport         128^2      91.5    COMPUTE
+SemiLagrangian                 Transport         256^2      84.2    COMPUTE
+SemiLagrangian                 Transport         512^2      79.1    COMPUTE
+SemiLagrangian                 Transport        1024^2      79.2    COMPUTE
+Upwind1D                       Transport        N=1024      89.3    COMPUTE
+Upwind1D                       Transport        N=4096      87.0    COMPUTE
+Upwind1D                       Transport       N=16384      84.4    COMPUTE
+Upwind1D                       Transport       N=65536      85.1    COMPUTE
+Poisson2D                      PDE               128^2      81.3    COMPUTE
+Poisson2D                      PDE               256^2      81.6    COMPUTE
+Poisson2D                      PDE               512^2      83.2    COMPUTE
+Poisson2D                      PDE              1024^2      93.2    COMPUTE
+Schrodinger1D                  PDE              N=1024      90.0    COMPUTE
+Schrodinger1D                  PDE              N=4096      84.8    COMPUTE
+Schrodinger1D                  PDE             N=16384      84.3    COMPUTE
+KuramotoSivash                 PDE               N=256      81.6    COMPUTE
+KuramotoSivash                 PDE              N=1024      77.9    COMPUTE
+KuramotoSivash                 PDE              N=4096      87.6    COMPUTE
+Reduction                      Other            N=1024     111.4    COMPUTE
+Reduction                      Other           N=16384     120.3    COMPUTE
+Reduction                      Other          N=262144     104.2    COMPUTE
+Reduction                      Other         N=1048576     111.3    COMPUTE
+MonteCarlo_RW                  Other            N=1024      63.6      TRANS
+MonteCarlo_RW                  Other            N=4096      67.5      TRANS
+MonteCarlo_RW                  Other           N=16384      68.7      TRANS
+Jacobi3D_7pt                   Classic            32^3      86.8    COMPUTE
+Jacobi3D_7pt                   Classic            64^3      86.3    COMPUTE
+Jacobi3D_7pt                   Classic           128^3     141.1    COMPUTE
+HotSpot                        Classic           128^2      79.7    COMPUTE
+HotSpot                        Classic           256^2      87.6    COMPUTE
+HotSpot                        Classic           512^2      89.9    COMPUTE
+HotSpot                        Classic          1024^2     107.8    COMPUTE
+SRAD                           Classic           128^2      78.7    COMPUTE
+SRAD                           Classic           256^2      80.5    COMPUTE
+SRAD                           Classic           512^2      76.2    COMPUTE
+SpMV_CSR                       Classic          N=1024      64.0      TRANS
+SpMV_CSR                       Classic          N=4096      69.4      TRANS
+SpMV_CSR                       Classic         N=16384      67.3      TRANS
+CG_Solver                      Classic       64^2=4096    2058.0    COMPUTE
+CG_Solver                      Classic      128^2=16384    1937.9    COMPUTE
+CG_Solver                      Classic      256^2=65536    2193.0    COMPUTE
+LULESH_like                    Classic      32^2=1024elem     222.2    COMPUTE
+LULESH_like                    Classic      64^2=4096elem     201.3    COMPUTE
+LULESH_like                    Classic      128^2=16384elem     220.1    COMPUTE
+
+Classification: OH-dominated=0  Transitional=18  Compute-dominated=112
+Total: 130 configs across 36 kernel types
+
+Kernel types by domain:
+  Stencil:    Heat2D/3D, Wave2D, Jacobi2D, GrayScott, AllenCahn, CahnHilliard, Burgers, ConvDiff (9)
+  CFD:        SWE, LBM, StableFluids, Euler1D (4)
+  Particle:   NBody, SPH, DEM, MD_LJ, PIC (5)
+  EM:         FDTD, Helmholtz (2)
+  FEM/Struc:  ExplicitFEM, Cloth, MassSpring1D (3)
+  Transport:  SemiLagrangian, Upwind1D (2)
+  PDE:        Poisson, Schrodinger, KuramotoSivashinsky (3)
+  Other:      Reduction, MonteCarlo (2)
+  Classic:    Jacobi3D, HotSpot, SRAD, SpMV, CG_Solver, LULESH-like (6)
+  TOTAL:      36 distinct kernel types
