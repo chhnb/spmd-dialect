@@ -37,7 +37,7 @@ Layer 3 — 验证 (跨框架回归):
 
 Python GPU simulation DSLs (Taichi, Warp) 让用户用几十行 Python 就能写出 GPU 加速的 PDE solver。但我们的测量发现，**end-to-end step time 中有 60-95% 来自 frontend overhead 或暴露出的设备侧低效，而非真正的数值计算**：
 
-| 工况 (RTX 3060, fp64) | T_measured | T_compute_best | **GPU 利用率** |
+| 工况 (RTX 3060, fp64) | T_measured | T_compute_best | **Step Efficiency** |
 |---|---|---|---|
 | Heat2D 128² (16K cells, 简单 stencil) | 73.7 μs | 3.5 μs | **5%** |
 | F2 Hydro 6675 cells (简化 Rusanov, 2 kernels) | 84.3 μs | 6.1 μs | **7%** |
@@ -70,10 +70,10 @@ T_sync_default = 137.4 μs 分解:
   ┌─ L1 Temporal:     65.6 μs (48%)  GPU 在等 launch/sync
   │    → 消除方法: Persistent kernel / CUDA Graph
   │
-  ├─ L2 Spatial:      33.3 μs (24%)  28 个 SM 只有 4 个在跑
+  ├─ L2 Coverage:      33.3 μs (24%)  28 个 SM 只有 4 个在跑
   │    → 消除方法: 减小 block size (256→128) → block 数翻倍
   │
-  ├─ L3 Occupancy:    ~15 μs (11%)   每个 SM 的 latency hiding 不足
+  ├─ L3 Scheduler:    ~15 μs (11%)   每个 SM 的 latency hiding 不足
   │    → 消除方法: 调 register limit → 增加 active warps
   │
   ├─ L4 Memory:       ~10 μs (7%)    冗余 global memory 访问
@@ -85,7 +85,7 @@ T_sync_default = 137.4 μs 分解:
 
 **不同 grid size 下瓶颈层级不同**：
 
-| Grid | L1 Temporal | L2 Spatial | L3-L5 Compute | 主要瓶颈 |
+| Grid | L1 Temporal | L2 Coverage | L3-L5 Compute | 主要瓶颈 |
 |---|---|---|---|---|
 | 32² | 48% | 24% | 28% | L1 + L2 |
 | 64² | 66% | ~3% | 31% | **L1 主导** |
@@ -305,17 +305,29 @@ B200 上 Persistent/Graph/Kokkos 三者非常接近 (11-14 μs)，因为 148 SMs
 - Persistent + adaptive B (F1 OSHER 32²): 137.4 → 38.5 μs = **3.57x** (同时优化 L1 + L2)
 - 这比任何单一优化都大 (Persistent alone = 1.91x, adaptive B alone 需要在 Persistent 下才有效)
 
-### 2.7 关键观察：为什么最优配置不直觉
+### 2.7 关键观察：最优配置随 (kernel, N, GPU) 共同变化
 
+最优配置不仅随 grid size 变，还随 kernel 和 GPU 变。以下是 **kernel-specific regime examples**：
+
+**F1 OSHER (3060, fp64, 2 kernels/step)**:
 | Grid | 最优 Strategy | 最优 B | 为什么 |
 |---|---|---|---|
-| 32² | Persistent | 128 | blocks 太少 (4@B=256), 必须减小 B 喂满 SM |
-| 64² | Persistent | 256 | blocks 够了 (16@B=256), 大 B 保护 register |
-| 128² | **Graph** | 256 | 超出 cooperative limit, fallback to Graph |
-| 256²+ | **Graph** | 256 | Persistent 不可用 |
-| 6675 (F2) | Persistent | 256 | cells 够, cooperative limit 内 |
+| 32² | Persistent | 128 | blocks 太少 (4@B=256), 必须减小 B |
+| 64² | Persistent | 256 | blocks 够了, 大 B 保护 register |
+| 128² | **Graph** | 256 | Persistent 超 cooperative limit |
 
-**不同 grid size → 不同最优 strategy → 不同最优 B。** 这不是一个人能手动判断的——需要模型。
+**Jacobi2D (3060, fp32, PK benchmark)**:
+| Grid | 最优 Strategy | Speedup |
+|---|---|---|
+| 128² | **Persistent** | 29.6x (Persistent 在此 kernel 仍合法!) |
+| 256² | **Graph** | 12.8x |
+
+**Jacobi2D (B200, fp32)**:
+| Grid | 最优 Strategy | Speedup |
+|---|---|---|
+| 128² | **Graph** | 4.3x (**和 3060 的最优策略相反!**) |
+
+> **核心 point**: 128² 上谁最优取决于 kernel 的寄存器数 (影响 cooperative limit) 和 GPU 的 SM 数。F1 OSHER (106 regs, fp64) 在 128² 超 coop limit → Graph 胜; Jacobi2D (少 regs, fp32) 在 128² 仍可 Persistent → Persistent 胜 on 3060, Graph 胜 on B200。**这不是一个人能手动判断的——需要 legality-aware model。**
 
 ---
 
@@ -381,32 +393,29 @@ T_device ≈ waves(config) × t_wave(config) + t_tail(config)
 
 > **为什么不用 T_ideal / (η₁×η₂×η₃×η₄)**: 因为各层的 η 不独立 (B 同时影响 coverage 和 occupancy)。Wave model 更物理地分离了"跑几轮" (L2) 和"每轮多快" (L3-L5)。
 
-### 3.2 L1: Temporal Efficiency — "GPU 有没有在跑？"
+### 3.2 L1: Frontend Overhead — "kernel 之间的空闲时间"
 
-GPU 在 kernel launch/sync 之间完全空闲。
+GPU 在 kernel launch/sync 之间完全空闲。用 **per-strategy affine model**:
 
 ```
-              ┌ Sync:       K × (T_launch + T_sync)    ≈ K × 50 μs (3060 实测)
-              │
-T_overhead =  ┤ Async:      K × T_launch               ≈ K × 20 μs
-              │
-              │ Graph:      T_graph_replay              ≈ 1-3 μs/step
-              │
-              └ Persistent: (K-1) × T_grid_sync         ≈ (K-1) × 2 μs
+T_frontend = a_strategy × K + b_strategy
+
+其中 a 捕获 per-kernel launch/sync/replay cost, b 捕获 host-loop/runtime/driver 固定项。
 ```
 
-**实测 overhead 常数 (3060)**:
-| 参数 | 值 | 测量方法 |
-|---|---|---|
-| T_launch | ~10 μs | nsys: kernel launch to execution start |
-| T_sync | ~15 μs | nsys: cudaDeviceSynchronize duration |
-| T_python (Taichi) | ~15 μs | T_taichi - T_cuda_sync per step |
-| T_graph_replay | ~2 μs | cudaEvent: graph launch per step |
-| T_grid_sync | ~2 μs | persistent kernel: measured grid.sync cost |
+**3060 实测标定**:
+| Strategy | a (per-kernel, μs) | b (fixed, μs) | 公式 | K=2 时预测 |
+|---|---|---|---|---|
+| Sync | ~25 (launch+sync) | ~28 (driver+runtime) | 25K+28 | 78 μs |
+| Async | ~10 (launch only) | ~12 | 10K+12 | 32 μs |
+| Graph | ~0 (replay amortized) | ~2 (graph dispatch) | 0K+2 | 2 μs |
+| Persistent | ~0 (single launch) | ~1 (grid.sync amortized) | 0K+1 | 1 μs |
 
 **数据验证**:
-- F2 Sync (K=2): 预测 T_overhead = 2 × (10+15) = 50 μs; 实测 84.3 - 6.1 = 78.2 μs → 还有 ~28 μs 来自 driver scheduling + Python runtime
-- Heat2D Sync: 预测 ~50 μs overhead; 实测 73.7 - 3.5 = 70.2 μs → 类似
+- F2 Sync (K=2): 预测 78 μs; 实测 84.3-6.1 = 78.2 μs ✓
+- Heat2D Sync (K=2): 预测 78 μs; 实测 73.7-3.5 = 70.2 μs (接近)
+
+> 不再拆成 T_launch / T_sync / T_python 微常数（它们之间有耦合），直接用 affine fit 更稳，也更容易做 few-shot transfer。
 
 ### 3.3 L2: Coverage & Wave Efficiency — "SM 覆盖率 + wave 利用率"
 
@@ -521,7 +530,7 @@ Persistent kernel
 CUDA Graph
   → 消除大部分 launch overhead                (好)
   → 无 coop_limit 约束                        (好: 大 grid 也能用)
-  → 不支持 dynamic control flow               (约束)
+  → 支持受约束的 device-side conditional，但不支持 host-driven adaptivity  (约束)
   → 不支持 register caching                    (L4 无法优化)
 ```
 
@@ -529,30 +538,38 @@ CUDA Graph
 
 ---
 
-## 4. 完整调优空间
+## 4. Configuration Space
 
-### 4.1 所有旋钮
+### 4.1 Main Configuration Space (正文核心)
 
-| 类别 | 旋钮 | 取值空间 | 影响层级 | 已有数据? |
-|---|---|---|---|---|
-| **Inter-kernel** | Execution strategy | {Sync, Async, Graph, Persistent} | L1 | ✅ 大量数据 |
-| | Fusion scope | {none, partial, full megakernel} | L1, L4 | ✅ F2 上验证 |
-| **Cross-timestep** | Register caching | {off, own-cell} | L4 | ❌ 待实现 |
-| | Time tiling depth | {1, 2, 4} | L4 | ❌ 待实现 |
-| | Double buffering | {off, on} | L4 | ❌ 待实现 |
-| | Async DMA overlap | {off, periodic} | L1 (save) | ✅ F2 上验证 |
-| **Intra-kernel** | Block size B | {32, 64, 128, 256, 512} | L2, L3 | ✅ F1 上验证 |
-| | Thread coarsening C | {1, 2, 4} | L2, L3 | ❌ 待测 |
-| | Register limit | {default, 32, 48, 64} | L3 | ✅ F1 上验证 |
-| | L1/shared split | {prefer_L1, prefer_shared} | L3 | ❌ 待测 |
-| **Data** | Precision | {fp32, fp64, mixed} | L3, L5 | 部分 (F1=fp64, F2=fp32) |
-| | Layout | {AoS, SoA} | L3 | 框架决定 |
+| 旋钮 | 取值空间 | 影响 |
+|---|---|---|
+| **Execution strategy** | {Sync, Async, Graph, Persistent} | L1 frontend overhead |
+| **Block size B** | {32, 64, 128, 256, 512} | L2 coverage + L3 scheduler |
+| **Register caching** | {off, on} (Persistent-only) | L4 memory traffic |
+
+**主空间大小**: 4 × 5 × 2 = 40 配置 (去掉非法后 ~20-30)
+
+### 4.2 Extended Knobs (future work / appendix)
+
+| 旋钮 | 说明 | 状态 |
+|---|---|---|
+| Fusion scope (none/partial/full) | multi-kernel 合并粒度 | F2 上验证了 full fusion |
+| Time tiling depth | 多步合并后再写回 | PERKS/EBISU 做过 for stencil |
+| Thread coarsening C | 每线程处理多个 cell | 待测 |
+| Register limit (maxrregcount) | 限制寄存器数量 | 已测: 最多 16% 改善 |
+| L1/shared split | cache preference | 待测 |
+| Async DMA overlap | compute 和 save 并行 | 已验证: +12.5% only |
+| Precision (fp32/fp64/mixed) | 改变语义, 不在自动选择范围 | — |
+
+> 正文只评测 Main Space。Extended Knobs 在 Discussion/Future Work 里提及。
 
 ### 4.2 约束
 
 ```
 Persistent    ⟹ blocks(B,C,N) ≤ coop_limit(B, R, S)
-Graph         ⟹ 无 dynamic control flow (无 convergence check, 无 adaptive dt)
+Graph         ⟹ 支持受约束的 device-side conditional (CUDA 12.x IF/WHILE/SWITCH)，
+                 但 graph topology 必须静态预定义；host-driven adaptive dt/convergence 仍受限
 Reg caching   ⟹ Persistent (thread 必须跨 timestep 存活)
 Time tiling   ⟹ Persistent
 B × C ≤ 1024  (hardware thread limit)
@@ -691,13 +708,12 @@ R_fused = max(R_i) for full fusion (寄存器压力取最大)
 
 **目标**: 对代表性 kernel 用 ncu + nsys 做完整五层分解。
 
-**Kernel 选择** (6-8 个, 覆盖不同类型):
-- Heat2D (简单 stencil, 1 kernel/step)
-- Jacobi2D (iterative stencil, 收敛检查)
-- F1 OSHER (复杂 CFD, 2 kernels/step, 分支密集)
-- N-body (particle, O(N²), compute-intensive)
-- LBM D2Q9 (lattice, streaming access pattern)
-- CG Solver (多 kernel: SpMV + dot + axpy, 5 kernels/step)
+**Kernel 选择** (4-5 个, 覆盖不同 regime):
+- Heat2D (简单 stencil, 1 kernel/step — overhead 主导)
+- HotSpot (Rodinia stencil — public overlap with Kernel Batching)
+- F1 OSHER (复杂 CFD, 2 kernels/step, fp64, 分支密集 — flagship)
+- CG Solver (多 kernel: SpMV + dot + axpy, 5 kernels/step — multi-kernel 场景)
+- (可选) N-body (particle, O(N²) — compute 主导 regime)
 
 每个 kernel 跑 3+ grid sizes (small / medium / large)。
 
@@ -745,20 +761,34 @@ R_fused = max(R_i) for full fusion (寄存器压力取最大)
 **目标**: 实现 Python 解析 cost model，验证预测精度。
 
 ```python
-def predict_T_step(kernel_info, hardware, config):
-    """config = (strategy, B, reg_caching)"""
-    T_overhead = overhead_model(config.strategy, kernel_info.K, hardware)
-    eta_S = spatial_model(config.B, kernel_info.N, hardware.S, kernel_info.R)
-    eta_O = occupancy_model(config.B, kernel_info.R, hardware)
-    eta_M = memory_model(config.reg_caching, kernel_info)
-    eta_C = compute_model(kernel_info)  # from ncu profiling
-    T_compute = kernel_info.T_ideal / (eta_S * eta_O * eta_M * eta_C)
-    return T_overhead + T_compute
+def predict_step_time(info, hw, cfg):
+    if not legal(info, hw, cfg):
+        return float("inf")
+
+    # L1: frontend overhead (per-strategy affine model)
+    T_front = cfg.a_strategy * info.K + cfg.b_strategy
+
+    # L2: coverage + wave model
+    n_blocks = math.ceil(info.N / cfg.B)
+    resident = resident_blocks_per_sm(cfg.B, info.regs, info.smem, hw)
+    coverage = min(1.0, n_blocks / hw.sms)
+    waves = math.ceil(n_blocks / max(1, resident * hw.sms))
+
+    # L3-L5: per-wave execution time (scheduler + memory + compute)
+    t_wave = wave_time_model(info, hw, cfg, coverage)
+    T_dev = waves * t_wave + tail_penalty(n_blocks, resident, hw.sms, t_wave)
+
+    # Exposed copy (DMA not overlapped)
+    T_copy = exposed_copy_model(info, hw, cfg)
+
+    return T_front + T_dev + T_copy
 ```
 
-**验证**: 用实验 2 的实测数据对比。
-- 报告: MAPE (mean absolute percentage error) across all configurations
-- Selection accuracy: 模型选的最优 vs oracle 最优的匹配率
+**验证**: 用实验 2 的实测数据对比。报告 4 个指标:
+- **MAPE** (mean absolute percentage error) across all configurations
+- **Top-1 within 5% of oracle**: 模型选的配置是否在 oracle 5% 以内
+- **Normalized regret** (gap-to-oracle): (T_model_best - T_oracle) / T_oracle
+- **Strategy-family accuracy**: 先判断 Graph/Persistent/Async/Sync 是否选对，再看 B
 
 #### 实验 5: 跨 GPU Few-Shot Transfer (C3)
 
@@ -838,10 +868,10 @@ def predict_T_step(kernel_info, hardware, config):
 
 **3. The L0-L5 Model** (3p) — **Layer 2 核心, C1**
 - 3.1 L0 Legality: cooperative limit, Graph constraints, reg_cache 前提
-- 3.2 模型结构: T_step = T_overhead + T_ideal / (η_S × η_O × η_M × η_C)
+- 3.2 模型结构: T_step = T_frontend + T_device(waves × t_wave) + T_exposed_copy
 - 3.3 L1 Temporal: overhead model + 实测常数
-- 3.4 L2 Spatial: SM utilization model + block size 的 1.86x 效应
-- 3.5 L3 Occupancy: register-occupancy tradeoff (Volkov insight)
+- 3.4 L2 Coverage: SM utilization model + block size 的 1.86x 效应
+- 3.5 L3 Scheduler: register-occupancy tradeoff (Volkov insight)
 - 3.6 L4 Memory Traffic: redundancy analysis + register caching (Persistent-only)
 - 3.7 L5 Compute: divergence + precision (作为下界)
 - 3.8 层间耦合: B ↔ coop_limit ↔ strategy; reg_limit ↔ spill ↔ η_M
@@ -884,7 +914,7 @@ def predict_T_step(kernel_info, hardware, config):
 | Cost model MAPE > 30% | C3 弱化 | 加经验修正项; 增加标定 kernel 数量; 退化为 profiling-guided |
 | Register caching 实现复杂 | L4 层缺验证 | 先对 Heat2D (简单 stencil) 做 PoC; 最坏情况 L4 作为理论分析 |
 | Reviewer: "搜索空间 trivial" | C2/C4 弱化 | 展示最优点非直觉 (32²→B=128, 64²→B=256); 展示 default→optimal 的 gap |
-| Reviewer: "just use CUDA Graph" | — | Graph 不支持 dynamic flow + 不支持 register caching; 我们的模型预测什么时候 Graph 最优 |
+| Reviewer: "just use CUDA Graph" | — | Graph 的 device-side conditional 仍受限于静态 topology; 不支持 register caching; 我们的 regime map 精确预测什么时候 Graph 最优 |
 | Reviewer: "incremental over PERKS" | — | PERKS: 单 kernel + 无模型 + 无 strategy selection; 我们: 五层模型 + multi-kernel + auto-select + DMA overlap |
 | Reviewer: "TVM already does this" | — | TVM 不覆盖 inter-kernel / cross-timestep; 搜索空间与 TVM 正交 |
 | 只有 2 个 GPU | 泛化性不足 | SM 数差 5x (28 vs 148)，已有差异显著; 尝试借用 A100/H100 |
@@ -894,12 +924,12 @@ def predict_T_step(kernel_info, hardware, config):
 ## 9. Expected Impact
 
 **对社区**:
-- 五层分解成为 GPU simulation 性能分析的标准方法 (类比 Top-Down for CPU)
+- 五层分解提供一个可复用的 GPU simulation 性能分析框架 (类比 Top-Down for CPU)
 - Benchmark suite 开源 → simulation overhead 研究的共用基准
 - Cost model 可被 Taichi/Warp/Kokkos 直接集成
 
 **对论文**:
-- C1 (五层模型): 概念贡献 — 首次统一 kernel 间和 kernel 内建模
+- C1 (五层模型): 概念贡献 — 统一了此前分散的 kernel 间和 kernel 内性能观察
 - C5 (characterization): 数据贡献 — 60+ kernel, 5 框架, 2 GPUs
 - C3+C4 (cost model + auto-config): 实用贡献 — 可验证
 - C2 (调优空间): 定义贡献 — bridging TVM/Halide 和 simulation
