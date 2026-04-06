@@ -76,17 +76,22 @@ Overhead 分解:
 
 ### 3.4 跨框架对比：Hydro-cal F1 (完整 OSHER, 3060)
 
-| 框架 | 32² | 64² | 128² | 256² |
-|---|---|---|---|---|
-| **Taichi** (fp64) | 3.06 ms | 1.53 ms | 1.85 ms | 5.57 ms |
-| **Warp** (fp64) | 1.42 ms | 1.30 ms | 1.40 ms | 2.86 ms |
-| **Triton** | 3.19 ms | 3.35 ms | 8.96 ms | 28.2 ms |
-| CUDA (Sync) | TBD | TBD | TBD | TBD |
-| CUDA (Graph) | TBD | TBD | TBD | TBD |
-| CUDA (Persistent) | TBD | TBD | TBD | TBD |
+统一口径：**μs/step**。Taichi/Warp 来自 [run_all_frameworks.py](/home/chh/spmd-dialect/benchmark/F1_hydro_shallow_water/run_all_frameworks.py)，CUDA 4 策略来自 [3060_hydro_f1_osher.txt](/home/chh/spmd-dialect/benchmark/results/3060_hydro_f1_osher.txt)。
 
-注：以上为 200 步总时间 (median)。per-step = 总时间 / 200。
-CUDA OSHER 版本已完成，待在 3060 上编译运行。
+| 框架 | 32² | 64² | 128² |
+|---|---|---|---|
+| **Taichi (CUDA, fp64)** | 5736.5 | 5907.4 | 6435.1 |
+| **Warp (CUDA, fp64)** | 38.6 | 126.2 | 491.2 |
+| CUDA (Sync) | 171.8 | 190.8 | 234.5 |
+| CUDA (Async) | 160.9 | 131.5 | 150.8 |
+| **CUDA (Graph)** | **73.1** | **50.2** | **147.2** |
+| **CUDA (Persistent)** | **72.6** | 50.9 | 153.0 |
+
+结论：
+- **Warp 已经接近优化后的 CUDA 路径**，尤其在 `32²/64²` 上明显快于 sync baseline。
+- **Graph/Persistent 在小网格上仍然必要**：`64²` 时 `190.8 -> 50.2 μs`，约 `3.8x`。
+- `128²` 时 `Graph/Persistent` 仍领先 sync，但优势已经收敛到 `~1.5-1.6x`。
+- **Taichi 在完整 OSHER F1 上明显存在固定成本问题**，这正是后续策略优化需要回答的对象。
 
 ### 3.5 跨框架对比：其他 kernel (3060)
 
@@ -170,9 +175,30 @@ CUDA OSHER 版本已完成，待在 3060 上编译运行。
 
 ---
 
-## 7. 待完成
+## 7. 汇报重点（3 张 slides）
 
-- [ ] 在 3060 上跑 F1 CUDA OSHER (hydro_cuda_osher.cu) → 与 Taichi/Warp 直接对比
+### Slide 1: 数据
+- Hydro-cal F2: `84.3 μs/step` 中有 `91%` 是 launch + sync overhead，不在计算
+- Heat2D 曲线：overhead 从 `94% (128²)` 降到 `20% (2048²)`
+- 结论：**overhead 是否主导，强烈依赖 kernel size / phase**
+
+### Slide 2: 方案
+- CUDA Graph: hydro 上 `11.1x`
+- Persistent kernel: hydro 上 `13.9x`
+- Persistent + async DMA: 只比 no-save 多 `12.5%`
+- 结论：**Graph / Persistent / DMA overlap 都有效，但适用区间不同**
+
+### Slide 3: 问题
+- **方向 A**: 做 cost model / strategy selection
+- **方向 B**: 做大规模 characterization / analysis
+- **方向 C**: 聚焦 persistent + DMA overlap 这个技术点
+- 希望老师帮助判断：先走哪条路线最合适
+
+---
+
+## 8. 待完成
+
+- [x] 在 3060 上跑 F1 CUDA OSHER (hydro_cuda_osher.cu) → 与 Taichi/Warp 直接对比
 - [ ] 补 MacCormack 3D (AsyncTaichi benchmark)
 - [ ] 补 MPM 的跨框架对比
 - [ ] 如有机会在 A100/H100 上跑 → 代际对比数据
