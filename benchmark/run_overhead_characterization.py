@@ -21,6 +21,7 @@ Usage: python run_overhead_characterization.py
 import time
 import sys
 import os
+import numpy as np
 
 # Suppress Taichi verbose output
 os.environ.setdefault('TI_LOG_LEVEL', 'warn')
@@ -222,31 +223,34 @@ for N in [64, 128, 256, 512]:
     ti.init(arch=ti.cuda, default_fp=ti.f32)
     f_old=ti.field(ti.f32,(N,N,9));f_new=ti.field(ti.f32,(N,N,9))
     rho=ti.field(ti.f32,(N,N));ux=ti.field(ti.f32,(N,N));uy=ti.field(ti.f32,(N,N))
-    ex=ti.field(ti.i32,9);ey=ti.field(ti.i32,9);w=ti.field(ti.f32,9)
+    ex_v=[0,1,0,-1,0,1,-1,-1,1]; ey_v=[0,0,1,0,-1,1,1,-1,-1]
+    w_v=[4.0/9,1.0/9,1.0/9,1.0/9,1.0/9,1.0/36,1.0/36,1.0/36,1.0/36]
+    ex=ti.field(ti.i32,9);ey=ti.field(ti.i32,9);wt=ti.field(ti.f32,9)
+    ex.from_numpy(np.array(ex_v,dtype=np.int32))
+    ey.from_numpy(np.array(ey_v,dtype=np.int32))
+    wt.from_numpy(np.array(w_v,dtype=np.float32))
     @ti.kernel
     def lbm_init():
-        ex_v=[0,1,0,-1,0,1,-1,-1,1]; ey_v=[0,0,1,0,-1,1,1,-1,-1]
-        w_v=[4.0/9,1.0/9,1.0/9,1.0/9,1.0/9,1.0/36,1.0/36,1.0/36,1.0/36]
-        for k in range(9): ex[k]=ex_v[k];ey[k]=ey_v[k];w[k]=w_v[k]
         for i,j in rho:
             rho[i,j]=1.0; ux[i,j]=0.0; uy[i,j]=0.0
-            for k in range(9): f_old[i,j,k]=w[k]
+            for k in ti.static(range(9)): f_old[i,j,k]=wt[k]
     @ti.kernel
     def lbm_step():
         omega=1.0
         for i,j in ti.ndrange(N,N):
             r=0.0;u=0.0;v=0.0
-            for k in range(9): r+=f_old[i,j,k];u+=f_old[i,j,k]*ex[k];v+=f_old[i,j,k]*ey[k]
+            for k in ti.static(range(9)):
+                r+=f_old[i,j,k];u+=f_old[i,j,k]*float(ex[k]);v+=f_old[i,j,k]*float(ey[k])
             if r>0: u/=r;v/=r
             rho[i,j]=r;ux[i,j]=u;uy[i,j]=v
-            for k in range(9):
+            for k in ti.static(range(9)):
                 eu=float(ex[k])*u+float(ey[k])*v; usq=u*u+v*v
-                feq=w[k]*r*(1+3*eu+4.5*eu*eu-1.5*usq)
+                feq=wt[k]*r*(1.0+3.0*eu+4.5*eu*eu-1.5*usq)
                 f_coll=f_old[i,j,k]+omega*(feq-f_old[i,j,k])
-                ni=(i+ex[k]+N)%N; nj=(j+ey[k]+N)%N
+                ni=(i+ex_v[k]+N)%N; nj=(j+ey_v[k]+N)%N
                 f_new[ni,nj,k]=f_coll
         for i,j in ti.ndrange(N,N):
-            for k in range(9): f_old[i,j,k]=f_new[i,j,k]
+            for k in ti.static(range(9)): f_old[i,j,k]=f_new[i,j,k]
     lbm_init()
     run_and_record("LBM_D2Q9","CFD",f"{N}^2",N*N,lbm_step,200 if N<=256 else 50)
     ti.reset()
