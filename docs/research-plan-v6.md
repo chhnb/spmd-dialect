@@ -68,9 +68,17 @@ T_sync_default = 137.4 μs 分解:
 
 ### 1.3 核心研究问题
 
-> **GPU simulation time-stepping loop 的性能受多层级因素影响，这些因素各有独立的优化旋钮但相互耦合。如何建立统一模型来理解、预测和自动优化？**
+> **给定一个 iterative GPU simulation loop，在 legality 约束下，如何自动选择 execution strategy (Sync/Async/Graph/Persistent)、launch geometry (block size)、以及是否启用跨步数据复用，使 end-to-end step time 最小？**
 
-这不是 "用 Persistent 还是 Graph" 的问题。这是 **"在一个多维耦合调优空间里，理解每个因素的影响并找到最优配置"** 的问题。
+这不是 "又一个 fusion system" 的问题。这是 **"在一个有合法性约束的多维耦合空间里，理解 regime boundary 并自动选择最优配置"** 的问题。
+
+**核心发现——最优配置随 (kernel, grid_size, GPU) 翻转**:
+- 3060 (28 SMs), 128²: **Persistent 最优** (Jacobi2D 29.6x vs Graph 26.9x)
+- B200 (148 SMs), 128²: **Graph 最优** (Jacobi2D 4.3x vs Persistent 3.0x)
+- 3060, 256²+: Persistent **非法** (超 cooperative limit) → Graph 是唯一选择
+- 所有 GPU, 1024²+: 策略差异收敛到 <2x → compute 主导
+
+**不存在 universal best strategy。Legality-aware cost model 是必要的。**
 
 ---
 
@@ -286,11 +294,40 @@ B200 上 Persistent/Graph/Kokkos 三者非常接近 (11-14 μs)，因为 148 SMs
 
 ---
 
-## 3. 五层 GPU 利用率模型
+## 3. Legality-Aware GPU Utilization Model (L0-L5)
 
-基于以上实验数据，我们提出以下分析框架。
+基于以上实验数据，我们提出以下分析框架。与 v4/v5 的关键区别：**在性能建模之前先做合法性过滤 (L0)**。
 
-### 3.1 模型结构
+### 3.0 L0: Legality — "这个配置能不能跑？"
+
+很多 (strategy, B, N) 组合不是 "慢"，而是 **根本不合法**：
+
+```
+Persistent:      blocks(B, N) ≤ coop_limit(B, R, S)   // cooperative launch 硬约束
+Graph:           支持受约束的条件分支 (CUDA 12.x conditional nodes)
+                 但对 host-side adaptive dt / convergence check 仍受限
+Register cache:  仅在 Persistent 下可用 (thread 必须跨 timestep 存活)
+Time tiling:     仅在 Persistent 下可用
+Block size:      B × C ≤ 1024 (hardware thread limit)
+Fusion:          R_fused = max(R_i) → 可能导致 coop_limit 更严格
+```
+
+**实测 legality boundary (3060)**:
+| Kernel | 128² | 256² | 512² | 1024² |
+|---|---|---|---|---|
+| Heat2D Persistent | ✅ | ❌ (超限) | ❌ | ❌ |
+| Jacobi2D Persistent | ✅ | ❌ | ❌ | ❌ |
+| HotSpot Persistent | ✅ | ❌ | ❌ | ❌ |
+| SRAD Persistent | ✅ | ❌ | ❌ | ❌ |
+| Graph (all) | ✅ | ✅ | ✅ | ✅ |
+
+L0 的作用是把搜索空间从 ~200K 砍到 **~2000-5000 可行配置**。
+
+> **注**: CUDA Graph 在 CUDA 12.x 中已支持 conditional IF/WHILE/SWITCH nodes (预实例化的条件分支)。但这些 conditional body graphs 仍有 node type、memory、dynamic parallelism 等限制。对于需要 host-side decision 的自适应 simulation (如 convergence check, adaptive dt)，Persistent kernel 仍然更灵活。论文中应表述为"Graph 支持受约束的动态控制流"而非"Graph 不支持动态控制流"。
+
+### 3.1 模型结构 (L1-L5)
+
+通过 L0 legality filter 后，对每个可行配置预测性能：
 
 ```
 T_step = T_overhead + T_compute
@@ -555,7 +592,7 @@ R_fused = max(R_i) for full fusion (寄存器压力取最大)
 
 | Contribution | 具体内容 | vs 前人 |
 |---|---|---|
-| **C1: 五层利用率模型** | Temporal + Spatial + Occupancy + Memory + Compute 分解 | 首次统一建模 kernel 间和 kernel 内的性能损失 |
+| **C1: L0-L5 利用率模型** | Legality + Temporal + Spatial + Occupancy + Memory + Compute 六层分解 | 首次统一建模合法性约束 + kernel 间 + kernel 内的性能损失 |
 | **C2: 调优空间定义** | Inter-kernel + cross-timestep + intra-kernel 三类旋钮 | TVM 只覆盖 intra-kernel；PERKS 不覆盖 strategy selection |
 | **C3: 解析 cost model** | 预测每层 η 和 T_step(config) | 不需要 ML，可解释，可跨 GPU 迁移 |
 | **C4: 自动配置选择** | 枚举可行配置，model 预测，选最优 | 首次对 simulation loop 做 auto-tuning |
@@ -703,9 +740,9 @@ def predict_T_step(kernel_info, hardware, config):
 
 ### Title Candidates
 
-1. "The GPU Utilization Wall: A Five-Level Performance Model for Simulation Time-Stepping"
-2. "Beyond Single-Kernel Tuning: Auto-Configuring GPU Simulation Loops"
-3. "Where Do the Cycles Go? Decomposing GPU Utilization Loss in Simulation DSLs"
+1. "Where Do the Cycles Go? A Legality-Aware Performance Model for GPU Simulation Time-Stepping"
+2. "LoopTune: Automatic Configuration Selection for Iterative GPU Simulation Loops"
+3. "Beyond Single-Kernel Tuning: Legality-Aware Strategy Selection for GPU Simulation"
 
 ### Structure
 
