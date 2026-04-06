@@ -1,0 +1,31 @@
+==========================================================================
+  PK Benchmark: PERKS / Kernel Batching kernels × 4 strategies
+  GPU: NVIDIA GeForce RTX 3060 Laptop GPU (SMs=30)
+==========================================================================
+
+Kernel                      Sync(us)  Async(us)  Graph(us)   Pers(us)  | Speedup over Sync
+                                                                       |    Async    Graph  Persist
+---------------------------------------------------------------------------------------------------------------
+Heat2D 128                     97.29      40.67       4.20       3.97  |     2.4x    23.1x    24.5x
+Heat2D 256                     94.59      41.19       6.96        N/A  |     2.3x    13.6x      N/A
+Heat2D 512                    101.56      91.95      18.73        N/A  |     1.1x     5.4x      N/A
+Heat2D 1024                   185.84      88.07      83.95        N/A  |     2.1x     2.2x      N/A
+
+Jacobi2D 128                   81.17      31.59       3.01       2.74  |     2.6x    26.9x    29.6x
+Jacobi2D 256                   73.69      34.38       5.77        N/A  |     2.1x    12.8x      N/A
+Jacobi2D 512                  104.94      43.79      16.88        N/A  |     2.4x     6.2x      N/A
+Jacobi2D 1024                 139.83      79.85      75.72        N/A  |     1.8x     1.8x      N/A
+
+HotSpot 128                    73.97      31.55       3.44       3.05  |     2.3x    21.5x    24.2x
+HotSpot 256                    73.21      30.49       6.83        N/A  |     2.4x    10.7x      N/A
+HotSpot 512                   101.46      36.21      21.84        N/A  |     2.8x     4.6x      N/A
+HotSpot 1024                  171.19      96.99      94.37        N/A  |     1.8x     1.8x      N/A
+
+SRAD 128                       83.26      32.57       3.97       3.76  |     2.6x    21.0x    22.2x
+SRAD 256                       99.85      31.64       7.63        N/A  |     3.2x    13.1x      N/A
+SRAD 512                       86.84      62.35      21.05        N/A  |     1.4x     4.1x      N/A
+SRAD 1024                     157.53      96.46      93.93        N/A  |     1.6x     1.7x      N/A
+
+PERKS (ICS 2023) reported on V100: Heat2D/Jacobi2D ~2.12x, SRAD ~2x (persistent only)
+Kernel Batching (2025) reported on A100: HotSpot ~1.4x (Graph only)
+Our model selects Persistent for small grids, Graph for large grids.
