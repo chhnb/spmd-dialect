@@ -76,22 +76,24 @@ Overhead 分解:
 
 ### 3.4 跨框架对比：Hydro-cal F1 (完整 OSHER, 3060)
 
-统一口径：**μs/step**。Taichi/Warp 来自 [3060_hydro_f1_frameworks_rerun.txt](/home/chh/spmd-dialect/benchmark/results/3060_hydro_f1_frameworks_rerun.txt)，CUDA 4 策略来自 [3060_hydro_f1_osher_rerun.txt](/home/chh/spmd-dialect/benchmark/results/3060_hydro_f1_osher_rerun.txt)。
+统一口径：**μs/step**。跨框架结果来自 [3060_hydro_f1_frameworks_rerun2.txt](/home/chh/spmd-dialect/benchmark/results/3060_hydro_f1_frameworks_rerun2.txt)，CUDA 4 策略来自 [3060_hydro_f1_osher_rerun2.txt](/home/chh/spmd-dialect/benchmark/results/3060_hydro_f1_osher_rerun2.txt)。Kokkos 数字由框架脚本输出的总时间除以 `500 steps` 得到。
 
 | 框架 | 32² | 64² | 128² |
 |---|---|---|---|
-| **Taichi (CUDA, fp64)** | 5847.6 | 5800.0 | 6140.2 |
-| **Warp (CUDA, fp64)** | 51.5 | 123.0 | 460.2 |
-| CUDA (Sync) | 145.5 | 116.0 | 248.7 |
-| CUDA (Async) | 76.1 | 55.3 | 154.4 |
-| **CUDA (Graph)** | **75.7** | **52.3** | **147.2** |
-| **CUDA (Persistent)** | **51.6** | **51.0** | 153.4 |
+| **Taichi (CUDA, fp64)** | 189.7 | 138.1 | 160.9 |
+| **Warp (CUDA, fp64)** | 131.4 | 128.1 | 129.3 |
+| **Kokkos (CUDA, fp64)** | 52.5 | 57.0 | 154.7 |
+| CUDA (Sync) | 191.1 | 183.2 | 256.4 |
+| CUDA (Async) | 76.1 | 58.2 | 150.6 |
+| **CUDA (Graph)** | 76.7 | 60.0 | 151.2 |
+| **CUDA (Persistent)** | **71.8** | **51.1** | **149.3** |
 
 结论：
-- **Warp 已经接近优化后的 CUDA 路径**，尤其在 `32²/64²` 上明显快于 sync baseline。
-- **Graph/Persistent 在小网格上仍然必要**：`64²` 时 `116.0 -> 52.3 μs`，约 `2.2x`。
-- `128²` 时 `Graph/Persistent` 仍领先 sync，但优势已经收敛到 `~1.6-1.7x`。
-- **Taichi 在完整 OSHER F1 上明显存在固定成本问题**，这正是后续策略优化需要回答的对象。
+- **Warp** 已经接近优化后的 CUDA 路径，但在 `32²/64²/128²` 三档都仍慢于 `Persistent`。
+- **Kokkos** 在小网格上最接近优化后 CUDA，`32²/64²` 已经贴近 `Persistent/Graph`。
+- **Taichi** 现在回到了和 `CUDA Sync` 同一量级，不再是之前那种异常大数；但它仍明显慢于 `Async/Graph/Persistent`。
+- `64²` 是收益最明显的点：`Sync 183.2 -> Persistent 51.1 μs`，约 `3.6x`。
+- 到 `128²` 时，`Async/Graph/Persistent` 已经比较接近，说明随着工作量上升，策略之间的差距会收敛。
 
 ### 3.5 跨框架对比：其他 kernel (3060)
 
