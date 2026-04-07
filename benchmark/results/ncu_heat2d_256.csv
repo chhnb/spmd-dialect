@@ -1,0 +1,13 @@
+==PROF== Connected to process 37682 (/home/chh/spmd-dialect/pk_matrix_prof)
+# GPU: NVIDIA GeForce RTX 3060 Laptop GPU (SMs=30)
+# Full configuration matrix: kernel × N × B × strategy
+kernel,N,cells,B,strategy,us_per_step,speedup_vs_sync
+heat2d,256,65536,256,graph,122.89,1.74
+==PROF== Disconnected from process 37682
+"ID","Process ID","Process Name","Host Name","Kernel Name","Context","Stream","Block Size","Grid Size","Device","CC","Section Name","Metric Name","Metric Unit","Metric Value"
+"0","37682","pk_matrix_prof","127.0.0.1","k_heat2d(int, int, const float *, float *)","1","7","(256, 1, 1)","(256, 1, 1)","0","8.6","Command line profiler metrics","dram__bytes_read.sum","byte","265600"
+"0","37682","pk_matrix_prof","127.0.0.1","k_heat2d(int, int, const float *, float *)","1","7","(256, 1, 1)","(256, 1, 1)","0","8.6","Command line profiler metrics","dram__bytes_write.sum","byte","11264"
+"0","37682","pk_matrix_prof","127.0.0.1","k_heat2d(int, int, const float *, float *)","1","7","(256, 1, 1)","(256, 1, 1)","0","8.6","Command line profiler metrics","launch__registers_per_thread","register/thread","18"
+"0","37682","pk_matrix_prof","127.0.0.1","k_heat2d(int, int, const float *, float *)","1","7","(256, 1, 1)","(256, 1, 1)","0","8.6","Command line profiler metrics","sm__throughput.avg.pct_of_peak_sustained_elapsed","%","21.32"
+"0","37682","pk_matrix_prof","127.0.0.1","k_heat2d(int, int, const float *, float *)","1","7","(256, 1, 1)","(256, 1, 1)","0","8.6","Command line profiler metrics","sm__warps_active.avg.pct_of_peak_sustained_active","%","73.44"
+"0","37682","pk_matrix_prof","127.0.0.1","k_heat2d(int, int, const float *, float *)","1","7","(256, 1, 1)","(256, 1, 1)","0","8.6","Command line profiler metrics","smsp__sass_thread_inst_executed_op_fp32_pred_on.sum","inst","388116"
