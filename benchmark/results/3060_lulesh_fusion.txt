@@ -1,0 +1,37 @@
+GPU: NVIDIA GeForce RTX 3060 Laptop GPU (SMs=30)
+LULESH-like: N=32 (1024 elements, 1089 nodes), 500 steps
+Per step: reset_forces + calc_forces + update_nodes + EOS = 4 kernels
+
+[1] Sync (4 kernels/step):        97.2 us/step
+[2] Async (4 kernels, no sync):   65.0 us/step
+[3] CUDA Graph (4 kern batch):     7.5 us/step
+
+  Persistent: need 5 blocks, max 60 (2/SM × 30 SMs)
+[4] Persistent fused (1 kern):     6.2 us/step
+
+Speedups vs Sync: Async=1.5x Graph=15.6x Persistent=15.6x
+
+GPU: NVIDIA GeForce RTX 3060 Laptop GPU (SMs=30)
+LULESH-like: N=64 (4096 elements, 4225 nodes), 500 steps
+Per step: reset_forces + calc_forces + update_nodes + EOS = 4 kernels
+
+[1] Sync (4 kernels/step):       173.8 us/step
+[2] Async (4 kernels, no sync):   76.8 us/step
+[3] CUDA Graph (4 kern batch):     7.7 us/step
+
+  Persistent: need 17 blocks, max 60 (2/SM × 30 SMs)
+[4] Persistent fused (1 kern):     6.4 us/step
+
+Speedups vs Sync: Async=2.3x Graph=27.0x Persistent=27.0x
+
+GPU: NVIDIA GeForce RTX 3060 Laptop GPU (SMs=30)
+LULESH-like: N=128 (16384 elements, 16641 nodes), 500 steps
+Per step: reset_forces + calc_forces + update_nodes + EOS = 4 kernels
+
+[1] Sync (4 kernels/step):        96.0 us/step
+[2] Async (4 kernels, no sync):   69.6 us/step
+[3] CUDA Graph (4 kern batch):     9.5 us/step
+
+  Persistent: need 66 blocks, max 60 (2/SM × 30 SMs)
+[4] Persistent: SKIP (grid too large)
+
