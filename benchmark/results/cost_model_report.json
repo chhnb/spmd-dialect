@@ -1,0 +1,50 @@
+{
+  "train_rows": 255,
+  "valid_rows": 333,
+  "coefficients": {
+    "frontend": {
+      "3060:async": 28.539757263446667,
+      "3060:graph": -0.37944157978535514,
+      "3060:persistent": -1.4431059599592118,
+      "3060:sync": 76.37455535005476,
+      "b200:async": 7.865366586961398,
+      "b200:graph": 3.3098111326404047,
+      "b200:persistent": 6.291478756880855,
+      "b200:sync": 12.896477586270038
+    },
+    "device": {
+      "3060:heat2d:waves": 4.0206329570504105,
+      "3060:heat2d:waves_over_cov": 4.020640933629061,
+      "3060:heat2d:work": -8.135321349071473,
+      "3060:hotspot:waves": 6.759941035247937,
+      "3060:hotspot:waves_over_cov": 6.759951327344215,
+      "3060:hotspot:work": -13.468313189999531,
+      "3060:jacobi2d:waves": 0.2196644440140281,
+      "3060:jacobi2d:waves_over_cov": 0.21965524225667926,
+      "3060:jacobi2d:work": -0.3935846855365759,
+      "3060:srad:waves": 1.226727267175715,
+      "3060:srad:waves_over_cov": 1.2267277588642722,
+      "3060:srad:work": -2.3474911693588543,
+      "b200:heat2d:waves": -2.908614549550893,
+      "b200:heat2d:waves_over_cov": 0.19115429295512903,
+      "b200:heat2d:work": 2.833973153477325,
+      "b200:hotspot:waves": -0.4898497243451408,
+      "b200:hotspot:waves_over_cov": -0.489849118804251,
+      "b200:hotspot:work": 1.081964593898429,
+      "b200:jacobi2d:waves": -2.144814453428848,
+      "b200:jacobi2d:waves_over_cov": 0.0304737763810655,
+      "b200:jacobi2d:work": 2.2259044878077505,
+      "b200:srad:waves": 0.05891273480726586,
+      "b200:srad:waves_over_cov": -0.04212886798371498,
+      "b200:srad:work": 0.07663414758192656
+    }
+  },
+  "metrics": {
+    "mape": 53.915940253901574,
+    "top1_within_5": 50.0,
+    "strategy_family_accuracy": 100.0,
+    "normalized_regret": 17.961951135032038,
+    "n_validation_rows": 333.0,
+    "n_validation_groups": 18.0
+  }
+}
