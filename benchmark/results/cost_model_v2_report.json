@@ -8,10 +8,10 @@
       "regime": "OH-dominated",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 86.88,
-        "async": 34.28,
-        "graph": 10.13,
-        "persistent": 12.583
+        "sync": 81.0,
+        "async": 28.4,
+        "graph": 4.249999999999999,
+        "persistent": 6.702999999999999
       }
     },
     {
@@ -22,9 +22,9 @@
       "regime": "OH-dominated",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 104.52,
-        "async": 51.92,
-        "graph": 27.77,
+        "sync": 89.39999999999999,
+        "async": 36.8,
+        "graph": 12.65,
         "persistent": Infinity
       }
     },
@@ -33,12 +33,12 @@
       "kernel": "heat2d",
       "n_cells": 262144,
       "label": "Heat2D 512\u00b2",
-      "regime": "Transitional",
+      "regime": "OH-dominated",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 180.95999999999998,
-        "async": 128.35999999999999,
-        "graph": 104.21,
+        "sync": 125.8,
+        "async": 73.2,
+        "graph": 49.05,
         "persistent": Infinity
       }
     },
@@ -47,40 +47,54 @@
       "kernel": "heat2d",
       "n_cells": 1048576,
       "label": "Heat2D 1024\u00b2",
-      "regime": "Compute-dominated",
+      "regime": "Transitional",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 480.84,
-        "async": 428.23999999999995,
-        "graph": 404.09,
+        "sync": 268.59999999999997,
+        "async": 215.99999999999997,
+        "graph": 191.85,
         "persistent": Infinity
       }
     },
     {
       "gpu": "3060",
       "kernel": "osher",
-      "n_cells": 6675,
-      "label": "OSHER hydro-cal (6675)",
+      "n_cells": 1024,
+      "label": "OSHER 32\u00b2 (1024)",
       "regime": "OH-dominated",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 161.2,
-        "async": 56.0,
-        "graph": 7.699999999999999,
-        "persistent": 12.603
+        "sync": 117.5,
+        "async": 64.9,
+        "graph": 40.75,
+        "persistent": 43.203
       }
     },
     {
       "gpu": "3060",
       "kernel": "osher",
-      "n_cells": 24020,
-      "label": "OSHER hydro-cal (24020)",
+      "n_cells": 4096,
+      "label": "OSHER 64\u00b2 (4096)",
       "regime": "OH-dominated",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 177.16,
-        "async": 71.96,
-        "graph": 23.659999999999997,
+        "sync": 117.5,
+        "async": 64.9,
+        "graph": 40.75,
+        "persistent": 43.203
+      }
+    },
+    {
+      "gpu": "3060",
+      "kernel": "osher",
+      "n_cells": 16384,
+      "label": "OSHER 128\u00b2 (16384)",
+      "regime": "Transitional",
+      "best_strategy": "graph",
+      "predictions": {
+        "sync": 198.9,
+        "async": 146.3,
+        "graph": 122.15,
         "persistent": Infinity
       }
     },
@@ -106,10 +120,10 @@
       "regime": "OH-dominated",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 14.66,
-        "async": 7.66,
-        "graph": 4.779999999999999,
-        "persistent": 6.762
+        "sync": 15.5,
+        "async": 8.5,
+        "graph": 5.619999999999999,
+        "persistent": 7.601999999999999
       }
     },
     {
@@ -120,10 +134,10 @@
       "regime": "Transitional",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 24.459999999999997,
-        "async": 17.459999999999997,
-        "graph": 14.579999999999997,
-        "persistent": 16.561999999999994
+        "sync": 29.5,
+        "async": 22.499999999999996,
+        "graph": 19.619999999999997,
+        "persistent": 21.601999999999997
       }
     },
     {
@@ -134,45 +148,59 @@
       "regime": "Compute-dominated",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 65.61999999999999,
-        "async": 58.61999999999999,
-        "graph": 55.739999999999995,
+        "sync": 88.3,
+        "async": 81.3,
+        "graph": 78.41999999999999,
         "persistent": Infinity
       }
     },
     {
       "gpu": "b200",
       "kernel": "osher",
-      "n_cells": 6675,
-      "label": "OSHER hydro-cal (6675)",
-      "regime": "OH-dominated",
+      "n_cells": 1024,
+      "label": "OSHER 32\u00b2 (1024)",
+      "regime": "Transitional",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 29.3,
-        "async": 15.3,
-        "graph": 9.54,
-        "persistent": 13.502
+        "sync": 22.200000000000003,
+        "async": 15.200000000000001,
+        "graph": 12.32,
+        "persistent": 14.302000000000001
       }
     },
     {
       "gpu": "b200",
       "kernel": "osher",
-      "n_cells": 24020,
-      "label": "OSHER hydro-cal (24020)",
-      "regime": "OH-dominated",
+      "n_cells": 4096,
+      "label": "OSHER 64\u00b2 (4096)",
+      "regime": "Transitional",
       "best_strategy": "graph",
       "predictions": {
-        "sync": 29.3,
-        "async": 15.3,
-        "graph": 9.54,
-        "persistent": 13.502
+        "sync": 22.200000000000003,
+        "async": 15.200000000000001,
+        "graph": 12.32,
+        "persistent": 14.302000000000001
+      }
+    },
+    {
+      "gpu": "b200",
+      "kernel": "osher",
+      "n_cells": 16384,
+      "label": "OSHER 128\u00b2 (16384)",
+      "regime": "Transitional",
+      "best_strategy": "graph",
+      "predictions": {
+        "sync": 22.200000000000003,
+        "async": 15.200000000000001,
+        "graph": 12.32,
+        "persistent": 14.302000000000001
       }
     }
   ],
   "validation": {
-    "mape": 117.43788714657518,
-    "strategy_accuracy": 80.0,
-    "n_comparisons": 36,
-    "n_strategy_checks": 10
+    "mape": 59.39696740676381,
+    "strategy_accuracy": 64.28571428571429,
+    "n_comparisons": 51,
+    "n_strategy_checks": 14
   }
 }

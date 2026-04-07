@@ -61,29 +61,44 @@ class KernelProfile:
 
 # Known profiles from NCU + measurements
 KERNEL_PROFILES: Dict[str, Dict[str, KernelProfile]] = {
+    # NCU-verified profiles. compute_us = per-WAVE compute time (at smallest grid where waves=1)
+    # 3060: 30 SMs. heat2d 128²=64 blocks → ceil(64/30)=3 waves. Graph=4.2 → per-wave=4.2/3≈1.4
+    # 3060: osher 32²=4 blocks → 1 wave. Graph baseline≈40.7 → per-wave=40.7
     "heat2d": {
-        "3060": KernelProfile(regs_per_thread=24, sm_throughput_pct=7.81, achieved_occ_pct=33.07,
-                              dram_read_bytes=69120, dram_write_bytes=1408, fp_instructions=95764,
-                              compute_us=4.2, kernels_per_step=1),
-        "b200":  KernelProfile(regs_per_thread=24, sm_throughput_pct=5.0, achieved_occ_pct=40.0,
-                               compute_us=2.8, kernels_per_step=1),
+        "3060": KernelProfile(regs_per_thread=18, sm_throughput_pct=7.74, achieved_occ_pct=33.10,
+                              dram_read_bytes=69120, dram_write_bytes=0, fp_instructions=95764,
+                              compute_us=1.4, kernels_per_step=1),  # per-wave
+        "b200":  KernelProfile(regs_per_thread=18, compute_us=2.8, kernels_per_step=1),  # 128²=1wave on B200
     },
     "osher": {
-        "3060": KernelProfile(regs_per_thread=96, sm_throughput_pct=60.54, achieved_occ_pct=31.36,
-                              dram_read_bytes=4174592, dram_write_bytes=1369472, fp_instructions=10026496,
-                              compute_us=7.6, kernels_per_step=2),  # flux + update
-        "b200":  KernelProfile(regs_per_thread=96, sm_throughput_pct=55.0, achieved_occ_pct=30.0,
-                               compute_us=9.5, kernels_per_step=2),
+        "3060": KernelProfile(regs_per_thread=106, sm_throughput_pct=60.59, achieved_occ_pct=31.34,
+                              dram_read_bytes=4171392, dram_write_bytes=1060352, fp_instructions=10026496,
+                              compute_us=40.7, kernels_per_step=1),  # 32²=1wave
+        "b200":  KernelProfile(regs_per_thread=106, sm_throughput_pct=55.0, achieved_occ_pct=30.0,
+                               compute_us=12.3, kernels_per_step=1),  # 128²=1wave on B200
     },
-    # Stencils: similar to heat2d but varying compute intensity
-    "jacobi2d":  {"3060": KernelProfile(regs_per_thread=20, compute_us=3.5, kernels_per_step=1),
-                  "b200":  KernelProfile(regs_per_thread=20, compute_us=2.5, kernels_per_step=1)},
-    "hotspot":   {"3060": KernelProfile(regs_per_thread=28, compute_us=5.0, kernels_per_step=1),
-                  "b200":  KernelProfile(regs_per_thread=28, compute_us=3.0, kernels_per_step=1)},
-    "srad":      {"3060": KernelProfile(regs_per_thread=32, compute_us=6.0, kernels_per_step=1),
-                  "b200":  KernelProfile(regs_per_thread=32, compute_us=3.5, kernels_per_step=1)},
-    "grayscott": {"3060": KernelProfile(regs_per_thread=28, compute_us=4.0, kernels_per_step=1),
-                  "b200":  KernelProfile(regs_per_thread=28, compute_us=2.8, kernels_per_step=1)},
+    "jacobi2d": {
+        "3060": KernelProfile(regs_per_thread=16, sm_throughput_pct=7.73, achieved_occ_pct=33.29,
+                              dram_read_bytes=69120, dram_write_bytes=128, fp_instructions=79888,
+                              compute_us=3.5, kernels_per_step=1),
+        "b200":  KernelProfile(regs_per_thread=16, compute_us=2.5, kernels_per_step=1),
+    },
+    "hotspot": {
+        "3060": KernelProfile(regs_per_thread=20, sm_throughput_pct=7.86, achieved_occ_pct=33.16,
+                              dram_read_bytes=133504, dram_write_bytes=256, fp_instructions=111640,
+                              compute_us=5.0, kernels_per_step=1),
+        "b200":  KernelProfile(regs_per_thread=20, compute_us=3.0, kernels_per_step=1),
+    },
+    "srad": {
+        "3060": KernelProfile(regs_per_thread=26, sm_throughput_pct=14.46, achieved_occ_pct=32.01,
+                              dram_read_bytes=73216, dram_write_bytes=128, fp_instructions=984199,
+                              compute_us=6.0, kernels_per_step=1),
+        "b200":  KernelProfile(regs_per_thread=26, compute_us=3.5, kernels_per_step=1),
+    },
+    "grayscott": {
+        "3060": KernelProfile(regs_per_thread=28, compute_us=4.0, kernels_per_step=1),
+        "b200":  KernelProfile(regs_per_thread=28, compute_us=2.8, kernels_per_step=1),
+    },
 }
 
 # =========================================================================
@@ -125,14 +140,13 @@ def predict_strategy_times(
     n_blocks = math.ceil(n_cells / block_size)
     K = prof.kernels_per_step  # kernels per timestep
 
-    # Compute time scales with grid size.
-    # For small grids (n_blocks ≤ SMs): all blocks fit in one wave, compute ≈ base
-    # For large grids: compute scales linearly with waves
+    # Compute time model:
+    # T_compute = T_base × max(1, ceil(n_blocks / SMs))
+    # T_base is the per-wave compute time (profiled at small grid where 1 wave suffices)
+    # This captures: small grid = 1 wave = T_base; large grid = multiple waves
     waves = max(1, math.ceil(n_blocks / hw.sms))
-    # Base compute is profiled at a reference grid size; scale proportionally
-    # But not purely linear — GPU has some overlap between waves
     if prof.compute_us > 0:
-        t_compute = prof.compute_us * (1.0 + 0.7 * (waves - 1))  # sub-linear scaling
+        t_compute = prof.compute_us * waves
     else:
         t_compute = n_cells * 0.001
 
@@ -229,14 +243,16 @@ def main():
         ("3060", "heat2d", 256*256, "Heat2D 256²"),
         ("3060", "heat2d", 512*512, "Heat2D 512²"),
         ("3060", "heat2d", 1024*1024, "Heat2D 1024²"),
-        ("3060", "osher", 6675, "OSHER hydro-cal (6675)"),
-        ("3060", "osher", 24020, "OSHER hydro-cal (24020)"),
+        ("3060", "osher", 1024, "OSHER 32² (1024)"),
+        ("3060", "osher", 4096, "OSHER 64² (4096)"),
+        ("3060", "osher", 16384, "OSHER 128² (16384)"),
         ("b200", "heat2d", 128*128, "Heat2D 128²"),
         ("b200", "heat2d", 256*256, "Heat2D 256²"),
         ("b200", "heat2d", 512*512, "Heat2D 512²"),
         ("b200", "heat2d", 1024*1024, "Heat2D 1024²"),
-        ("b200", "osher", 6675, "OSHER hydro-cal (6675)"),
-        ("b200", "osher", 24020, "OSHER hydro-cal (24020)"),
+        ("b200", "osher", 1024, "OSHER 32² (1024)"),
+        ("b200", "osher", 4096, "OSHER 64² (4096)"),
+        ("b200", "osher", 16384, "OSHER 128² (16384)"),
     ]
 
     # Measured ground truth (from our experiments)
@@ -245,12 +261,16 @@ def main():
         ("3060", "heat2d", 256*256): {"sync": 72.5, "async": 30.9, "graph": 6.7},
         ("3060", "heat2d", 512*512): {"sync": 80.6, "async": 33.1, "graph": 18.9},
         ("3060", "heat2d", 1024*1024): {"sync": 150.7, "async": 87.2, "graph": 83.2},
-        ("3060", "osher", 6675): {"sync": 84.3, "async": 31.8, "graph": 7.6, "persistent": 6.1},
+        ("3060", "osher", 1024): {"sync": 109.4, "async": 49.5, "graph": 40.7, "persistent": 38.4},
+        ("3060", "osher", 4096): {"sync": 157.9, "async": 68.8, "graph": 100.7, "persistent": 69.2},
+        ("3060", "osher", 16384): {"sync": 257.5, "async": 155.1, "graph": 147.5, "persistent": 148.9},
         ("b200", "heat2d", 128*128): {"sync": 12.5, "async": 7.2, "graph": 2.8, "persistent": 3.8},
         ("b200", "heat2d", 256*256): {"sync": 13.0, "async": 8.2, "graph": 3.3, "persistent": 4.7},
         ("b200", "heat2d", 512*512): {"sync": 15.5, "async": 10.2, "graph": 5.6, "persistent": 9.5},
         ("b200", "heat2d", 1024*1024): {"sync": 25.8, "async": 19.5, "graph": 16.2},
-        ("b200", "osher", 24020): {"sync": 22.3, "async": 11.4, "graph": 8.2, "persistent": 9.6},
+        ("b200", "osher", 1024): {"sync": 19.4, "async": 14.3, "graph": 12.3, "persistent": 11.1},
+        ("b200", "osher", 4096): {"sync": 19.7, "async": 14.3, "graph": 12.3, "persistent": 11.4},
+        ("b200", "osher", 16384): {"sync": 20.1, "async": 14.3, "graph": 12.3, "persistent": 12.3},
     }
 
     print(f"\n{'GPU':<6} {'Kernel':<25} {'Regime':<15} {'Best':>10} | {'Sync':>8} {'Async':>8} {'Graph':>8} {'Persist':>8}")
