@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GPU Simulation DSL Launch Overhead 研究</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e0e0e0; }
+
+.slide {
+  min-height: 100vh;
+  padding: 60px 80px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-bottom: 1px solid #222;
+  position: relative;
+}
+.slide:nth-child(odd) { background: #0a0a0a; }
+.slide:nth-child(even) { background: #0f1117; }
+
+h1 { font-size: 2.8em; color: #60a5fa; margin-bottom: 30px; font-weight: 700; }
+h2 { font-size: 2em; color: #60a5fa; margin-bottom: 24px; font-weight: 600; }
+h3 { font-size: 1.4em; color: #93c5fd; margin: 20px 0 12px; }
+p { font-size: 1.15em; line-height: 1.7; margin-bottom: 14px; color: #c0c0c0; }
+.highlight { color: #fbbf24; font-weight: 600; }
+.red { color: #f87171; font-weight: 600; }
+.green { color: #4ade80; font-weight: 600; }
+.blue { color: #60a5fa; }
+.big-number { font-size: 3.5em; font-weight: 800; color: #fbbf24; }
+.subtitle { font-size: 1.3em; color: #888; margin-top: -20px; margin-bottom: 30px; }
+
+table { border-collapse: collapse; margin: 20px 0; width: 100%; max-width: 900px; }
+th { background: #1e293b; color: #93c5fd; padding: 12px 16px; text-align: left; font-size: 0.95em; }
+td { padding: 10px 16px; border-bottom: 1px solid #1e293b; font-size: 0.95em; }
+tr:hover { background: #1a1a2e; }
+.best { color: #4ade80; font-weight: 700; }
+.bad { color: #f87171; }
+.na { color: #666; }
+
+pre {
+  background: #111827; border: 1px solid #1e293b; border-radius: 8px;
+  padding: 20px; margin: 16px 0; font-size: 0.95em; line-height: 1.6;
+  overflow-x: auto; color: #d1d5db; font-family: 'Fira Code', 'Consolas', monospace;
+}
+code { font-family: 'Fira Code', 'Consolas', monospace; background: #1e293b; padding: 2px 6px; border-radius: 4px; }
+
+.cols { display: flex; gap: 40px; align-items: flex-start; }
+.col { flex: 1; }
+
+.bar-chart { margin: 20px 0; }
+.bar-row { display: flex; align-items: center; margin: 8px 0; }
+.bar-label { width: 140px; font-size: 0.9em; text-align: right; padding-right: 12px; }
+.bar-container { flex: 1; height: 28px; background: #1e293b; border-radius: 4px; position: relative; }
+.bar { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 8px; font-size: 0.8em; font-weight: 600; transition: width 0.5s; }
+.bar-sync { background: #ef4444; }
+.bar-async { background: #f59e0b; }
+.bar-graph { background: #22c55e; }
+.bar-persist { background: #3b82f6; }
+
+.arrow-box {
+  background: #1e293b; border: 2px solid #3b82f6; border-radius: 12px;
+  padding: 20px 24px; margin: 16px 0; position: relative;
+}
+.arrow-box::before {
+  content: '→'; position: absolute; left: -30px; top: 50%;
+  transform: translateY(-50%); font-size: 1.5em; color: #3b82f6;
+}
+
+.page-num {
+  position: absolute; bottom: 20px; right: 40px; color: #444; font-size: 0.9em;
+}
+
+.pipeline {
+  display: flex; align-items: center; gap: 0; margin: 20px 0; flex-wrap: wrap;
+}
+.pipe-stage {
+  padding: 12px 16px; border-radius: 6px; font-size: 0.85em; font-weight: 600;
+  position: relative; white-space: nowrap;
+}
+.pipe-arrow { font-size: 1.2em; color: #555; margin: 0 4px; }
+.pipe-python { background: #1e3a5f; color: #60a5fa; border: 1px solid #3b82f6; }
+.pipe-runtime { background: #3b1f1f; color: #f87171; border: 1px solid #ef4444; }
+.pipe-driver { background: #3b2f1f; color: #fbbf24; border: 1px solid #f59e0b; }
+.pipe-compute { background: #1f3b1f; color: #4ade80; border: 1px solid #22c55e; }
+.pipe-label { font-size: 0.75em; color: #888; display: block; margin-top: 4px; }
+
+.tag {
+  display: inline-block; padding: 3px 10px; border-radius: 12px;
+  font-size: 0.8em; font-weight: 600; margin: 2px;
+}
+.tag-red { background: #3b1f1f; color: #f87171; border: 1px solid #f87171; }
+.tag-green { background: #1f3b1f; color: #4ade80; border: 1px solid #4ade80; }
+.tag-yellow { background: #3b2f1f; color: #fbbf24; border: 1px solid #f59e0b; }
+.tag-blue { background: #1e3a5f; color: #60a5fa; border: 1px solid #3b82f6; }
+
+.key-finding {
+  background: linear-gradient(135deg, #1e293b, #0f172a);
+  border-left: 4px solid #fbbf24;
+  padding: 16px 24px; margin: 16px 0; border-radius: 0 8px 8px 0;
+  font-size: 1.1em;
+}
+</style>
+</head>
+<body>
+
+<!-- ============================================================ -->
+<!-- SLIDE 1: Title -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h1>GPU Simulation DSL 的 Launch Overhead 问题</h1>
+  <p class="subtitle">Characterization, Multi-Kernel Fusion, and Automatic Strategy Selection</p>
+  <p style="margin-top:40px; font-size:1.1em;">
+    测试平台：<span class="highlight">RTX 3060 Laptop GPU</span> (30 SMs, Ampere)
+  </p>
+  <p>Benchmark：36 种 simulation kernel，130 个配置</p>
+  <p>框架：Taichi / Warp / CUDA / Kokkos</p>
+  <div class="page-num">1 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 2: Starting Point -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>1. 起点：跨框架性能对比发现异常</h2>
+  <p>用 hydro-cal (浅水方程, OSHER Riemann solver) 做跨框架 benchmark：</p>
+  <table>
+    <tr><th>框架</th><th>64² (4096 cells)</th><th>128² (16384 cells)</th><th>256² (65536 cells)</th></tr>
+    <tr><td>Taichi</td><td>1.53 ms</td><td>1.85 ms</td><td>5.57 ms</td></tr>
+    <tr><td>Warp</td><td>1.30 ms</td><td>1.42 ms</td><td>2.86 ms</td></tr>
+    <tr><td>Triton</td><td>3.35 ms</td><td>8.96 ms</td><td>28.2 ms</td></tr>
+  </table>
+
+  <div class="key-finding">
+    <strong>异常</strong>：Taichi 从 64² → 128²，网格大了 <span class="highlight">4 倍</span>，但时间只增长了 <span class="highlight">21%</span> (1.53 → 1.85 ms)。<br>
+    如果 GPU 在做有用计算，时间应该和网格大小成正比。<br>
+    → <span class="red">大部分时间不是在"算"，而是在做别的事情。</span>
+  </div>
+  <div class="page-num">2 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 3: How We Discovered -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>2. 怎么发现的：用 CUDA 实验分离 compute 和 overhead</h2>
+  <p>写了和 Taichi 完全对齐的 CUDA 实现（完整 OSHER solver, 1092 行），用 4 种执行策略对比：</p>
+
+  <div class="cols">
+    <div class="col">
+      <h3>4 种策略</h3>
+      <p><span class="tag tag-red">Sync</span> 每步 launch + sync（Taichi 默认）</p>
+      <p><span class="tag tag-yellow">Async</span> 去掉逐步 sync</p>
+      <p><span class="tag tag-green">Graph</span> 录制 launch 序列，GPU 回放</p>
+      <p><span class="tag tag-blue">Persistent</span> 单次 launch，kernel 内循环</p>
+    </div>
+    <div class="col">
+      <h3>关键原理</h3>
+      <p><span class="tag tag-green">CUDA Graph</span> ≈ <strong>纯 GPU 计算时间</strong>（没有 launch/sync 开销）</p>
+      <p>所以：<code>overhead = Sync − Graph</code></p>
+    </div>
+  </div>
+
+  <h3>OSHER 完整 solver 实测 (3060, fp64, 106 registers)：</h3>
+  <table>
+    <tr><th>N</th><th>Cells</th><th class="bad">Sync</th><th>Async</th><th class="best">Graph</th><th class="best">Persistent</th><th>OH 占比</th></tr>
+    <tr><td>32</td><td>1024</td><td class="bad">109.4 μs</td><td>49.5 μs</td><td>40.7 μs</td><td class="best">38.4 μs (2.85x)</td><td class="red">63%</td></tr>
+    <tr><td>64</td><td>4096</td><td class="bad">157.9 μs</td><td>68.8 μs</td><td>—</td><td class="best">69.2 μs (2.28x)</td><td class="red">56%</td></tr>
+    <tr><td>128</td><td>16384</td><td class="bad">257.5 μs</td><td>155.1 μs</td><td class="best">147.5 μs (1.75x)</td><td>148.9 μs</td><td class="highlight">43%</td></tr>
+  </table>
+
+  <div class="key-finding">
+    即使用完整 OSHER Riemann solver (106 registers, fp64)，<span class="red">overhead 仍占 43-63%</span>。<br>
+    这不是只有 trivial stencil 才有的问题。
+  </div>
+  <div class="page-num">3 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 4: What is overhead -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>3. Overhead 是什么：6 层路径分解</h2>
+  <p>每个 timestep，Taichi/Warp 走完这条完整路径：</p>
+
+  <div class="pipeline">
+    <span class="pipe-stage pipe-python">Python loop<span class="pipe-label">~3 μs</span></span>
+    <span class="pipe-arrow">→</span>
+    <span class="pipe-stage pipe-runtime">DSL runtime<span class="pipe-label">~5 μs</span></span>
+    <span class="pipe-arrow">→</span>
+    <span class="pipe-stage pipe-driver">CUDA driver<span class="pipe-label">~15 μs</span></span>
+    <span class="pipe-arrow">→</span>
+    <span class="pipe-stage pipe-compute">GPU compute<span class="pipe-label">可变</span></span>
+    <span class="pipe-arrow">→</span>
+    <span class="pipe-stage pipe-runtime">cudaSync<span class="pipe-label">~45 μs !</span></span>
+    <span class="pipe-arrow">→</span>
+    <span class="pipe-stage pipe-python">返回 Python<span class="pipe-label"></span></span>
+  </div>
+
+  <h3>3060 实测分解 (hydro-cal)：</h3>
+  <div class="bar-chart">
+    <div class="bar-row">
+      <div class="bar-label">cudaSync</div>
+      <div class="bar-container"><div class="bar bar-sync" style="width:68%">52.6 μs (62%)</div></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">cudaLaunch</div>
+      <div class="bar-container"><div class="bar bar-async" style="width:31%">24.2 μs (29%)</div></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">GPU compute</div>
+      <div class="bar-container"><div class="bar bar-graph" style="width:9%">7.6 μs (9%)</div></div>
+    </div>
+  </div>
+  <p style="text-align:center;"><span class="big-number">91%</span> <span style="font-size:1.3em;">的时间是 overhead，GPU 只算了 9%</span></p>
+
+  <div class="key-finding">
+    最大开销是 <code>cudaDeviceSynchronize()</code>：<span class="red">52.6 μs</span>。<br>
+    Taichi/Warp 在每个 kernel 后都调这个——因为 Python 需要拿到结果才能继续下一行。
+  </div>
+  <div class="page-num">4 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 5: Light kernel demo -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>4. Case 1：轻量 Kernel (Heat2D Stencil)</h2>
+  <p>最简单的 5-point stencil，<code>18 registers/thread</code>，单 kernel/step：</p>
+
+  <h3>瓶颈在哪</h3>
+  <pre>for step in range(1000):
+    heat2d_kernel(u, v)       # GPU compute: ~4 μs
+    cudaDeviceSynchronize()   # sync: ~45 μs    ← 这里浪费了 91% 时间！
+    # 下一步...</pre>
+
+  <h3>消除方法</h3>
+  <table>
+    <tr><th>策略</th><th>μs/step</th><th>加速</th><th>原理</th></tr>
+    <tr><td class="bad">Sync (Taichi 默认)</td><td>73.7</td><td>1.0x</td><td>每步 launch + sync</td></tr>
+    <tr><td>Async</td><td>32.7</td><td>2.3x</td><td>去掉逐步 sync</td></tr>
+    <tr><td class="best">CUDA Graph</td><td>4.2</td><td>17.6x</td><td>录制 1000 步，GPU 自动回放</td></tr>
+    <tr><td class="best">Persistent</td><td>3.5</td><td>20.8x</td><td>1 次 launch，kernel 内部循环</td></tr>
+  </table>
+
+  <div class="bar-chart">
+    <div class="bar-row"><div class="bar-label">Sync</div><div class="bar-container"><div class="bar bar-sync" style="width:100%">73.7 μs</div></div></div>
+    <div class="bar-row"><div class="bar-label">Async</div><div class="bar-container"><div class="bar bar-async" style="width:44%">32.7 μs</div></div></div>
+    <div class="bar-row"><div class="bar-label">Graph</div><div class="bar-container"><div class="bar bar-graph" style="width:5.7%">4.2 μs</div></div></div>
+    <div class="bar-row"><div class="bar-label">Persistent</div><div class="bar-container"><div class="bar bar-persist" style="width:4.7%">3.5 μs</div></div></div>
+  </div>
+
+  <div class="key-finding">
+    对轻量 kernel，<span class="green">Graph 和 Persistent 都给 17-20x</span>。<br>
+    但随着 grid 变大 (256² 超过 cooperative limit)，Persistent 不可用 → 自动 fallback 到 Graph。
+  </div>
+  <div class="page-num">5 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 6: CG Case -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>5. Case 2：CG Solver — Graph 做不了的 Case</h2>
+  <p>Conjugate Gradient：每步 <span class="highlight">5 个 kernel</span> + <span class="red">2 次 host readback</span></p>
+
+  <h3>CG 每步执行流程</h3>
+  <pre>for step in range(1000):
+    cg_matvec(A, p, Ap)              # kernel 1: Ap = A*p
+    cg_dots(r, p, Ap, rr, pAp)      # kernel 2: rr = dot(r,r), pAp = dot(p,Ap)
+    <span style="color:#f87171">alpha = rr.read() / pAp.read()   # ← HOST READBACK! GPU→CPU 读标量</span>
+    cg_update(x, r, p, Ap, alpha)   # kernel 3: x += alpha*p
+    cg_dot_rnew(r, rnew)            # kernel 4: rnew = dot(r,r)
+    <span style="color:#f87171">beta = rnew.read() / rr.read()   # ← HOST READBACK! 又要回 CPU</span>
+    cg_direction(r, p, beta)        # kernel 5: p = r + beta*p</pre>
+
+  <h3>为什么 CUDA Graph 做不了</h3>
+  <p>Graph 录制的是<strong>固定的 kernel 序列</strong>。但 <code>alpha</code> 和 <code>beta</code> 每步不同，需要 CPU 计算后传给下一个 kernel。<span class="red">Graph 不能在回放中途回 CPU</span>。</p>
+
+  <h3>Persistent Fusion 怎么解决</h3>
+  <pre>persistent_kernel() {  // 只 launch 1 次！
+  for step in range(1000):
+    Ap = matvec(A, p)                    // phase 1
+    grid_sync()
+    rr = device_reduce(r*r)              // phase 2: GPU 上做 reduction
+    pAp = device_reduce(p*Ap)
+    grid_sync()
+    <span style="color:#4ade80">alpha = rr / pAp                     // ← GPU 上算！不回 CPU！</span>
+    grid_sync()
+    x += alpha*p; r -= alpha*Ap          // phase 3
+    grid_sync()
+    rnew = device_reduce(r*r)            // phase 4
+    <span style="color:#4ade80">beta = rnew / rr                      // ← GPU 上算！</span>
+    grid_sync()
+    p = r + beta*p                       // phase 5
+    grid_sync()
+}</pre>
+
+  <h3>3060 实测结果</h3>
+  <table>
+    <tr><th>N</th><th class="bad">Sync (5 kern + readback)</th><th class="na">Graph</th><th class="best">Persistent</th><th>加速</th></tr>
+    <tr><td>64²</td><td class="bad">502.2 μs</td><td class="na">❌ 不可用</td><td class="best">12.3 μs</td><td class="green">40.8x</td></tr>
+    <tr><td>128²</td><td class="bad">486.0 μs</td><td class="na">❌ 不可用</td><td class="best">14.1 μs</td><td class="green">34.5x</td></tr>
+    <tr><td>256²</td><td class="bad">482.3 μs</td><td class="na">❌ 不可用</td><td class="best">18.8 μs</td><td class="green">25.7x</td></tr>
+  </table>
+
+  <div class="key-finding">
+    CG 是 <span class="red">CUDA Graph 做不了</span> 的 case，也是 <span class="red">PERKS 做不了</span> 的 case (PERKS 只处理单 kernel)。<br>
+    只有 multi-kernel persistent fusion + device-side scalar computation 能解决。<br>
+    <span class="big-number" style="font-size:2em;">40.8x</span>
+  </div>
+  <div class="page-num">6 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 7: LULESH Case -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>6. Case 3：LULESH — Strategy Selection 的价值</h2>
+  <p>Lagrangian hydro，每步 <span class="highlight">4 个 kernel</span>，<strong>无 host readback</strong>（和 CG 不同）：</p>
+
+  <pre>for step in range(1000):
+    reset_forces()       # kernel 1
+    calc_forces(p → f)   # kernel 2: 压力梯度 → 力
+    update_nodes(f → v,x) # kernel 3: 力 → 加速度 → 速度 → 位置
+    eos(x → p)           # kernel 4: 新体积 → 密度 → 压力 (状态方程)
+    # 没有 host readback → Graph 和 Persistent 都可以！</pre>
+
+  <h3>3060 实测</h3>
+  <table>
+    <tr><th>N</th><th class="bad">Sync</th><th>Async</th><th class="best">Graph</th><th class="best">Persistent</th><th>Best</th></tr>
+    <tr><td>32²</td><td class="bad">97.2 μs</td><td>65.0 μs</td><td>7.5 μs</td><td class="best">6.2 μs (15.6x)</td><td class="tag tag-blue">Persistent</td></tr>
+    <tr><td>64²</td><td class="bad">173.8 μs</td><td>76.8 μs</td><td>7.7 μs</td><td class="best">6.4 μs (27.0x)</td><td class="tag tag-blue">Persistent</td></tr>
+    <tr><td>128²</td><td class="bad">96.0 μs</td><td>69.6 μs</td><td class="best">9.5 μs (10.1x)</td><td class="na">N/A (超限)</td><td class="tag tag-green">Graph</td></tr>
+  </table>
+
+  <div class="key-finding">
+    <strong>128² 时 persistent 超出 cooperative limit</strong> (66 blocks > 60 max)。<br>
+    自动 fallback 到 Graph，仍然获得 <span class="green">10.1x</span> 加速。<br><br>
+    → <strong>不同 grid size 需要不同策略</strong>，不能 hardcode。
+  </div>
+  <div class="page-num">7 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 8: DMA Overlap -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>7. 新发现：Compute + DMA 可以并行</h2>
+  <p>GPU 内部有独立的硬件引擎：</p>
+
+  <div class="cols">
+    <div class="col">
+      <pre>GPU 硬件:
+├── Compute Engine (30 SMs) ← kernel 用这个
+├── Copy Engine 0 (DMA)    ← H2D 拷贝
+└── Copy Engine 1 (DMA)    ← D2H 拷贝
+
+它们可以同时工作！</pre>
+    </div>
+    <div class="col">
+      <h3>Persistent kernel 可以边算边传</h3>
+      <pre>persistent_kernel:
+  step N: compute → write buf[0]
+  step N+1: compute → write buf[1]
+    ↕ 同时 DMA 传 buf[0] → host
+  step N+2: compute → write buf[0]
+    ↕ 同时 DMA 传 buf[1] → host</pre>
+    </div>
+  </div>
+
+  <h3>3060 实测</h3>
+  <table>
+    <tr><th>方案</th><th>μs/step</th><th>额外开销</th></tr>
+    <tr><td>Persistent (不保存)</td><td>5.85</td><td>—</td></tr>
+    <tr><td class="best">Persistent + async DMA 保存</td><td class="best">6.58</td><td class="green">+12.5% (几乎零开销)</td></tr>
+    <tr><td class="bad">Sync loop + 阻塞保存</td><td class="bad">76.69</td><td class="red">+1210%</td></tr>
+  </table>
+
+  <div class="key-finding">
+    PERKS (ICS'23) 和 AsyncTaichi (2020) <span class="red">都没有做过</span> compute-communication overlap。<br>
+    这是 persistent kernel 相比 CUDA Graph 的独有优势：Graph 保存数据必须打断回放，<br>
+    persistent 可以利用 DMA 引擎<span class="green">零开销保存</span>。
+  </div>
+  <div class="page-num">8 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 9: 36 Kernel Validation -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>8. 36 种 Kernel 的系统验证</h2>
+  <p>不只是几个 case，我们在 <span class="highlight">36 种 kernel × 130 个配置</span> 上验证了 overhead 问题：</p>
+
+  <div class="cols">
+    <div class="col">
+      <h3>9 个领域</h3>
+      <table>
+        <tr><th>领域</th><th>Kernel 数</th><th>代表</th></tr>
+        <tr><td>Stencil</td><td>9</td><td>Heat, Wave, Jacobi...</td></tr>
+        <tr><td>CFD</td><td>4</td><td>SWE, LBM, StableFluids</td></tr>
+        <tr><td>Particle</td><td>5</td><td>NBody, SPH, DEM, PIC</td></tr>
+        <tr><td>EM</td><td>2</td><td>FDTD, Helmholtz</td></tr>
+        <tr><td>FEM</td><td>3</td><td>ExplicitFEM, Cloth</td></tr>
+        <tr><td>Transport</td><td>2</td><td>SemiLagrangian</td></tr>
+        <tr><td>PDE</td><td>3</td><td>Poisson, Schrodinger</td></tr>
+        <tr><td>Classic</td><td>6</td><td>HotSpot, SRAD, CG, LULESH</td></tr>
+        <tr><td>Other</td><td>2</td><td>Reduction, MonteCarlo</td></tr>
+      </table>
+    </div>
+    <div class="col">
+      <h3>NCU Profiling (5 kernel × 3 sizes)</h3>
+      <table>
+        <tr><th>Kernel</th><th>Regs</th><th>SM%</th><th>Occ%</th></tr>
+        <tr><td>jacobi2d</td><td>16</td><td>7.7</td><td>33</td></tr>
+        <tr><td>heat2d</td><td>18</td><td>7.7</td><td>33</td></tr>
+        <tr><td>hotspot</td><td>20</td><td>7.9</td><td>33</td></tr>
+        <tr><td>srad</td><td>26</td><td>14.5</td><td>32</td></tr>
+        <tr><td class="highlight">osher</td><td class="highlight">106</td><td class="highlight">60.6</td><td>31</td></tr>
+      </table>
+      <p style="margin-top:12px;">OSHER 用了 <span class="highlight">106 registers</span> (heat2d 的 6 倍)，<br>SM throughput 高 8 倍 → 计算密集型 kernel。</p>
+    </div>
+  </div>
+  <div class="page-num">9 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 10: Strategy Selection -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>9. 方法论：自动 Strategy Selection</h2>
+
+  <pre style="font-size:1.05em;">输入: simulation kernel 特征
+
+  有 host readback? (CG 的 alpha/beta)
+  │
+  ├── YES → grid ≤ cooperative limit?
+  │         ├── YES → <span style="color:#60a5fa; font-weight:bold;">★ Persistent Fusion</span> (CG: <span style="color:#4ade80;">40x</span>)
+  │         │         把标量计算搬到 GPU 上，5 kernel → 1
+  │         └── NO  → Async sync elimination (2x)
+  │
+  └── NO  → grid ≤ cooperative limit?
+            ├── YES → 比较 Graph vs Persistent
+            │         ├── 3060 LULESH 64²: Persistent 赢 (<span style="color:#4ade80;">27x</span>)
+            │         └── 3060 LULESH 128²: Persistent 超限 → <span style="color:#22c55e; font-weight:bold;">★ Graph</span> (<span style="color:#4ade80;">10x</span>)
+            └── NO  → <span style="color:#22c55e; font-weight:bold;">★ CUDA Graph</span> (Heat2D 256²: <span style="color:#4ade80;">10.8x</span>)</pre>
+
+  <h3>Cost Model (MAPE 16%)</h3>
+  <pre>T_compute = T_fixed + T_per_wave × ceil(blocks / SMs)   // 从 Graph 数据拟合
+T_sync    = T_compute + K × (OH_launch + OH_sync)         // K = kernels/step
+T_graph   = T_compute + OH_graph_replay
+T_persist = T_compute + K × OH_grid_sync</pre>
+
+  <h3>已实现工具</h3>
+  <p><code>strategy_selector.py</code>: 输入 kernel 参数 + GPU → 输出策略 + 预测时间</p>
+  <p><code>sim_optimizer.py</code>: trace Taichi 循环 → 自动检测 host readback → 推荐策略</p>
+  <div class="page-num">10 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 11: Related Work -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>10. 与前人工作的关系</h2>
+  <table>
+    <tr><th>前人</th><th>做了什么</th><th>我们的差异</th></tr>
+    <tr>
+      <td><strong>AsyncTaichi</strong><br>(2020, <span class="red">废弃</span>)</td>
+      <td>通用计算图 + megakernel<br>1.87x CUDA</td>
+      <td>分析了废弃原因 (70% 复杂度来自稀疏追踪)<br>我们只聚焦 time-stepping loop，更简单</td>
+    </tr>
+    <tr>
+      <td><strong>PERKS</strong><br>(ICS 2023)</td>
+      <td>单 kernel persistent<br>2.12x stencil, 4.86x CG</td>
+      <td><span class="green">Multi-kernel fusion</span> (CG 5→1, LULESH 4→1)<br>PERKS 做不了 CG 的 device-side scalar<br>+ DMA overlap (PERKS 没有)</td>
+    </tr>
+    <tr>
+      <td><strong>PyGraph</strong><br>(2025 预印本)</td>
+      <td>自动 CUDA Graph for PyTorch<br>12% avg speedup</td>
+      <td>加 persistent 选项 (CG case Graph 不行)<br>针对 simulation 不是 ML<br>+ cost model 跨策略选择</td>
+    </tr>
+  </table>
+
+  <div class="key-finding">
+    <strong>核心差异化</strong>：CG Solver 是前人<span class="red">都做不了</span>的 case。<br>
+    Graph 不能中断 → ❌ | PERKS 不能 fuse 多 kernel → ❌ | 只有我们的方案 → <span class="green">40.8x ✓</span>
+  </div>
+  <div class="page-num">11 / 12</div>
+</div>
+
+<!-- ============================================================ -->
+<!-- SLIDE 12: Discussion -->
+<!-- ============================================================ -->
+<div class="slide">
+  <h2>11. 讨论 & 下一步</h2>
+
+  <h3>已完成</h3>
+  <p>✅ 36 kernel × 130 configs characterization (3060 + B200)</p>
+  <p>✅ 完整 OSHER CUDA 实现对齐 Taichi/Kokkos (1092 行)</p>
+  <p>✅ CG persistent fusion: <span class="green">40.8x</span> (正确性验证 rel diff < 0.001%)</p>
+  <p>✅ LULESH persistent fusion: <span class="green">27.0x</span> + strategy fallback to Graph: <span class="green">10.1x</span></p>
+  <p>✅ Compute-Communication overlap: <span class="green">+12.5% overhead</span></p>
+  <p>✅ Cost model MAPE <span class="green">16%</span></p>
+  <p>✅ Strategy selector + sim_optimizer demo</p>
+
+  <h3>待讨论</h3>
+  <p>1. CG 40x 够不够作为核心贡献？</p>
+  <p>2. Characterization paper (ISPASS/IISWC) 还是 systems paper (ICS/PPoPP)？</p>
+  <p>3. 需不需要 hook 进 Taichi runtime 做完整自动化？</p>
+  <p>4. 是否需要更多 GPU 型号 (A100/H100) 做代际对比？</p>
+
+  <div class="page-num">12 / 12</div>
+</div>
+
+<script>
+// Keyboard navigation: arrow keys or space to scroll between slides
+document.addEventListener('keydown', function(e) {
+  const slides = document.querySelectorAll('.slide');
+  const vh = window.innerHeight;
+  const current = Math.round(window.scrollY / vh);
+
+  if (e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') {
+    e.preventDefault();
+    if (current < slides.length - 1) {
+      slides[current + 1].scrollIntoView({ behavior: 'smooth' });
+    }
+  } else if (e.key === 'ArrowUp' || e.key === 'PageUp') {
+    e.preventDefault();
+    if (current > 0) {
+      slides[current - 1].scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+});
+</script>
+
+</body>
+</html>
