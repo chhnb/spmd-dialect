@@ -123,19 +123,21 @@ code { font-family: 'Fira Code', 'Consolas', monospace; background: #1e293b; pad
 <!-- SLIDE 2: Starting Point -->
 <!-- ============================================================ -->
 <div class="slide">
-  <h2>1. 起点：跨框架性能对比发现异常</h2>
-  <p>用 hydro-cal (浅水方程, OSHER Riemann solver) 做跨框架 benchmark：</p>
+  <h2>1. 起点：hydro-cal 跨框架性能对比发现异常</h2>
+  <p>hydro-cal 是真实的水文模拟工程项目（浅水方程, OSHER Riemann solver, fp64, 106 registers）。<br>
+  我们用 Taichi / Warp / Kokkos(C++) 重写了同一个 kernel，在 3060 上对比：</p>
   <table>
-    <tr><th>框架</th><th>64² (4096 cells)</th><th>128² (16384 cells)</th><th>256² (65536 cells)</th></tr>
-    <tr><td>Taichi</td><td>1.53 ms</td><td>1.85 ms</td><td>5.57 ms</td></tr>
-    <tr><td>Warp</td><td>1.30 ms</td><td>1.42 ms</td><td>2.86 ms</td></tr>
-    <tr><td>Triton</td><td>3.35 ms</td><td>8.96 ms</td><td>28.2 ms</td></tr>
+    <tr><th>框架</th><th>32² (1024 cells)</th><th>64² (4096 cells)</th><th>128² (16384 cells)</th></tr>
+    <tr><td>Taichi</td><td>189.7 μs</td><td>138.1 μs</td><td>160.9 μs</td></tr>
+    <tr><td>Warp</td><td>131.4 μs</td><td>128.1 μs</td><td>129.3 μs</td></tr>
+    <tr><td>Kokkos (C++)</td><td>52.5 μs</td><td>57.0 μs</td><td>154.7 μs</td></tr>
   </table>
 
   <div class="key-finding">
-    <strong>异常</strong>：Taichi 从 64² → 128²，网格大了 <span class="highlight">4 倍</span>，但时间只增长了 <span class="highlight">21%</span> (1.53 → 1.85 ms)。<br>
-    如果 GPU 在做有用计算，时间应该和网格大小成正比。<br>
-    → <span class="red">大部分时间不是在"算"，而是在做别的事情。</span>
+    <strong>异常 1</strong>：Warp 从 32² → 128²，网格大了 <span class="highlight">16 倍</span>，但时间几乎不变 (131 → 129 μs)。<br>
+    如果 GPU 在做有用计算，时间应该和网格大小成正比。→ <span class="red">大部分时间不是在"算"。</span><br><br>
+    <strong>异常 2</strong>：Kokkos (C++) 在小网格上比 Taichi/Warp 快 <span class="highlight">2-3 倍</span> (52 vs 131-190 μs)，<br>
+    但在 128² 上三者接近。→ <span class="red">Python DSL 有额外的固定开销，小网格时暴露最明显。</span>
   </div>
   <div class="page-num">2 / 12</div>
 </div>
@@ -162,17 +164,20 @@ code { font-family: 'Fira Code', 'Consolas', monospace; background: #1e293b; pad
     </div>
   </div>
 
-  <h3>OSHER 完整 solver 实测 (3060, fp64, 106 registers)：</h3>
+  <h3>hydro-cal F1 完整 OSHER solver 实测 (3060, fp64, 106 registers)：</h3>
   <table>
-    <tr><th>N</th><th>Cells</th><th class="bad">Sync</th><th>Async</th><th class="best">Graph</th><th class="best">Persistent</th><th>OH 占比</th></tr>
-    <tr><td>32</td><td>1024</td><td class="bad">109.4 μs</td><td>49.5 μs</td><td>40.7 μs</td><td class="best">38.4 μs (2.85x)</td><td class="red">63%</td></tr>
-    <tr><td>64</td><td>4096</td><td class="bad">157.9 μs</td><td>68.8 μs</td><td>—</td><td class="best">69.2 μs (2.28x)</td><td class="red">56%</td></tr>
-    <tr><td>128</td><td>16384</td><td class="bad">257.5 μs</td><td>155.1 μs</td><td class="best">147.5 μs (1.75x)</td><td>148.9 μs</td><td class="highlight">43%</td></tr>
+    <tr><th>N</th><th>Cells</th><th class="bad">Sync (Taichi模式)</th><th>Async</th><th class="best">Graph</th><th class="best">Persistent</th><th>OH 占比</th></tr>
+    <tr><td>32</td><td>1024</td><td class="bad">171.8 μs</td><td>160.9 μs</td><td>73.1 μs</td><td class="best">72.6 μs (2.37x)</td><td class="red">57%</td></tr>
+    <tr><td>64</td><td>4096</td><td class="bad">190.8 μs</td><td>131.5 μs</td><td class="best">50.2 μs (3.80x)</td><td>50.9 μs (3.75x)</td><td class="red">74%</td></tr>
+    <tr><td>128</td><td>16384</td><td class="bad">234.5 μs</td><td>150.8 μs</td><td class="best">147.2 μs (1.59x)</td><td>153.0 μs</td><td class="highlight">37%</td></tr>
   </table>
 
+  <p style="margin-top:12px;">同时对比 Taichi 实测：32²=189.7μs, 64²=138.1μs → <strong>和 CUDA Sync 模式在同一量级</strong>（Taichi 默认就是 Sync 模式）</p>
+
   <div class="key-finding">
-    即使用完整 OSHER Riemann solver (106 registers, fp64)，<span class="red">overhead 仍占 43-63%</span>。<br>
-    这不是只有 trivial stencil 才有的问题。
+    即使用完整 OSHER Riemann solver (106 registers, fp64)，<span class="red">overhead 仍占 37-74%</span>。<br>
+    64² 上 Graph 只需 50.2μs，而 Taichi 要 138.1μs → <span class="red">88μs 是 overhead</span>。<br>
+    这不是只有 trivial stencil 才有的问题——是真实工程 kernel 的真实数据。
   </div>
   <div class="page-num">3 / 12</div>
 </div>
