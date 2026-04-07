@@ -288,6 +288,11 @@ int main() {
     printf("# Full configuration matrix: kernel × N × B × strategy\n");
     printf("kernel,N,cells,B,strategy,us_per_step,speedup_vs_sync\n");
 
+    const char* kernel_filter = getenv("PK_KERNEL");
+    const char* strategy_filter = getenv("PK_STRATEGY");
+    int n_filter = getenv("PK_N") ? atoi(getenv("PK_N")) : 0;
+    int b_filter = getenv("PK_B") ? atoi(getenv("PK_B")) : 0;
+
     const char* kernels[] = {"heat2d", "jacobi2d", "hotspot", "srad"};
     int Ns[] = {64, 128, 256, 512};
     int Bs[] = {32, 64, 128, 256, 512};
@@ -295,15 +300,19 @@ int main() {
     int steps_for_N[] = {2000, 2000, 1000, 500};
 
     for (int ki = 0; ki < 4; ki++) {
+        if (kernel_filter && strcmp(kernel_filter, kernels[ki]) != 0) continue;
         for (int ni = 0; ni < 4; ni++) {
             int N = Ns[ni];
+            if (n_filter && n_filter != N) continue;
             // First get sync baseline at B=256
             Config c_base = {kernels[ki], N, 256, steps_for_N[ni], ki};
             float sync_base = run_one(c_base, "sync");
 
             for (int bi = 0; bi < 5; bi++) {
                 int B = Bs[bi];
+                if (b_filter && b_filter != B) continue;
                 for (int si = 0; si < 4; si++) {
+                    if (strategy_filter && strcmp(strategy_filter, strategies[si]) != 0) continue;
                     Config c = {kernels[ki], N, B, steps_for_N[ni], ki};
                     float t = run_one(c, strategies[si]);
                     float spdup = (t > 0 && sync_base > 0) ? sync_base / t : -1.0f;
@@ -311,6 +320,7 @@ int main() {
                         printf("%s,%d,%d,%d,%s,%.2f,%.2f\n", kernels[ki], N, N*N, B, strategies[si], t, spdup);
                     else
                         printf("%s,%d,%d,%d,%s,N/A,N/A\n", kernels[ki], N, N*N, B, strategies[si]);
+                    fflush(stdout);
                 }
             }
         }

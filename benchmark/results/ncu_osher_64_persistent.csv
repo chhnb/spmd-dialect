@@ -1,0 +1,21 @@
+==PROF== Connected to process 35105 (/home/chh/spmd-dialect/benchmark/hydro_cuda_osher_prof)
+===================================================================
+  Shallow Water (Osher) CUDA Benchmark — fp64, STEPS=10
+===================================================================
+N      | Sync (us)    | Async (us)   | Graph (us)   | Persist (us)
+-------+--------------+--------------+--------------+--------------+
+64     |      -1.00   |      -1.00   |      -1.00   |      89.17
+
+N      | Sync (1.0x)  | Async spdup  | Graph spdup  | Persist spdup
+-------+--------------+--------------+--------------+--------------+
+32     |       1.00x  |       -nanx  |       0.00x  |       0.00x
+64     |       1.00x  |       1.00x  |       1.00x  |      -0.01x
+128    |       1.00x  |       0.00x  |       0.00x  |       -nanx
+===================================================================
+==PROF== Disconnected from process 35105
+"ID","Process ID","Process Name","Host Name","Kernel Name","Context","Stream","Block Size","Grid Size","Device","CC","Section Name","Metric Name","Metric Unit","Metric Value"
+"0","35105","hydro_cuda_osher_prof","127.0.0.1","persistent_kernel(int, double, int, int *, int *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *)","1","7","(256, 1, 1)","(16, 1, 1)","0","8.6","Command line profiler metrics","dram__bytes_read.sum","byte","1084416"
+"0","35105","hydro_cuda_osher_prof","127.0.0.1","persistent_kernel(int, double, int, int *, int *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *)","1","7","(256, 1, 1)","(16, 1, 1)","0","8.6","Command line profiler metrics","dram__bytes_write.sum","byte","38784"
+"0","35105","hydro_cuda_osher_prof","127.0.0.1","persistent_kernel(int, double, int, int *, int *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *)","1","7","(256, 1, 1)","(16, 1, 1)","0","8.6","Command line profiler metrics","sm__throughput.avg.pct_of_peak_sustained_elapsed","%","43.59"
+"0","35105","hydro_cuda_osher_prof","127.0.0.1","persistent_kernel(int, double, int, int *, int *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *)","1","7","(256, 1, 1)","(16, 1, 1)","0","8.6","Command line profiler metrics","sm__warps_active.avg.pct_of_peak_sustained_active","%","16.67"
+"0","35105","hydro_cuda_osher_prof","127.0.0.1","persistent_kernel(int, double, int, int *, int *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *)","1","7","(256, 1, 1)","(16, 1, 1)","0","8.6","Command line profiler metrics","smsp__sass_thread_inst_executed_op_fp64_pred_on.sum","inst","12943003"

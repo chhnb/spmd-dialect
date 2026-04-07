@@ -1,0 +1,38 @@
+{
+  "heat2d_128_graph": {
+    "block_size": "(256, 1, 1)",
+    "grid_size": "(64, 1, 1)",
+    "kernel_name": "k_heat2d(int, int, const float *, float *)",
+    "metrics": {
+      "achieved_occupancy_pct": 33.07,
+      "dram_bytes_read": 69120.0,
+      "dram_bytes_write": 1408.0,
+      "fp32_inst": 95764.0,
+      "sm_throughput_pct": 7.81
+    }
+  },
+  "osher_128_graph": {
+    "block_size": "(256, 1, 1)",
+    "grid_size": "(64, 1, 1)",
+    "kernel_name": "shallow_water_step(int, double, const int *, const int *, const double *, const double *, const double *, const double *, const double *, const double *, const double *, const double *, const double *, const double *, const double *, const double *, const double *, double *, double *, double *, double *, double *)",
+    "metrics": {
+      "achieved_occupancy_pct": 31.36,
+      "dram_bytes_read": 4174592.0,
+      "dram_bytes_write": 1369472.0,
+      "fp64_inst": 10026496.0,
+      "sm_throughput_pct": 60.54
+    }
+  },
+  "osher_64_persistent": {
+    "block_size": "(256, 1, 1)",
+    "grid_size": "(16, 1, 1)",
+    "kernel_name": "persistent_kernel(int, double, int, int *, int *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *, double *)",
+    "metrics": {
+      "achieved_occupancy_pct": 16.67,
+      "dram_bytes_read": 1084416.0,
+      "dram_bytes_write": 38784.0,
+      "fp64_inst": 12943003.0,
+      "sm_throughput_pct": 43.59
+    }
+  }
+}

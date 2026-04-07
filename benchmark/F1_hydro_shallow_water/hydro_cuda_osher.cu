@@ -1011,9 +1011,29 @@ double bench_persistent(MeshData &m, int STEPS, int threads) {
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
-int main() {
-    int Ns[]    = {32, 64, 128};
+bool mode_enabled(const char* mode, const char* key) {
+    return strcmp(mode, "all") == 0 || strcmp(mode, key) == 0;
+}
+
+int main(int argc, char** argv) {
+    int n_filter = 0;
     int STEPS   = 500;
+    const char* mode = "all";
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--n") == 0 && i + 1 < argc) {
+            n_filter = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--steps") == 0 && i + 1 < argc) {
+            STEPS = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
+            mode = argv[++i];
+        } else {
+            fprintf(stderr, "Usage: %s [--n 32|64|128] [--steps N] [--mode all|sync|async|graph|persistent]\n", argv[0]);
+            return 1;
+        }
+    }
+
+    int Ns[]    = {32, 64, 128};
 
     auto pick_threads = [](int CEL) {
         if (CEL <= 1024) return 128;
@@ -1033,6 +1053,7 @@ int main() {
 
     for (int ni = 0; ni < 3; ni++) {
         int N = Ns[ni];
+        if (n_filter && n_filter != N) continue;
         int CEL = N * N;
         int THREADS = pick_threads(CEL);
         int blocks = (CEL + THREADS - 1) / THREADS;
@@ -1040,11 +1061,10 @@ int main() {
         MeshData m;
         init_mesh(m, N);
 
-        sync_us[ni]    = bench_sync(m, STEPS, blocks, THREADS);
-        async_us[ni]   = bench_async(m, STEPS, blocks, THREADS);
-        graph_us[ni]   = bench_graph(m, STEPS, blocks, THREADS);
-        persist_us[ni] = bench_persistent(m, STEPS, THREADS);
-
+        sync_us[ni]    = mode_enabled(mode, "sync") ? bench_sync(m, STEPS, blocks, THREADS) : -1.0;
+        async_us[ni]   = mode_enabled(mode, "async") ? bench_async(m, STEPS, blocks, THREADS) : -1.0;
+        graph_us[ni]   = mode_enabled(mode, "graph") ? bench_graph(m, STEPS, blocks, THREADS) : -1.0;
+        persist_us[ni] = mode_enabled(mode, "persistent") ? bench_persistent(m, STEPS, THREADS) : -1.0;
         printf("%-6d | %10.2f   | %10.2f   | %10.2f   | %10.2f\n",
                N, sync_us[ni], async_us[ni], graph_us[ni], persist_us[ni]);
 
