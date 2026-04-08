@@ -1166,6 +1166,188 @@ __global__ void cloth_persistent(int N, float* u, float* v, int STEPS) {
     }
 }
 
+// --- SPH Density (brute force O(N²), smoothing kernel) ---
+__global__ void sph_step(int N, float* px, float* py, float* vx, float* vy, float* rho_sph,
+                          float* px2, float* py2, float* vx2, float* vy2) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x;
+    if(i>=N) return;
+    float h=0.1f, dt=0.0001f, mass=1.0f, k=100.0f, rho0=1.0f;
+    // Density
+    float rho_i=0;
+    for(int j=0;j<N;j++){
+        float dx=px[j]-px[i], dy=py[j]-py[i];
+        float r2=dx*dx+dy*dy;
+        if(r2<h*h){float q=sqrtf(r2)/h; rho_i+=mass*(1-q)*(1-q);}
+    }
+    rho_sph[i]=fmaxf(rho_i,0.001f);
+    // Pressure force
+    float ax=0, ay=0;
+    float pi_=k*(rho_i-rho0);
+    for(int j=0;j<N;j++){
+        if(i==j) continue;
+        float dx=px[j]-px[i], dy=py[j]-py[i];
+        float r=sqrtf(dx*dx+dy*dy)+1e-6f;
+        if(r<h){float pj=k*(rho_sph[j]-rho0);
+            float f=-mass*(pi_+pj)/(2*rho_sph[j])*(-2*(1-r/h)/h)/r;
+            ax+=f*dx; ay+=f*dy;}
+    }
+    vx2[i]=vx[i]+dt*ax; vy2[i]=vy[i]+dt*ay;
+    px2[i]=px[i]+dt*vx2[i]; py2[i]=py[i]+dt*vy2[i];
+}
+__global__ void sph_persistent(int N, float* px, float* py, float* vx, float* vy, float* rho_sph,
+                                float* px2, float* py2, float* vx2, float* vy2, int STEPS) {
+    int tid=blockIdx.x*blockDim.x+threadIdx.x;
+    int total=blockDim.x*gridDim.x;
+    float h=0.1f, dt=0.0001f, mass=1.0f, k=100.0f, rho0=1.0f;
+    for(int s=0;s<STEPS;s++){
+        for(int i=tid;i<N;i+=total){
+            float rho_i=0;
+            for(int j=0;j<N;j++){float dx=px[j]-px[i],dy=py[j]-py[i];float r2=dx*dx+dy*dy;
+                if(r2<h*h){float q=sqrtf(r2)/h;rho_i+=mass*(1-q)*(1-q);}}
+            rho_sph[i]=fmaxf(rho_i,0.001f);
+        }
+        cg::this_grid().sync();
+        for(int i=tid;i<N;i+=total){
+            float ax=0,ay=0,pi_=k*(rho_sph[i]-rho0);
+            for(int j=0;j<N;j++){if(i==j)continue;
+                float dx=px[j]-px[i],dy=py[j]-py[i];float r=sqrtf(dx*dx+dy*dy)+1e-6f;
+                if(r<h){float pj=k*(rho_sph[j]-rho0);
+                    float f=-mass*(pi_+pj)/(2*rho_sph[j])*(-2*(1-r/h)/h)/r;
+                    ax+=f*dx;ay+=f*dy;}}
+            vx2[i]=vx[i]+dt*ax;vy2[i]=vy[i]+dt*ay;
+            px2[i]=px[i]+dt*vx2[i];py2[i]=py[i]+dt*vy2[i];
+        }
+        cg::this_grid().sync();
+        for(int i=tid;i<N;i+=total){px[i]=px2[i];py[i]=py2[i];vx[i]=vx2[i];vy[i]=vy2[i];}
+        cg::this_grid().sync();
+    }
+}
+
+// --- DEM (spring-dashpot contact, brute force O(N²)) ---
+__global__ void dem_step(int N, float* px, float* py, float* vx, float* vy,
+                          float* px2, float* py2, float* vx2, float* vy2) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x;
+    if(i>=N) return;
+    float dt=0.0001f, rad=0.01f, kn=1e4f, gn=10.0f;
+    float ax=0, ay=-9.81f; // gravity
+    for(int j=0;j<N;j++){
+        if(i==j) continue;
+        float dx=px[j]-px[i], dy=py[j]-py[i];
+        float dist=sqrtf(dx*dx+dy*dy)+1e-10f;
+        float overlap=2*rad-dist;
+        if(overlap>0){float nx=dx/dist,ny=dy/dist;
+            float dvn=(vx[j]-vx[i])*nx+(vy[j]-vy[i])*ny;
+            float fn=kn*overlap-gn*dvn;
+            ax+=fn*nx; ay+=fn*ny;}
+    }
+    vx2[i]=vx[i]+dt*ax; vy2[i]=vy[i]+dt*ay;
+    px2[i]=px[i]+dt*vx2[i]; py2[i]=py[i]+dt*vy2[i];
+}
+__global__ void dem_persistent(int N, float* px, float* py, float* vx, float* vy,
+                                float* px2, float* py2, float* vx2, float* vy2, int STEPS) {
+    int tid=blockIdx.x*blockDim.x+threadIdx.x;
+    int total=blockDim.x*gridDim.x;
+    for(int s=0;s<STEPS;s++){
+        for(int i=tid;i<N;i+=total){
+            float dt=0.0001f,rad=0.01f,kn=1e4f,gn=10.0f;
+            float ax=0,ay=-9.81f;
+            for(int j=0;j<N;j++){if(i==j)continue;
+                float dx=px[j]-px[i],dy=py[j]-py[i];float dist=sqrtf(dx*dx+dy*dy)+1e-10f;
+                float overlap=2*rad-dist;
+                if(overlap>0){float nx=dx/dist,ny=dy/dist;
+                    float dvn=(vx[j]-vx[i])*nx+(vy[j]-vy[i])*ny;
+                    float fn=kn*overlap-gn*dvn; ax+=fn*nx;ay+=fn*ny;}}
+            vx2[i]=vx[i]+0.0001f*ax;vy2[i]=vy[i]+0.0001f*ay;
+            px2[i]=px[i]+0.0001f*vx2[i];py2[i]=py[i]+0.0001f*vy2[i];
+        }
+        cg::this_grid().sync();
+        for(int i=tid;i<N;i+=total){px[i]=px2[i];py[i]=py2[i];vx[i]=vx2[i];vy[i]=vy2[i];}
+        cg::this_grid().sync();
+    }
+}
+
+// --- MD Lennard-Jones (brute force O(N²)) ---
+__global__ void mdlj_step(int N, float* px, float* py, float* vx, float* vy,
+                           float* px2, float* py2, float* vx2, float* vy2) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x;
+    if(i>=N) return;
+    float dt=0.0001f, eps=1.0f, sigma=0.01f;
+    float ax=0, ay=0;
+    for(int j=0;j<N;j++){
+        if(i==j) continue;
+        float dx=px[j]-px[i], dy=py[j]-py[i];
+        float r2=dx*dx+dy*dy+1e-10f;
+        float s2=sigma*sigma/r2, s6=s2*s2*s2;
+        float f=24*eps*(2*s6*s6-s6)/r2;
+        ax+=f*dx; ay+=f*dy;
+    }
+    vx2[i]=vx[i]+dt*ax; vy2[i]=vy[i]+dt*ay;
+    px2[i]=px[i]+dt*vx2[i]; py2[i]=py[i]+dt*vy2[i];
+}
+__global__ void mdlj_persistent(int N, float* px, float* py, float* vx, float* vy,
+                                 float* px2, float* py2, float* vx2, float* vy2, int STEPS) {
+    int tid=blockIdx.x*blockDim.x+threadIdx.x;
+    int total=blockDim.x*gridDim.x;
+    for(int s=0;s<STEPS;s++){
+        for(int i=tid;i<N;i+=total){
+            float dt=0.0001f,eps=1.0f,sigma=0.01f;
+            float ax=0,ay=0;
+            for(int j=0;j<N;j++){if(i==j)continue;
+                float dx=px[j]-px[i],dy=py[j]-py[i];float r2=dx*dx+dy*dy+1e-10f;
+                float s2=sigma*sigma/r2,s6=s2*s2*s2;
+                float f=24*eps*(2*s6*s6-s6)/r2; ax+=f*dx;ay+=f*dy;}
+            vx2[i]=vx[i]+dt*ax;vy2[i]=vy[i]+dt*ay;
+            px2[i]=px[i]+dt*vx2[i];py2[i]=py[i]+dt*vy2[i];
+        }
+        cg::this_grid().sync();
+        for(int i=tid;i<N;i+=total){px[i]=px2[i];py[i]=py2[i];vx[i]=vx2[i];vy[i]=vy2[i];}
+        cg::this_grid().sync();
+    }
+}
+
+// --- PIC 1D (4 phases: deposit + field_solve + interpolate + push) ---
+__global__ void pic_deposit(int NP, int NG, const float* xp, float* rho_grid) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x;
+    if(i>=NP) return;
+    float dx=1.0f/NG;
+    int cell=(int)(xp[i]/dx); cell=max(0,min(cell,NG-1));
+    atomicAdd(&rho_grid[cell], 1.0f);
+}
+__global__ void pic_field(int NG, const float* rho_grid, float* E_grid) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x;
+    if(i>=1&&i<NG-1) E_grid[i]=-(rho_grid[i+1]-rho_grid[i-1])*0.5f*NG;
+}
+__global__ void pic_push(int NP, int NG, float* xp, float* vp, const float* E_grid) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x;
+    if(i>=NP) return;
+    float dx=1.0f/NG, dt=0.0001f;
+    int cell=(int)(xp[i]/dx); cell=max(0,min(cell,NG-1));
+    vp[i]+=dt*E_grid[cell];
+    xp[i]+=dt*vp[i];
+    if(xp[i]<0) xp[i]+=1.0f; if(xp[i]>=1.0f) xp[i]-=1.0f;
+}
+__global__ void pic_zero(int NG, float* rho_grid) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x; if(i<NG) rho_grid[i]=0;
+}
+__global__ void pic_persistent(int NP, int NG, float* xp, float* vp,
+                                float* rho_grid, float* E_grid, int STEPS) {
+    int tid=blockIdx.x*blockDim.x+threadIdx.x;
+    int total=blockDim.x*gridDim.x;
+    float dx=1.0f/NG, dt=0.0001f;
+    for(int s=0;s<STEPS;s++){
+        for(int i=tid;i<NG;i+=total) rho_grid[i]=0;
+        cg::this_grid().sync();
+        for(int i=tid;i<NP;i+=total){int c=(int)(xp[i]/dx);c=max(0,min(c,NG-1));atomicAdd(&rho_grid[c],1.0f);}
+        cg::this_grid().sync();
+        for(int i=tid;i<NG;i+=total) if(i>=1&&i<NG-1) E_grid[i]=-(rho_grid[i+1]-rho_grid[i-1])*0.5f*NG;
+        cg::this_grid().sync();
+        for(int i=tid;i<NP;i+=total){int c=(int)(xp[i]/dx);c=max(0,min(c,NG-1));
+            vp[i]+=dt*E_grid[c]; xp[i]+=dt*vp[i];
+            if(xp[i]<0)xp[i]+=1.0f; if(xp[i]>=1.0f)xp[i]-=1.0f;}
+        cg::this_grid().sync();
+    }
+}
+
 // --- Monte Carlo Random Walk ---
 __global__ void montecarlo_step(int N, float* x, float* y, unsigned int* state) {
     int i=blockIdx.x*blockDim.x+threadIdx.x;
@@ -1550,6 +1732,220 @@ int main(){
     print_result("NBody N=1024",      test_nbody(1024, 100));
     print_result("MonteCarlo N=1024", test_montecarlo(1024, 2000));
     print_result("MonteCarlo N=4096", test_montecarlo(4096, 2000));
+
+    // SPH (O(N²) brute force, like NBody but with density + pressure)
+    {
+        int N=1024, STEPS=200;
+        float *px,*py,*vx,*vy,*rho_s,*px2,*py2,*vx2,*vy2;
+        CHECK(cudaMalloc(&px,N*4));CHECK(cudaMalloc(&py,N*4));
+        CHECK(cudaMalloc(&vx,N*4));CHECK(cudaMalloc(&vy,N*4));CHECK(cudaMalloc(&rho_s,N*4));
+        CHECK(cudaMalloc(&px2,N*4));CHECK(cudaMalloc(&py2,N*4));
+        CHECK(cudaMalloc(&vx2,N*4));CHECK(cudaMalloc(&vy2,N*4));
+        float*h=(float*)malloc(N*4);for(int i=0;i<N;i++)h[i]=(float)(i%32)/32.0f;
+        cudaMemcpy(px,h,N*4,cudaMemcpyHostToDevice);
+        for(int i=0;i<N;i++)h[i]=(float)((i*7)%32)/32.0f;
+        cudaMemcpy(py,h,N*4,cudaMemcpyHostToDevice);
+        CHECK(cudaMemset(vx,0,N*4));CHECK(cudaMemset(vy,0,N*4));CHECK(cudaMemset(rho_s,0,N*4));free(h);
+        int bl=(N+255)/256;
+        cudaEvent_t t0,t1;CHECK(cudaEventCreate(&t0));CHECK(cudaEventCreate(&t1));
+        for(int i=0;i<5;i++){sph_step<<<bl,256>>>(N,px,py,vx,vy,rho_s,px2,py2,vx2,vy2);
+            copy4_f<<<bl,256>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);}
+        cudaDeviceSynchronize();
+        Result r;float ms;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){sph_step<<<bl,256>>>(N,px,py,vx,vy,rho_s,px2,py2,vx2,vy2);
+            copy4_f<<<bl,256>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);cudaDeviceSynchronize();}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.sync_us=ms*1000/STEPS;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){sph_step<<<bl,256>>>(N,px,py,vx,vy,rho_s,px2,py2,vx2,vy2);
+            copy4_f<<<bl,256>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.async_us=ms*1000/STEPS;
+        {int REPS=5;cudaGraph_t g;cudaGraphExec_t ge;cudaStream_t stream;
+         CHECK(cudaStreamCreate(&stream));
+         CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+         for(int s=0;s<STEPS;s++){sph_step<<<bl,256,0,stream>>>(N,px,py,vx,vy,rho_s,px2,py2,vx2,vy2);
+             copy4_f<<<bl,256,0,stream>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);}
+         CHECK(cudaStreamEndCapture(stream,&g));CHECK(cudaGraphInstantiate(&ge,g,NULL,NULL,0));
+         for(int i=0;i<3;i++){cudaGraphLaunch(ge,stream);cudaStreamSynchronize(stream);}
+         cudaEventRecord(t0,stream);for(int i=0;i<REPS;i++)cudaGraphLaunch(ge,stream);
+         cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+         cudaEventElapsedTime(&ms,t0,t1);r.graph_us=ms*1000/(STEPS*REPS);
+         cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);}
+        {int numBSm=0;cudaDeviceProp prop;cudaGetDeviceProperties(&prop,0);
+         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm,sph_persistent,256,0);
+         int maxB=numBSm*prop.multiProcessorCount;
+         if(bl<=maxB){
+             void*args[]={(void*)&N,(void*)&px,(void*)&py,(void*)&vx,(void*)&vy,(void*)&rho_s,
+                          (void*)&px2,(void*)&py2,(void*)&vx2,(void*)&vy2,(void*)&STEPS};
+             cudaLaunchCooperativeKernel((void*)sph_persistent,dim3(bl),dim3(256),args);cudaDeviceSynchronize();
+             int REPS=5;cudaEventRecord(t0);
+             for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)sph_persistent,dim3(bl),dim3(256),args);
+             cudaEventRecord(t1);cudaDeviceSynchronize();
+             cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
+         } else r.persistent_us=-1;}
+        print_result("SPH N=1024",r);
+        cudaEventDestroy(t0);cudaEventDestroy(t1);
+        cudaFree(px);cudaFree(py);cudaFree(vx);cudaFree(vy);cudaFree(rho_s);
+        cudaFree(px2);cudaFree(py2);cudaFree(vx2);cudaFree(vy2);
+    }
+
+    // DEM N=1024 (reuse NBody harness pattern)
+    {
+        int N=1024, STEPS=200;
+        float *px,*py,*vx,*vy,*px2,*py2,*vx2,*vy2;
+        CHECK(cudaMalloc(&px,N*4));CHECK(cudaMalloc(&py,N*4));
+        CHECK(cudaMalloc(&vx,N*4));CHECK(cudaMalloc(&vy,N*4));
+        CHECK(cudaMalloc(&px2,N*4));CHECK(cudaMalloc(&py2,N*4));
+        CHECK(cudaMalloc(&vx2,N*4));CHECK(cudaMalloc(&vy2,N*4));
+        float*h=(float*)malloc(N*4);for(int i=0;i<N;i++)h[i]=(float)(i%32)*0.03f;
+        cudaMemcpy(px,h,N*4,cudaMemcpyHostToDevice);
+        for(int i=0;i<N;i++)h[i]=(float)((i*7)%32)*0.03f;
+        cudaMemcpy(py,h,N*4,cudaMemcpyHostToDevice);
+        CHECK(cudaMemset(vx,0,N*4));CHECK(cudaMemset(vy,0,N*4));free(h);
+        int bl=(N+255)/256;
+        cudaEvent_t t0,t1;CHECK(cudaEventCreate(&t0));CHECK(cudaEventCreate(&t1));
+        for(int i=0;i<5;i++){dem_step<<<bl,256>>>(N,px,py,vx,vy,px2,py2,vx2,vy2);
+            copy4_f<<<bl,256>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);}
+        cudaDeviceSynchronize();
+        Result r;float ms;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){dem_step<<<bl,256>>>(N,px,py,vx,vy,px2,py2,vx2,vy2);
+            copy4_f<<<bl,256>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);cudaDeviceSynchronize();}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.sync_us=ms*1000/STEPS;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){dem_step<<<bl,256>>>(N,px,py,vx,vy,px2,py2,vx2,vy2);
+            copy4_f<<<bl,256>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.async_us=ms*1000/STEPS;
+        {int REPS=5;cudaGraph_t g;cudaGraphExec_t ge;cudaStream_t stream;
+         CHECK(cudaStreamCreate(&stream));CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+         for(int s=0;s<STEPS;s++){dem_step<<<bl,256,0,stream>>>(N,px,py,vx,vy,px2,py2,vx2,vy2);
+             copy4_f<<<bl,256,0,stream>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);}
+         CHECK(cudaStreamEndCapture(stream,&g));CHECK(cudaGraphInstantiate(&ge,g,NULL,NULL,0));
+         for(int i=0;i<3;i++){cudaGraphLaunch(ge,stream);cudaStreamSynchronize(stream);}
+         cudaEventRecord(t0,stream);for(int i=0;i<REPS;i++)cudaGraphLaunch(ge,stream);
+         cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+         cudaEventElapsedTime(&ms,t0,t1);r.graph_us=ms*1000/(STEPS*REPS);
+         cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);}
+        {int numBSm=0;cudaDeviceProp prop;cudaGetDeviceProperties(&prop,0);
+         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm,dem_persistent,256,0);
+         int maxB=numBSm*prop.multiProcessorCount;
+         if(bl<=maxB){
+             void*args[]={(void*)&N,(void*)&px,(void*)&py,(void*)&vx,(void*)&vy,
+                          (void*)&px2,(void*)&py2,(void*)&vx2,(void*)&vy2,(void*)&STEPS};
+             cudaLaunchCooperativeKernel((void*)dem_persistent,dim3(bl),dim3(256),args);cudaDeviceSynchronize();
+             int REPS=5;cudaEventRecord(t0);
+             for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)dem_persistent,dim3(bl),dim3(256),args);
+             cudaEventRecord(t1);cudaDeviceSynchronize();
+             cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
+         } else r.persistent_us=-1;}
+        print_result("DEM N=1024",r);
+        cudaEventDestroy(t0);cudaEventDestroy(t1);
+        cudaFree(px);cudaFree(py);cudaFree(vx);cudaFree(vy);
+        cudaFree(px2);cudaFree(py2);cudaFree(vx2);cudaFree(vy2);
+    }
+
+    // MD_LJ N=1024 (same pattern)
+    {
+        int N=1024, STEPS=200;
+        float *px,*py,*vx,*vy,*px2,*py2,*vx2,*vy2;
+        CHECK(cudaMalloc(&px,N*4));CHECK(cudaMalloc(&py,N*4));
+        CHECK(cudaMalloc(&vx,N*4));CHECK(cudaMalloc(&vy,N*4));
+        CHECK(cudaMalloc(&px2,N*4));CHECK(cudaMalloc(&py2,N*4));
+        CHECK(cudaMalloc(&vx2,N*4));CHECK(cudaMalloc(&vy2,N*4));
+        float*h=(float*)malloc(N*4);for(int i=0;i<N;i++)h[i]=(float)(i%32)*0.03f;
+        cudaMemcpy(px,h,N*4,cudaMemcpyHostToDevice);
+        for(int i=0;i<N;i++)h[i]=(float)((i*7)%32)*0.03f;
+        cudaMemcpy(py,h,N*4,cudaMemcpyHostToDevice);
+        CHECK(cudaMemset(vx,0,N*4));CHECK(cudaMemset(vy,0,N*4));free(h);
+        int bl=(N+255)/256;
+        cudaEvent_t t0,t1;CHECK(cudaEventCreate(&t0));CHECK(cudaEventCreate(&t1));
+        for(int i=0;i<5;i++){mdlj_step<<<bl,256>>>(N,px,py,vx,vy,px2,py2,vx2,vy2);
+            copy4_f<<<bl,256>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);}
+        cudaDeviceSynchronize();
+        Result r;float ms;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){mdlj_step<<<bl,256>>>(N,px,py,vx,vy,px2,py2,vx2,vy2);
+            copy4_f<<<bl,256>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);cudaDeviceSynchronize();}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.sync_us=ms*1000/STEPS;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){mdlj_step<<<bl,256>>>(N,px,py,vx,vy,px2,py2,vx2,vy2);
+            copy4_f<<<bl,256>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.async_us=ms*1000/STEPS;
+        {int REPS=5;cudaGraph_t g;cudaGraphExec_t ge;cudaStream_t stream;
+         CHECK(cudaStreamCreate(&stream));CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+         for(int s=0;s<STEPS;s++){mdlj_step<<<bl,256,0,stream>>>(N,px,py,vx,vy,px2,py2,vx2,vy2);
+             copy4_f<<<bl,256,0,stream>>>(N,px2,px,py2,py,vx2,vx,vy2,vy);}
+         CHECK(cudaStreamEndCapture(stream,&g));CHECK(cudaGraphInstantiate(&ge,g,NULL,NULL,0));
+         for(int i=0;i<3;i++){cudaGraphLaunch(ge,stream);cudaStreamSynchronize(stream);}
+         cudaEventRecord(t0,stream);for(int i=0;i<REPS;i++)cudaGraphLaunch(ge,stream);
+         cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+         cudaEventElapsedTime(&ms,t0,t1);r.graph_us=ms*1000/(STEPS*REPS);
+         cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);}
+        {int numBSm=0;cudaDeviceProp prop;cudaGetDeviceProperties(&prop,0);
+         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm,mdlj_persistent,256,0);
+         int maxB=numBSm*prop.multiProcessorCount;
+         if(bl<=maxB){
+             void*args[]={(void*)&N,(void*)&px,(void*)&py,(void*)&vx,(void*)&vy,
+                          (void*)&px2,(void*)&py2,(void*)&vx2,(void*)&vy2,(void*)&STEPS};
+             cudaLaunchCooperativeKernel((void*)mdlj_persistent,dim3(bl),dim3(256),args);cudaDeviceSynchronize();
+             int REPS=5;cudaEventRecord(t0);
+             for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)mdlj_persistent,dim3(bl),dim3(256),args);
+             cudaEventRecord(t1);cudaDeviceSynchronize();
+             cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
+         } else r.persistent_us=-1;}
+        print_result("MD_LJ N=1024",r);
+        cudaEventDestroy(t0);cudaEventDestroy(t1);
+        cudaFree(px);cudaFree(py);cudaFree(vx);cudaFree(vy);
+        cudaFree(px2);cudaFree(py2);cudaFree(vx2);cudaFree(vy2);
+    }
+
+    // PIC 1D (4 phases: zero + deposit + field_solve + push)
+    {
+        int NP=4096, NG=256, STEPS=1000;
+        float *xp,*vp,*rho_g,*E_g;
+        CHECK(cudaMalloc(&xp,NP*4));CHECK(cudaMalloc(&vp,NP*4));
+        CHECK(cudaMalloc(&rho_g,NG*4));CHECK(cudaMalloc(&E_g,NG*4));
+        float*h=(float*)malloc(NP*4);for(int i=0;i<NP;i++)h[i]=(float)(i%NP)/(float)NP;
+        cudaMemcpy(xp,h,NP*4,cudaMemcpyHostToDevice);CHECK(cudaMemset(vp,0,NP*4));free(h);
+        int blp=(NP+255)/256, blg=(NG+255)/256;
+        cudaEvent_t t0,t1;CHECK(cudaEventCreate(&t0));CHECK(cudaEventCreate(&t1));
+        for(int i=0;i<20;i++){pic_zero<<<blg,256>>>(NG,rho_g);pic_deposit<<<blp,256>>>(NP,NG,xp,rho_g);
+            pic_field<<<blg,256>>>(NG,rho_g,E_g);pic_push<<<blp,256>>>(NP,NG,xp,vp,E_g);}
+        cudaDeviceSynchronize();
+        Result r;float ms;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){pic_zero<<<blg,256>>>(NG,rho_g);pic_deposit<<<blp,256>>>(NP,NG,xp,rho_g);
+            pic_field<<<blg,256>>>(NG,rho_g,E_g);pic_push<<<blp,256>>>(NP,NG,xp,vp,E_g);cudaDeviceSynchronize();}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.sync_us=ms*1000/STEPS;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){pic_zero<<<blg,256>>>(NG,rho_g);pic_deposit<<<blp,256>>>(NP,NG,xp,rho_g);
+            pic_field<<<blg,256>>>(NG,rho_g,E_g);pic_push<<<blp,256>>>(NP,NG,xp,vp,E_g);}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.async_us=ms*1000/STEPS;
+        {int REPS=5;cudaGraph_t g;cudaGraphExec_t ge;cudaStream_t stream;
+         CHECK(cudaStreamCreate(&stream));CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+         for(int s=0;s<STEPS;s++){pic_zero<<<blg,256,0,stream>>>(NG,rho_g);pic_deposit<<<blp,256,0,stream>>>(NP,NG,xp,rho_g);
+             pic_field<<<blg,256,0,stream>>>(NG,rho_g,E_g);pic_push<<<blp,256,0,stream>>>(NP,NG,xp,vp,E_g);}
+         CHECK(cudaStreamEndCapture(stream,&g));CHECK(cudaGraphInstantiate(&ge,g,NULL,NULL,0));
+         for(int i=0;i<3;i++){cudaGraphLaunch(ge,stream);cudaStreamSynchronize(stream);}
+         cudaEventRecord(t0,stream);for(int i=0;i<REPS;i++)cudaGraphLaunch(ge,stream);
+         cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+         cudaEventElapsedTime(&ms,t0,t1);r.graph_us=ms*1000/(STEPS*REPS);
+         cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);}
+        {int numBSm=0;cudaDeviceProp prop;cudaGetDeviceProperties(&prop,0);
+         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm,pic_persistent,256,0);
+         int maxB=numBSm*prop.multiProcessorCount;
+         if(blp<=maxB){
+             void*args[]={(void*)&NP,(void*)&NG,(void*)&xp,(void*)&vp,(void*)&rho_g,(void*)&E_g,(void*)&STEPS};
+             cudaLaunchCooperativeKernel((void*)pic_persistent,dim3(blp),dim3(256),args);cudaDeviceSynchronize();
+             int REPS=5;cudaEventRecord(t0);
+             for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)pic_persistent,dim3(blp),dim3(256),args);
+             cudaEventRecord(t1);cudaDeviceSynchronize();
+             cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
+         } else r.persistent_us=-1;}
+        print_result("PIC NP=4096",r);
+        cudaEventDestroy(t0);cudaEventDestroy(t1);
+        cudaFree(xp);cudaFree(vp);cudaFree(rho_g);cudaFree(E_g);
+    }
 
     // === 1D PDE ===
     printf("\n--- 1D PDE ---\n");
