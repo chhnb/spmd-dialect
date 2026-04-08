@@ -1348,6 +1348,77 @@ __global__ void pic_persistent(int NP, int NG, float* xp, float* vp,
     }
 }
 
+// --- Stable Fluids (simplified: advect + diffuse + project, multi-kernel per step) ---
+// Real Stable Fluids has ~22 kernels/step. We use 6 kernels: advect_u, advect_v, diffuse_u, diffuse_v, divergence, pressure_jacobi×N
+// Simplified to 4 representative kernels per step for overhead measurement.
+__global__ void sf_advect(int N, const float* u, const float* v, const float* field, float* out) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x, j=blockIdx.y*blockDim.y+threadIdx.y;
+    if(i>=1&&i<N-1&&j>=1&&j<N-1){int idx=i*N+j;
+        float dt=0.1f, dx=1.0f/N;
+        float x=(float)j*dx-dt*u[idx], y=(float)i*dx-dt*v[idx];
+        x=fmaxf(dx,fminf(x,(N-2)*dx)); y=fmaxf(dx,fminf(y,(N-2)*dx));
+        int j0=(int)(x/dx),i0=(int)(y/dx); j0=max(1,min(j0,N-2));i0=max(1,min(i0,N-2));
+        float fx=x/dx-j0,fy=y/dx-i0;
+        out[idx]=(1-fx)*(1-fy)*field[i0*N+j0]+fx*(1-fy)*field[i0*N+j0+1]
+                +(1-fx)*fy*field[(i0+1)*N+j0]+fx*fy*field[(i0+1)*N+j0+1];}
+}
+__global__ void sf_divergence(int N, const float* u, const float* v, float* div) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x, j=blockIdx.y*blockDim.y+threadIdx.y;
+    if(i>=1&&i<N-1&&j>=1&&j<N-1){int idx=i*N+j;
+        float dx=1.0f/N;
+        div[idx]=-0.5f*dx*((u[idx+1]-u[idx-1])+(v[idx+N]-v[idx-N]));}
+}
+__global__ void sf_pressure_jacobi(int N, const float* p, float* p2, const float* div) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x, j=blockIdx.y*blockDim.y+threadIdx.y;
+    if(i>=1&&i<N-1&&j>=1&&j<N-1){int idx=i*N+j;
+        p2[idx]=(div[idx]+p[idx-1]+p[idx+1]+p[idx-N]+p[idx+N])*0.25f;}
+}
+__global__ void sf_project(int N, float* u, float* v, const float* p) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x, j=blockIdx.y*blockDim.y+threadIdx.y;
+    if(i>=1&&i<N-1&&j>=1&&j<N-1){int idx=i*N+j;
+        float dx=1.0f/N;
+        u[idx]-=0.5f*(p[idx+1]-p[idx-1])/dx;
+        v[idx]-=0.5f*(p[idx+N]-p[idx-N])/dx;}
+}
+// Persistent: all phases in one kernel
+__global__ void sf_persistent(int N, float* u, float* v, float* u2, float* v2,
+                               float* p, float* p2, float* div, int STEPS, int JACOBI_ITERS) {
+    int i=blockIdx.x*blockDim.x+threadIdx.x, j=blockIdx.y*blockDim.y+threadIdx.y;
+    for(int s=0;s<STEPS;s++){
+        // Advect u
+        if(i>=1&&i<N-1&&j>=1&&j<N-1){int idx=i*N+j;
+            float dt=0.1f,dx=1.0f/N;
+            float x=(float)j*dx-dt*u[idx],y=(float)i*dx-dt*v[idx];
+            x=fmaxf(dx,fminf(x,(N-2)*dx));y=fmaxf(dx,fminf(y,(N-2)*dx));
+            int j0=(int)(x/dx),i0=(int)(y/dx);j0=max(1,min(j0,N-2));i0=max(1,min(i0,N-2));
+            float fx=x/dx-j0,fy=y/dx-i0;
+            u2[idx]=(1-fx)*(1-fy)*u[i0*N+j0]+fx*(1-fy)*u[i0*N+j0+1]
+                   +(1-fx)*fy*u[(i0+1)*N+j0]+fx*fy*u[(i0+1)*N+j0+1];
+            v2[idx]=(1-fx)*(1-fy)*v[i0*N+j0]+fx*(1-fy)*v[i0*N+j0+1]
+                   +(1-fx)*fy*v[(i0+1)*N+j0]+fx*fy*v[(i0+1)*N+j0+1];}
+        cg::this_grid().sync();
+        // Divergence
+        if(i>=1&&i<N-1&&j>=1&&j<N-1){int idx=i*N+j;
+            float dx=1.0f/N; div[idx]=-0.5f*dx*((u2[idx+1]-u2[idx-1])+(v2[idx+N]-v2[idx-N]));
+            p[idx]=0;}
+        cg::this_grid().sync();
+        // Pressure Jacobi iterations
+        for(int jj=0;jj<JACOBI_ITERS;jj++){
+            if(i>=1&&i<N-1&&j>=1&&j<N-1){int idx=i*N+j;
+                p2[idx]=(div[idx]+p[idx-1]+p[idx+1]+p[idx-N]+p[idx+N])*0.25f;}
+            cg::this_grid().sync();
+            if(i>=1&&i<N-1&&j>=1&&j<N-1){int idx=i*N+j;p[idx]=p2[idx];}
+            cg::this_grid().sync();
+        }
+        // Project
+        if(i>=1&&i<N-1&&j>=1&&j<N-1){int idx=i*N+j;
+            float dx=1.0f/N;
+            u[idx]=u2[idx]-0.5f*(p[idx+1]-p[idx-1])/dx;
+            v[idx]=v2[idx]-0.5f*(p[idx+N]-p[idx-N])/dx;}
+        cg::this_grid().sync();
+    }
+}
+
 // --- Monte Carlo Random Walk ---
 __global__ void montecarlo_step(int N, float* x, float* y, unsigned int* state) {
     int i=blockIdx.x*blockDim.x+threadIdx.x;
@@ -2047,6 +2118,83 @@ int main(){
         print_result("SWE_LaxFried 128sq",r);
         cudaEventDestroy(t0);cudaEventDestroy(t1);
         cudaFree(h_f);cudaFree(hu);cudaFree(hv);cudaFree(h2);cudaFree(hu2);cudaFree(hv2);
+    }
+
+    // === Stable Fluids (multi-kernel: advect_u + advect_v + divergence + jacobi×20 + project) ===
+    printf("\n--- Stable Fluids ---\n");
+    {
+        int N=128, STEPS=200, N2=N*N, JACOBI_ITERS=20;
+        float *u_sf,*v_sf,*u2_sf,*v2_sf,*p_sf,*p2_sf,*div_sf;
+        CHECK(cudaMalloc(&u_sf,N2*4));CHECK(cudaMalloc(&v_sf,N2*4));
+        CHECK(cudaMalloc(&u2_sf,N2*4));CHECK(cudaMalloc(&v2_sf,N2*4));
+        CHECK(cudaMalloc(&p_sf,N2*4));CHECK(cudaMalloc(&p2_sf,N2*4));CHECK(cudaMalloc(&div_sf,N2*4));
+        float*h=(float*)malloc(N2*4);for(int i=0;i<N2;i++)h[i]=0.01f*(i%100);
+        cudaMemcpy(u_sf,h,N2*4,cudaMemcpyHostToDevice);cudaMemcpy(v_sf,h,N2*4,cudaMemcpyHostToDevice);free(h);
+        CHECK(cudaMemset(p_sf,0,N2*4));CHECK(cudaMemset(p2_sf,0,N2*4));
+        dim3 block(16,16),grid((N+15)/16,(N+15)/16);int cg=(N2+255)/256;
+        cudaEvent_t t0,t1;CHECK(cudaEventCreate(&t0));CHECK(cudaEventCreate(&t1));
+        // Warmup
+        for(int i=0;i<5;i++){
+            sf_advect<<<grid,block>>>(N,u_sf,v_sf,u_sf,u2_sf);sf_advect<<<grid,block>>>(N,u_sf,v_sf,v_sf,v2_sf);
+            sf_divergence<<<grid,block>>>(N,u2_sf,v2_sf,div_sf);
+            for(int j=0;j<JACOBI_ITERS;j++){sf_pressure_jacobi<<<grid,block>>>(N,p_sf,p2_sf,div_sf);copy_f<<<cg,256>>>(N2,p2_sf,p_sf);}
+            sf_project<<<grid,block>>>(N,u2_sf,v2_sf,p_sf);copy_f<<<cg,256>>>(N2,u2_sf,u_sf);copy_f<<<cg,256>>>(N2,v2_sf,v_sf);
+        }
+        cudaDeviceSynchronize();
+        Result r;float ms;
+        // Sync (each step = advect×2 + div + jacobi×20 + project + copy×2)
+        int K_PER_STEP = 2+1+2*JACOBI_ITERS+1+2; // ~46 kernel launches per step!
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){
+            sf_advect<<<grid,block>>>(N,u_sf,v_sf,u_sf,u2_sf);sf_advect<<<grid,block>>>(N,u_sf,v_sf,v_sf,v2_sf);
+            sf_divergence<<<grid,block>>>(N,u2_sf,v2_sf,div_sf);
+            for(int j=0;j<JACOBI_ITERS;j++){sf_pressure_jacobi<<<grid,block>>>(N,p_sf,p2_sf,div_sf);copy_f<<<cg,256>>>(N2,p2_sf,p_sf);}
+            sf_project<<<grid,block>>>(N,u2_sf,v2_sf,p_sf);copy_f<<<cg,256>>>(N2,u2_sf,u_sf);copy_f<<<cg,256>>>(N2,v2_sf,v_sf);
+            cudaDeviceSynchronize();
+        }
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.sync_us=ms*1000/STEPS;
+        // Async
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){
+            sf_advect<<<grid,block>>>(N,u_sf,v_sf,u_sf,u2_sf);sf_advect<<<grid,block>>>(N,u_sf,v_sf,v_sf,v2_sf);
+            sf_divergence<<<grid,block>>>(N,u2_sf,v2_sf,div_sf);
+            for(int j=0;j<JACOBI_ITERS;j++){sf_pressure_jacobi<<<grid,block>>>(N,p_sf,p2_sf,div_sf);copy_f<<<cg,256>>>(N2,p2_sf,p_sf);}
+            sf_project<<<grid,block>>>(N,u2_sf,v2_sf,p_sf);copy_f<<<cg,256>>>(N2,u2_sf,u_sf);copy_f<<<cg,256>>>(N2,v2_sf,v_sf);
+        }
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.async_us=ms*1000/STEPS;
+        // Graph
+        {int REPS=3;cudaGraph_t g;cudaGraphExec_t ge;cudaStream_t stream;
+         CHECK(cudaStreamCreate(&stream));CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+         for(int s=0;s<STEPS;s++){
+             sf_advect<<<grid,block,0,stream>>>(N,u_sf,v_sf,u_sf,u2_sf);sf_advect<<<grid,block,0,stream>>>(N,u_sf,v_sf,v_sf,v2_sf);
+             sf_divergence<<<grid,block,0,stream>>>(N,u2_sf,v2_sf,div_sf);
+             for(int j=0;j<JACOBI_ITERS;j++){sf_pressure_jacobi<<<grid,block,0,stream>>>(N,p_sf,p2_sf,div_sf);copy_f<<<cg,256,0,stream>>>(N2,p2_sf,p_sf);}
+             sf_project<<<grid,block,0,stream>>>(N,u2_sf,v2_sf,p_sf);copy_f<<<cg,256,0,stream>>>(N2,u2_sf,u_sf);copy_f<<<cg,256,0,stream>>>(N2,v2_sf,v_sf);
+         }
+         CHECK(cudaStreamEndCapture(stream,&g));CHECK(cudaGraphInstantiate(&ge,g,NULL,NULL,0));
+         for(int i=0;i<2;i++){cudaGraphLaunch(ge,stream);cudaStreamSynchronize(stream);}
+         cudaEventRecord(t0,stream);for(int i=0;i<REPS;i++)cudaGraphLaunch(ge,stream);
+         cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+         cudaEventElapsedTime(&ms,t0,t1);r.graph_us=ms*1000/(STEPS*REPS);
+         cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);}
+        // Persistent
+        {int numBSm=0;cudaDeviceProp prop;cudaGetDeviceProperties(&prop,0);
+         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm,sf_persistent,256,0);
+         int maxB=numBSm*prop.multiProcessorCount;
+         if((int)(grid.x*grid.y)<=maxB){
+             void*args[]={(void*)&N,(void*)&u_sf,(void*)&v_sf,(void*)&u2_sf,(void*)&v2_sf,
+                          (void*)&p_sf,(void*)&p2_sf,(void*)&div_sf,(void*)&STEPS,(void*)&JACOBI_ITERS};
+             cudaLaunchCooperativeKernel((void*)sf_persistent,grid,block,args);cudaDeviceSynchronize();
+             int REPS=3;cudaEventRecord(t0);
+             for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)sf_persistent,grid,block,args);
+             cudaEventRecord(t1);cudaDeviceSynchronize();
+             cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
+         } else r.persistent_us=-1;}
+        char name[64];snprintf(name,64,"StableFluids 128sq (%dk/step)",K_PER_STEP);
+        print_result(name,r);
+        cudaEventDestroy(t0);cudaEventDestroy(t1);
+        cudaFree(u_sf);cudaFree(v_sf);cudaFree(u2_sf);cudaFree(v2_sf);
+        cudaFree(p_sf);cudaFree(p2_sf);cudaFree(div_sf);
     }
 
     // === Helmholtz/Poisson (same stencil as Jacobi, different name) ===
