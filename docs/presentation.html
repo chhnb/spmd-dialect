@@ -61,7 +61,7 @@ code { font-family: 'Fira Code','Consolas',monospace; background: #1e293b; paddi
   <p style="margin-top:30px;">测试平台：<span class="highlight">RTX 3060 Laptop GPU</span> (30 SMs, Ampere sm_86)</p>
   <p>核心案例：hydro-cal 浅水方程 (OSHER Riemann solver, fp64, 106 regs/thread)</p>
   <p>覆盖：36 种 simulation kernel type (每种 1-3 个 grid size)，9 个领域，4 种 CUDA 执行策略</p>
-  <div class="page-num">1 / 14</div>
+  <div class="page-num">1 / 15</div>
 </div>
 
 <!-- ==================== SLIDE 2: Starting Point ==================== -->
@@ -100,7 +100,7 @@ for day in range(10):
     Kokkos(C++) 小网格比 Python DSL 快 <span class="highlight">2-3x</span>，大网格接近。<br>
     → <span class="red">Python DSL 有固定开销，小网格时暴露最明显。</span>
   </div>
-  <div class="page-num">2 / 14</div>
+  <div class="page-num">2 / 15</div>
 </div>
 
 <!-- SLIDE 12: F1 OSHER Deep Dive -->
@@ -146,7 +146,33 @@ for day in range(10):
     大 grid (128²): Graph 最优 144.4μs, Persistent <span class="red">超限</span>。<br>
     <span style="color:#888;">数据来源：<code>3060_hydro_f1_frameworks_rerun2.txt</code> + <code>3060_hydro_f1_osher_adaptive_threads_v2.txt</code></span>
   </div>
-  <div class="page-num">3 / 14</div>
+  <div class="page-num">3 / 15</div>
+</div>
+
+<!-- Cross-framework comparison page -->
+<div class="slide">
+  <h2>3. 跨框架对比：Taichi / Warp / Kokkos / CUDA</h2>
+  <p>对有多框架实现的 kernel，在 3060 上统一对比。每行的 CUDA Sync ≈ DSL 用户体验。</p>
+
+  <table style="font-size:0.78em;">
+    <tr><th>Kernel</th><th>Taichi (μs)</th><th>Warp (μs)</th><th>Kokkos (μs)</th><th class="bad">CUDA Sync</th><th class="best">CUDA Graph</th><th class="best">Persistent</th></tr>
+    <tr><td><strong>F1 OSHER 64²</strong> (fp64)</td><td>138.1</td><td>128.1</td><td>57.0</td><td class="bad">149.2</td><td class="best">69.4</td><td class="best">56.1</td></tr>
+    <tr><td><strong>F1 OSHER 32²</strong> (fp64)</td><td>189.7</td><td>131.4</td><td>52.5</td><td class="bad">137.4</td><td>42.2</td><td class="best">38.5</td></tr>
+    <tr><td>Jacobi2D 512² (10 steps)</td><td>121 /step</td><td>87 /step</td><td>—</td><td class="bad">110.4</td><td class="best">17.5</td><td>N/A</td></tr>
+    <tr><td>Wave2D 512² (10 steps)</td><td>639 /step</td><td>—</td><td>—</td><td class="bad">77.4</td><td class="best">3.8</td><td class="best">3.7</td></tr>
+    <tr><td>NBody N=1024 (10 steps)</td><td>118 /step</td><td>—</td><td>—</td><td class="bad">103.0</td><td class="best">42.9</td><td>57.1</td></tr>
+    <tr><td>StableFluids 128² (46k/step)</td><td>1876 /step</td><td>—</td><td>—</td><td class="bad">792.4</td><td class="best">79.2</td><td class="best">70.0</td></tr>
+  </table>
+
+  <div class="key-finding">
+    <strong>核心观察</strong>：<br>
+    1. <strong>Taichi ≈ CUDA Sync</strong> — 两者数量级一致，Taichi 就是每步 launch + sync<br>
+    2. <strong>Warp 略快于 Taichi</strong> (~10-30%)，但仍有 overhead floor (~128 μs for F1)<br>
+    3. <strong>Kokkos (C++) ≈ CUDA Async</strong> — 无 Python overhead，但仍有 launch overhead<br>
+    4. <strong>Graph/Persistent 比所有 DSL 都快</strong> — 因为消除了 host-device round-trip<br>
+    <span style="color:#888;">数据：<code>3060_hydro_f1_frameworks_rerun2.txt</code>, <code>3060_jacobi.txt</code>, <code>3060_characterization.txt</code>, <code>3060_extended_characterization_full.txt</code></span>
+  </div>
+  <div class="page-num">4 / 15</div>
 </div>
 
 <!-- 36 Kernel Table: Page 1 of 2 — Stencil + CFD + Particle -->
@@ -192,7 +218,7 @@ for day in range(10):
     <tr><td>MD LJ N=1024</td><td>368.4</td><td>283.8</td><td class="best">279.8</td><td>299.6</td><td>1.3x</td><td>24%</td></tr>
     <tr><td>PIC NP=4096 <span style="color:#888;">(4k/step)</span></td><td class="bad">97.9</td><td>67.3</td><td>5.6</td><td class="best">4.6</td><td class="green">21.5x</td><td class="red">95%</td></tr>
   </table>
-  <div class="page-num">4 / 14</div>
+  <div class="page-num">5 / 15</div>
 </div>
 
 <!-- 36 Kernel Table: Page 2 of 2 — EM + FEM + Transport + PDE + Other + Classic -->
@@ -235,7 +261,7 @@ for day in range(10):
     4. <strong>CG Solver</strong>：Graph ❌（host readback），只有 Persistent 能做 — <strong>迭代求解器的收敛判断是常见的 host readback pattern</strong><br>
     <span style="color:#888;">数据：<code>3060_extended_characterization_full.txt</code>, <code>3060_solutions_rerun.txt</code>, <code>3060_cg_fusion.txt</code>, <code>3060_lulesh_fusion.txt</code></span>
   </div>
-  <div class="page-num">5 / 14</div>
+  <div class="page-num">6 / 15</div>
 </div>
 
 <!-- SLIDE 4: How We Measure — Control Variable Method -->
@@ -264,7 +290,7 @@ for day in range(10):
     Block size sweep 通过 <code>--mode persistent</code> 配合不同 <code>THREADS</code> 值获得。<br>
     结果文件：<code>benchmark/results/3060_osher_adaptive.txt</code>
   </div>
-  <div class="page-num">6 / 14</div>
+  <div class="page-num">7 / 15</div>
 </div>
 
 <!-- SLIDE 5: What is Overhead -->
@@ -292,7 +318,7 @@ for day in range(10):
     <code>cudaDeviceSynchronize()</code> 是最大开销 (56%)。Taichi/Warp 每个 kernel 后都调它——因为 Python 要拿到 GPU 结果才能执行下一行代码。<br>
     多 kernel/step 的 case（如 F2 每步 2 kernel、CG 每步 5 kernel）overhead 翻倍。
   </div>
-  <div class="page-num">7 / 14</div>
+  <div class="page-num">8 / 15</div>
 </div>
 
 <!-- ==================== SLIDE 3: 36 Kernel Table (先亮结论) ==================== -->
@@ -343,7 +369,7 @@ persistent_kernel&lt;&lt;&lt;coop_grid, block&gt;&gt;&gt;(...) {
     完整 OSHER solver (106 regs, fp64)：<span class="red">overhead 仍占 37-74%</span>。<br>
     不是 trivial stencil 才有的问题——真实工程 kernel 也是如此。
   </div>
-  <div class="page-num">8 / 14</div>
+  <div class="page-num">9 / 15</div>
 </div>
 
 <!-- SLIDE 5.5: What We Move to GPU — Persistent Kernel Mechanism -->
@@ -403,7 +429,7 @@ __global__ void persistent_kernel(...) {
     <strong>代码来源</strong>：<code>hydro_cuda_osher.cu</code> 第 418-530 行 (<code>persistent_kernel</code>)，第 956-1008 行 (<code>bench_persistent</code>)<br>
     底层实现：每个 block 到达 barrier 后 atomic increment 计数器，然后 spin-wait 直到计数器 == <code>gridDim.x</code>
   </div>
-  <div class="page-num">9 / 14</div>
+  <div class="page-num">10 / 15</div>
 </div>
 
 <!-- SLIDE 5.6: CUDA Graph vs Persistent Comparison -->
@@ -436,7 +462,7 @@ __global__ void persistent_kernel(...) {
     <strong>Block size 影响 (1.86x) ≈ 策略选择影响 (1.91x)</strong> — 意外发现，联合优化必要。<br>
     → <strong>需要 legality-aware cost model 自动选择</strong>，不是人能手动判断的。
   </div>
-  <div class="page-num">10 / 14</div>
+  <div class="page-num">11 / 15</div>
 </div>
 
 <!-- SLIDE 5: CG Case -->
@@ -503,7 +529,7 @@ cg_persistent&lt;&lt;&lt;coop_grid, 256&gt;&gt;&gt;
     我们：5 kernel 融合为 1 + device-side scalar → <span class="green">40.8x</span>。CUDA Graph <span class="red">不可用</span>（不能中断 replay 做 readback）。<br>
     <span style="color:#888;">PERKS 代码已 clone: <code>benchmark/PERKS/conjugateGradient/</code>，可直接对比</span>
   </div>
-  <div class="page-num">11 / 14</div>
+  <div class="page-num">12 / 15</div>
 </div>
 
 <!-- SLIDE 8: LULESH + Strategy Selection -->
@@ -529,7 +555,7 @@ cg_persistent&lt;&lt;&lt;coop_grid, 256&gt;&gt;&gt;
     128² 时 persistent 需要 66 blocks > cooperative limit 60 → <span class="red">不可用</span>，自动 fallback 到 Graph。<br>
     <strong>同一个 kernel，不同 grid size 的最优策略不同</strong> → 需要自动选择。
   </div>
-  <div class="page-num">12 / 14</div>
+  <div class="page-num">13 / 15</div>
 </div>
 
 <!-- SLIDE 9: DMA Overlap -->
@@ -562,7 +588,7 @@ host_thread:
     PERKS (ICS'23) 和 AsyncTaichi <span class="red">都没做过</span> compute-communication overlap。<br>
     CUDA Graph 保存数据必须<span class="red">打断回放</span>（9.34 μs/step, +60%）；Persistent 可以<span class="green">边算边传</span>（6.58 μs/step, +12.5%）。
   </div>
-  <div class="page-num">13 / 14</div>
+  <div class="page-num">14 / 15</div>
 </div>
 
 <!-- SLIDE 12: Related Work -->
@@ -591,7 +617,7 @@ host_thread:
     <strong>CG Solver 是前人都做不了的 case</strong>：<br>
     Graph 不能中断 → ❌ &nbsp; PERKS 不能 fuse 多 kernel → ❌ &nbsp; <strong>只有我们 → <span class="green">40.8x ✓</span></strong>
   </div>
-  <div class="page-num">14 / 14</div>
+  <div class="page-num">15 / 15</div>
 </div>
 
 <script>
