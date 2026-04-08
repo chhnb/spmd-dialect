@@ -57,10 +57,10 @@ code { font-family: 'Fira Code','Consolas',monospace; background: #1e293b; paddi
 <!-- ==================== SLIDE 1: Title ==================== -->
 <div class="slide">
   <h1>GPU Simulation Time-Stepping Loop 的 Overhead 问题</h1>
-  <p class="subtitle">Benchmark 驱动的发现：36 种 Kernel × 4 种执行策略 × 9 个领域</p>
+  <p class="subtitle">Benchmark 驱动的发现：36 种 Kernel Type × 4 种执行策略 × 9 个领域</p>
   <p style="margin-top:30px;">测试平台：<span class="highlight">RTX 3060 Laptop GPU</span> (30 SMs, Ampere sm_86)</p>
   <p>核心案例：hydro-cal 浅水方程 (OSHER Riemann solver, fp64, 106 regs/thread)</p>
-  <p>覆盖：36 种 simulation kernel，9 个领域，4 种 CUDA 执行策略 (Sync / Async / Graph / Persistent)</p>
+  <p>覆盖：36 种 simulation kernel type (每种 1-3 个 grid size)，9 个领域，4 种 CUDA 执行策略</p>
   <div class="page-num">1 / 13</div>
 </div>
 
@@ -105,18 +105,18 @@ for day in range(10):
 
 <!-- SLIDE 10: 36/36 Kernel Characterization with 4-Strategy Verification -->
 <div class="slide">
-  <h2>2. Overhead 是普遍现象：36/36 Kernel × 4 策略验证</h2>
-  <p>RTX 3060 (30 SMs) 上实测。<strong>全部 36 种 kernel</strong> 均有 CUDA Sync/Async/Graph/Persistent 数据。</p>
+  <h2>2. Overhead 是普遍现象：36 种 Kernel × 4 策略验证</h2>
+  <p>RTX 3060 (30 SMs) 上实测。36 种 kernel type 在 <strong>4 策略框架下系统验证</strong>（对每种 kernel 测试所有合法策略）。</p>
 
   <table style="font-size:0.68em; max-width:100%;">
     <tr><th>领域</th><th>Kernel</th><th class="bad">Sync (μs)</th><th>Async</th><th class="best">Graph (μs)</th><th class="best">Persist (μs)</th><th>最佳加速</th><th>OH%</th></tr>
     <!-- Stencil (9) -->
     <tr><td rowspan="9" style="vertical-align:top;"><strong>Stencil<br>(9)</strong></td>
-        <td>Heat2D 128²</td><td class="bad">107.0</td><td>30.9</td><td class="best">4.7</td><td class="best">4.3</td><td class="green">25.0x</td><td class="red">96%</td></tr>
+        <td>Heat2D 128²</td><td class="bad">83.4</td><td>36.1</td><td class="best">4.4</td><td class="best">4.3</td><td class="green">19.4x</td><td class="red">95%</td></tr>
     <tr><td>Heat3D 32³</td><td class="bad">70.0</td><td>32.5</td><td class="best">3.0</td><td class="best">2.6</td><td class="green">27.0x</td><td class="red">96%</td></tr>
     <tr><td>Jacobi2D 128²</td><td class="bad">82.3</td><td>31.7</td><td>4.3</td><td class="best">4.0</td><td class="green">20.7x</td><td class="red">95%</td></tr>
     <tr><td>Wave2D 128²</td><td class="bad">77.4</td><td>34.9</td><td>3.8</td><td class="best">3.7</td><td class="green">20.9x</td><td class="red">95%</td></tr>
-    <tr><td>GrayScott 128²</td><td class="bad">121.2</td><td>46.8</td><td>6.4</td><td class="best">5.4</td><td class="green">22.6x</td><td class="red">96%</td></tr>
+    <tr><td>GrayScott 128²</td><td class="bad">95.3</td><td>39.7</td><td>6.0</td><td class="best">5.1</td><td class="green">18.7x</td><td class="red">95%</td></tr>
     <tr><td>Allen-Cahn 128²</td><td class="bad">79.3</td><td>32.1</td><td>3.3</td><td class="best">3.0</td><td class="green">26.2x</td><td class="red">96%</td></tr>
     <tr><td>Cahn-Hilliard 128²</td><td class="bad">76.2</td><td>77.5</td><td>4.2</td><td class="best">3.8</td><td class="green">20.2x</td><td class="red">95%</td></tr>
     <tr><td>Burgers2D 128²</td><td class="bad">96.4</td><td>45.2</td><td>6.5</td><td class="best">5.7</td><td class="green">16.9x</td><td class="red">94%</td></tr>
@@ -167,7 +167,7 @@ for day in range(10):
   </table>
 
   <div class="key-finding">
-    <strong>36/36 kernel，9 个领域，全部验证</strong>：<br>
+    <strong>36 种 kernel type，9 个领域，系统验证</strong>：<br>
     1. <strong>Overhead-dominated (30 kernel)</strong>：OH = 87-99%，Graph/Persistent 加速 <span class="green">7.9x - 74.3x</span><br>
     2. <strong>Compute-dominated (3 kernel: SPH, DEM, MD_LJ)</strong>：OH = 16-24%，加速 1.2-1.3x — overhead 不是瓶颈<br>
     3. <strong>Multi-kernel (3 kernel: StableFluids, CG, LULESH)</strong>：多 kernel/step 放大 overhead，加速 <span class="green">11-41x</span><br>
@@ -209,36 +209,27 @@ for day in range(10):
 <!-- SLIDE 5: What is Overhead -->
 <div class="slide">
   <h2>4. Overhead 是什么</h2>
-  <p>每步 Taichi/Warp 走完这条路径（F1 hydro-cal 64², 3060 实测）：</p>
+  <p>我们通过控制变量实测分解出每层开销（Heat2D 128², 3060）：</p>
 
-  <div class="pipeline">
-    <span class="pipe-stage pipe-python">Python<span class="pipe-label">~3 μs</span></span>
-    <span class="pipe-arrow">→</span>
-    <span class="pipe-stage pipe-runtime">DSL runtime<span class="pipe-label">~5 μs</span></span>
-    <span class="pipe-arrow">→</span>
-    <span class="pipe-stage pipe-driver">CUDA driver launch<span class="pipe-label">~30 μs</span></span>
-    <span class="pipe-arrow">→</span>
-    <span class="pipe-stage pipe-compute">GPU compute<span class="pipe-label">~50 μs</span></span>
-    <span class="pipe-arrow">→</span>
-    <span class="pipe-stage pipe-runtime">cudaSync<span class="pipe-label">~50 μs</span></span>
-    <span class="pipe-arrow">→</span>
-    <span class="pipe-stage pipe-python">返回 Python</span>
-  </div>
+  <table>
+    <tr><th>组成</th><th>μs</th><th>怎么测的</th></tr>
+    <tr><td class="best">GPU compute</td><td class="best">~4 μs</td><td>Graph 测得（≈ 纯 compute）</td></tr>
+    <tr><td>Launch overhead</td><td>~32 μs</td><td>Async − Graph（去掉 sync 后剩下的 = launch）</td></tr>
+    <tr><td class="bad">Sync overhead</td><td class="bad">~47 μs</td><td>Sync − Async（每步 cudaDeviceSynchronize 的代价）</td></tr>
+    <tr><td><strong>Total (Sync)</strong></td><td><strong>~83 μs</strong></td><td>Sync 模式实测</td></tr>
+  </table>
+  <p><code>OH = (83 − 4) / 83 = <span class="red">95% overhead</span></code></p>
 
   <div class="bar-chart">
-    <div class="bar-row"><div class="bar-label">GPU compute</div><div class="bar-container"><div class="bar bar-graph" style="width:26%">~50 μs (26%)</div></div></div>
-    <div class="bar-row"><div class="bar-label">cudaSync</div><div class="bar-container"><div class="bar bar-sync" style="width:26%">~50 μs (26%)</div></div></div>
-    <div class="bar-row"><div class="bar-label">CUDA launch</div><div class="bar-container"><div class="bar bar-async" style="width:16%">~30 μs (16%)</div></div></div>
-    <div class="bar-row"><div class="bar-label">Python+DSL</div><div class="bar-container"><div class="bar bar-persist" style="width:6%">~8 μs</div></div></div>
+    <div class="bar-row"><div class="bar-label">GPU compute</div><div class="bar-container"><div class="bar bar-graph" style="width:5%">4 μs (5%)</div></div></div>
+    <div class="bar-row"><div class="bar-label">Launch OH</div><div class="bar-container"><div class="bar bar-async" style="width:39%">32 μs (39%)</div></div></div>
+    <div class="bar-row"><div class="bar-label">Sync OH</div><div class="bar-container"><div class="bar bar-sync" style="width:56%">47 μs (56%)</div></div></div>
   </div>
-
-  <p>Graph 消除了 launch + sync → 只剩 GPU compute (~50 μs)。<br>
-  Sync 模式 = compute + launch + sync ≈ 190 μs → <span class="red">overhead = 140 μs = 74%</span></p>
+  <p><small>数据: Sync=83.4, Async=36.1, Graph=4.4 μs (3060_solutions_rerun.txt Heat2D 128²)</small></p>
 
   <div class="key-finding">
-    <code>cudaDeviceSynchronize()</code> 是最大开销。Taichi/Warp 每个 kernel 后都调它——<br>
-    因为 Python 要拿到 GPU 结果才能执行下一行代码。<br>
-    F2 每步 2 个 kernel → <span class="red">2 次 launch + 2 次 sync = overhead 翻倍</span>。
+    <code>cudaDeviceSynchronize()</code> 是最大开销 (56%)。Taichi/Warp 每个 kernel 后都调它——因为 Python 要拿到 GPU 结果才能执行下一行代码。<br>
+    多 kernel/step 的 case（如 F2 每步 2 kernel、CG 每步 5 kernel）overhead 翻倍。
   </div>
   <div class="page-num">5 / 13</div>
 </div>
@@ -375,7 +366,7 @@ __global__ void persistent_kernel(...) {
     <tr><td>F1 OSHER 32² (3060)</td><td class="best">Persistent</td><td>blocks=4 &lt; coop_limit=28, 开销更低</td><td><code>3060_osher_adaptive.txt</code></td></tr>
     <tr><td>F1 OSHER 128² (3060)</td><td class="best">Graph</td><td>blocks=64 &gt; coop_limit=28, Persistent <span class="red">非法</span></td><td><code>hydro_cuda_osher.cu bench_persistent()</code></td></tr>
     <tr><td>CG Solver 64² (3060)</td><td class="best">Persistent</td><td>Graph <span class="red">不可用</span>（需要 host readback alpha/beta）</td><td><code>cg_persistent.cu</code></td></tr>
-    <tr><td>Jacobi2D 128² (3060)</td><td class="best">Persistent 29.6x</td><td>轻 kernel (16 regs), coop_limit 宽裕</td><td><code>3060 characterization</code></td></tr>
+    <tr><td>Jacobi2D 128² (3060)</td><td class="best">Persistent 20.7x</td><td>轻 kernel (16 regs), coop_limit 宽裕</td><td><code>3060_extended_characterization_full.txt</code></td></tr>
     <tr><td>Jacobi2D 128² (<span class="highlight">B200</span>)</td><td class="best">Graph 4.3x</td><td>148 SMs → grid.sync 代价更高</td><td><code>b200 characterization</code></td></tr>
   </table>
 
@@ -542,20 +533,22 @@ host_thread:
 <div class="slide">
   <h2>12. 总结 & 讨论</h2>
 
-  <h3>已完成</h3>
-  <p>✅ hydro-cal F1/F2 跨框架 benchmark (Taichi/Warp/Kokkos/CUDA, 完整 OSHER)</p>
-  <p>✅ 发现 overhead 占 37-94% → 用 4 种策略验证可消除</p>
-  <p>✅ CG 5-kernel persistent fusion: <span class="green">40.8x</span> (Graph/PERKS 都做不了)</p>
-  <p>✅ LULESH strategy selection: persistent 27x ↔ Graph fallback 10x</p>
-  <p>✅ Compute + DMA overlap: +12.5% overhead 的零开销数据保存</p>
-  <p>✅ 36 kernel × 130 configs 系统验证 + NCU profiling</p>
-  <p>✅ Cost model (MAPE 16%) + strategy selector 工具</p>
-  <p>✅ AsyncTaichi 源码分析 (为什么废弃)</p>
+  <h3>核心 thesis</h3>
+  <p>GPU simulation 的 time-stepping loop 经常被 host round-trip overhead 主导；<br>
+  Graph 和 Persistent 都能消除，但最优策略受 <strong>legality 和 kernel structure 约束</strong>：<br>
+  CG 这类 multi-kernel + host readback 的 case <strong>只有 Persistent 能做</strong>。</p>
 
-  <h3>待讨论</h3>
-  <p>1. CG 40x + LULESH strategy selection 够不够作为核心贡献？</p>
-  <p>2. 投 characterization paper (ISPASS) 还是 systems paper (ICS/PPoPP)？</p>
-  <p>3. 下一步：hook 进 Taichi runtime 做完整自动化？还是先写论文？</p>
+  <h3>已有的实验证据</h3>
+  <p>✅ 36 种 kernel type × 4 种策略，在 3060 上系统验证 overhead 普遍性</p>
+  <p>✅ CG Solver：Graph 不可用，Persistent <span class="green">40.8x</span></p>
+  <p>✅ LULESH：128² 时 Persistent 超限 → Graph fallback 10x（策略翻转）</p>
+  <p>✅ DMA overlap：Persistent 边算边传，+12.5%（Graph 必须打断，+60%）</p>
+  <p>✅ hydro-cal F1 跨框架对比：Taichi ≈ CUDA Sync，验证 DSL 就是 Sync 模式</p>
+
+  <h3>请导师拍板</h3>
+  <p>1. 这组 benchmark 发现 + CG/LULESH case study 够不够一篇 paper 的核心？</p>
+  <p>2. 定位为 characterization paper (ISPASS) 还是 systems paper (ICS/PPoPP)？</p>
+  <p>3. 下一步方向：cost model 做精 → auto-selector？还是先写论文？</p>
   <div class="page-num">13 / 13</div>
 </div>
 
