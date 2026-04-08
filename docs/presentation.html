@@ -61,7 +61,7 @@ code { font-family: 'Fira Code','Consolas',monospace; background: #1e293b; paddi
   <p style="margin-top:30px;">测试平台：<span class="highlight">RTX 3060 Laptop GPU</span> (30 SMs, Ampere sm_86)</p>
   <p>核心案例：hydro-cal 浅水方程 (OSHER Riemann solver, fp64, 106 regs/thread)</p>
   <p>覆盖：36 种 simulation kernel type (每种 1-3 个 grid size)，9 个领域，4 种 CUDA 执行策略</p>
-  <div class="page-num">1 / 15</div>
+  <div class="page-num">1 / 17</div>
 </div>
 
 <!-- ==================== SLIDE 2: Starting Point ==================== -->
@@ -100,7 +100,7 @@ for day in range(10):
     Kokkos(C++) 小网格比 Python DSL 快 <span class="highlight">2-3x</span>，大网格接近。<br>
     → <span class="red">Python DSL 有固定开销，小网格时暴露最明显。</span>
   </div>
-  <div class="page-num">2 / 15</div>
+  <div class="page-num">2 / 17</div>
 </div>
 
 <!-- SLIDE 12: F1 OSHER Deep Dive -->
@@ -146,7 +146,7 @@ for day in range(10):
     大 grid (128²): Graph 最优 144.4μs, Persistent <span class="red">超限</span>。<br>
     <span style="color:#888;">数据来源：<code>3060_hydro_f1_frameworks_rerun2.txt</code> + <code>3060_hydro_f1_osher_adaptive_threads_v2.txt</code></span>
   </div>
-  <div class="page-num">3 / 15</div>
+  <div class="page-num">3 / 17</div>
 </div>
 
 <!-- Cross-framework comparison page -->
@@ -172,99 +172,90 @@ for day in range(10):
     4. <strong>Graph/Persistent 比所有 DSL 都快</strong> — 因为消除了 host-device round-trip<br>
     <span style="color:#888;">数据：<code>3060_hydro_f1_frameworks_rerun2.txt</code>, <code>3060_jacobi.txt</code>, <code>3060_characterization.txt</code>, <code>3060_extended_characterization_full.txt</code></span>
   </div>
-  <div class="page-num">4 / 15</div>
+  <div class="page-num">4 / 17</div>
 </div>
 
 <!-- 36 Kernel Table: Page 1 of 2 — Stencil + CFD + Particle -->
 <div class="slide">
-  <h2>3a. 36 Kernel 验证 (上)：Stencil / CFD / Particle</h2>
-  <p>RTX 3060, 36 种 kernel type, 4 策略框架下系统验证。<strong>每种 kernel 均可追溯到已有 benchmark suite 或框架 example</strong>。</p>
-
-  <table style="font-size:0.7em; margin-bottom:8px; max-width:100%;">
-    <tr><th>来源 benchmark / 框架</th><th>Kernel</th><th>repo / 引用</th></tr>
-    <tr><td>PolyBench/GPU (CUDA)</td><td>Jacobi2D, Heat3D, FDTD Maxwell</td><td><code>PolyBenchGPU/</code> (sgrauerg/polybenchGpu)</td></tr>
-    <tr><td>Parboil (UIUC)</td><td>Jacobi3D (stencil), LBM, SpMV</td><td><code>Parboil/</code> (abduld/Parboil)</td></tr>
-    <tr><td>Rodinia (IISWC'09)</td><td>HotSpot, SRAD</td><td>yuhc/gpu-rodinia</td></tr>
-    <tr><td>PERKS (ICS'23)</td><td>Jacobi3D, CG Solver</td><td><code>PERKS/</code> (neozhang307/PERKS)</td></tr>
-    <tr><td>LULESH (LLNL ECP)</td><td>LULESH-like (Lagrangian hydro)</td><td><code>LULESH-official/</code> (LLNL/LULESH)</td></tr>
-    <tr><td>Taichi examples</td><td>LBM (karman_vortex), SPH (pbf2d), StableFluids, NBody</td><td>taichi-dev/taichi/examples/simulation/</td></tr>
-    <tr><td>Warp examples</td><td>NBody, SPH, StableFluids</td><td>nvidia/warp/examples/</td></tr>
-    <tr><td>DiffTaichi (ICLR'20)</td><td>Wave2D, MassSpring, MPM</td><td><code>DiffTaichi/</code> (taichi-dev/difftaichi)</td></tr>
-    <tr><td>hydro-cal 工程</td><td>F1 OSHER (浅水方程)</td><td>本项目原始工程案例</td></tr>
-    <tr><td>数值方法教科书实现</td><td>Heat2D, AllenCahn, CahnHilliard, Burgers, ConvDiff, SWE_LF, Euler1D, Helmholtz, Poisson, Schr&ouml;dinger, KS, Upwind, ExplicitFEM, Cloth, Reduction, MonteCarlo, DEM, MD_LJ, PIC</td><td>LeVeque 2007, Toro 2009, Yee 1966 等</td></tr>
+  <h2>3a. 36 Kernel (1/4): Stencil</h2>
+  <p>RTX 3060 (30 SMs). 4 框架 + CUDA 4 策略。单位: μs/step。</p>
+  <table style="font-size:0.72em;">
+    <tr><th>Kernel</th><th>Taichi</th><th>Warp</th><th>Kokkos</th><th class="bad">CUDA Sync</th><th class="best">Graph</th><th class="best">Persist</th><th>加速</th><th>OH%</th></tr>
+    <tr><td>Heat2D 128sq</td><td>90</td><td>112</td><td>57</td><td>107</td><td class="best">5.1</td><td class="best">4.2</td><td class="green">26x</td><td class="red">96%</td></tr>
+    <tr><td>Heat3D 32cu</td><td>89</td><td>104</td><td>53</td><td>70</td><td class="best">3.0</td><td class="best">2.6</td><td class="green">27x</td><td class="red">96%</td></tr>
+    <tr><td>Jacobi2D 128sq</td><td>100</td><td>103</td><td>39</td><td>122</td><td class="best">5.1</td><td class="best">3.9</td><td class="green">31x</td><td class="red">97%</td></tr>
+    <tr><td>Wave2D 128sq</td><td>70</td><td>112</td><td>76</td><td>92</td><td class="best">3.7</td><td class="best">3.7</td><td class="green">25x</td><td class="red">96%</td></tr>
+    <tr><td>GrayScott 128sq</td><td>100</td><td>118</td><td>36</td><td>114</td><td class="best">7.7</td><td class="best">5.2</td><td class="green">22x</td><td class="red">95%</td></tr>
+    <tr><td>AllenCahn 128sq</td><td>89</td><td>109</td><td>41</td><td>83</td><td class="best">3.6</td><td class="best">3.1</td><td class="green">27x</td><td class="red">96%</td></tr>
+    <tr><td>CahnHilliard 128sq</td><td>114</td><td>102</td><td>37</td><td>89</td><td class="best">4.1</td><td class="best">3.9</td><td class="green">23x</td><td class="red">96%</td></tr>
+    <tr><td>Burgers2D 128sq</td><td>90</td><td>116</td><td>36</td><td>127</td><td class="best">6.4</td><td class="best">5.6</td><td class="green">22x</td><td class="red">96%</td></tr>
+    <tr><td>ConvDiff 128sq</td><td>92</td><td>105</td><td>38</td><td>80</td><td class="best">7.2</td><td class="best">4.0</td><td class="green">20x</td><td class="red">95%</td></tr>
   </table>
-
-  <table style="font-size:0.72em; max-width:100%;">
-    <tr><th>领域</th><th>Kernel</th><th class="bad">Sync (μs)</th><th>Async</th><th class="best">Graph</th><th class="best">Persist</th><th>最佳加速</th><th>OH%</th></tr>
-    <tr><td rowspan="9" style="vertical-align:top;"><strong>Stencil<br>(9)</strong></td>
-        <td>Heat2D 128²</td><td class="bad">83.4</td><td>36.1</td><td class="best">4.4</td><td class="best">4.3</td><td class="green">19.4x</td><td class="red">95%</td></tr>
-    <tr><td>Heat3D 32³</td><td class="bad">70.0</td><td>32.5</td><td class="best">3.0</td><td class="best">2.6</td><td class="green">27.0x</td><td class="red">96%</td></tr>
-    <tr><td>Jacobi2D 128²</td><td class="bad">82.3</td><td>31.7</td><td>4.3</td><td class="best">4.0</td><td class="green">20.7x</td><td class="red">95%</td></tr>
-    <tr><td>Wave2D 128²</td><td class="bad">77.4</td><td>34.9</td><td>3.8</td><td class="best">3.7</td><td class="green">20.9x</td><td class="red">95%</td></tr>
-    <tr><td>GrayScott 128²</td><td class="bad">95.3</td><td>39.7</td><td>6.0</td><td class="best">5.1</td><td class="green">18.7x</td><td class="red">95%</td></tr>
-    <tr><td>Allen-Cahn 128²</td><td class="bad">79.3</td><td>32.1</td><td>3.3</td><td class="best">3.0</td><td class="green">26.2x</td><td class="red">96%</td></tr>
-    <tr><td>Cahn-Hilliard 128²</td><td class="bad">76.2</td><td>77.5</td><td>4.2</td><td class="best">3.8</td><td class="green">20.2x</td><td class="red">95%</td></tr>
-    <tr><td>Burgers2D 128²</td><td class="bad">96.4</td><td>45.2</td><td>6.5</td><td class="best">5.7</td><td class="green">16.9x</td><td class="red">94%</td></tr>
-    <tr><td>ConvDiff 128²</td><td class="bad">83.0</td><td>34.0</td><td>3.5</td><td class="best">3.9</td><td class="green">23.4x</td><td class="red">96%</td></tr>
-    <tr><td rowspan="4" style="vertical-align:top;"><strong>CFD<br>(4)</strong></td>
-        <td>SWE LaxFried 128²</td><td class="bad">78.2</td><td>30.5</td><td class="best">8.1</td><td>8.9</td><td class="green">9.7x</td><td class="red">90%</td></tr>
-    <tr><td>LBM D2Q9 64²</td><td class="bad">76.1</td><td>35.6</td><td class="best">4.5</td><td>5.9</td><td class="green">16.9x</td><td class="red">94%</td></tr>
-    <tr><td>StableFluids 128² <span style="color:#888;">(46k/step)</span></td><td class="bad">792.4</td><td>736.4</td><td class="best">79.2</td><td class="best">70.0</td><td class="green">11.3x</td><td class="red">91%</td></tr>
-    <tr><td>Euler1D N=4K</td><td class="bad">104.2</td><td>65.1</td><td>7.9</td><td class="best">2.9</td><td class="green">36.5x</td><td class="red">97%</td></tr>
-    <tr><td rowspan="5" style="vertical-align:top;"><strong>Particle<br>(5)</strong></td>
-        <td>NBody N=256</td><td class="bad">77.1</td><td>33.5</td><td class="best">9.8</td><td>13.0</td><td class="green">7.9x</td><td class="red">87%</td></tr>
-    <tr><td>SPH N=1024</td><td>695.5</td><td>587.3</td><td class="best">582.2</td><td>613.2</td><td>1.2x</td><td>16%</td></tr>
-    <tr><td>DEM N=1024</td><td>616.9</td><td>511.8</td><td class="best">504.6</td><td>530.6</td><td>1.2x</td><td>18%</td></tr>
-    <tr><td>MD LJ N=1024</td><td>368.4</td><td>283.8</td><td class="best">279.8</td><td>299.6</td><td>1.3x</td><td>24%</td></tr>
-    <tr><td>PIC NP=4096 <span style="color:#888;">(4k/step)</span></td><td class="bad">97.9</td><td>67.3</td><td>5.6</td><td class="best">4.6</td><td class="green">21.5x</td><td class="red">95%</td></tr>
-  </table>
-  <div class="page-num">5 / 15</div>
+  <div class="page-num">5 / 17</div>
 </div>
 
-<!-- 36 Kernel Table: Page 2 of 2 — EM + FEM + Transport + PDE + Other + Classic -->
 <div class="slide">
-  <h2>3b. 36 Kernel 验证 (下)：EM / FEM / PDE / Classic</h2>
-
-  <table style="font-size:0.72em; max-width:100%;">
-    <tr><th>领域</th><th>Kernel</th><th class="bad">Sync (μs)</th><th>Async</th><th class="best">Graph</th><th class="best">Persist</th><th>最佳加速</th><th>OH%</th></tr>
-    <tr><td rowspan="2" style="vertical-align:top;"><strong>EM (2)</strong></td>
-        <td>FDTD Maxwell 128²</td><td class="bad">72.9</td><td>17.2</td><td class="best">4.1</td><td>4.5</td><td class="green">17.9x</td><td class="red">94%</td></tr>
-    <tr><td>Helmholtz2D 128²</td><td class="bad">74.5</td><td>33.2</td><td>5.3</td><td class="best">2.8</td><td class="green">26.4x</td><td class="red">96%</td></tr>
-    <tr><td rowspan="3" style="vertical-align:top;"><strong>FEM/<br>结构 (3)</strong></td>
-        <td>ExplicitFEM 128²</td><td class="bad">76.0</td><td>33.1</td><td>3.9</td><td class="best">3.5</td><td class="green">21.5x</td><td class="red">95%</td></tr>
-    <tr><td>Cloth 128²</td><td class="bad">79.8</td><td>32.7</td><td>3.4</td><td class="best">3.1</td><td class="green">25.5x</td><td class="red">96%</td></tr>
-    <tr><td>MassSpring1D N=4K</td><td class="bad">72.9</td><td>31.6</td><td>2.8</td><td class="best">1.8</td><td class="green">40.4x</td><td class="red">98%</td></tr>
-    <tr><td rowspan="2" style="vertical-align:top;"><strong>Transport<br>(2)</strong></td>
-        <td>SemiLagrangian 128²</td><td class="bad">74.6</td><td>33.2</td><td>3.3</td><td class="best">3.0</td><td class="green">24.6x</td><td class="red">96%</td></tr>
-    <tr><td>Upwind1D N=4K</td><td class="bad">73.3</td><td>31.9</td><td>2.8</td><td class="best">1.7</td><td class="green">44.5x</td><td class="red">98%</td></tr>
-    <tr><td rowspan="3" style="vertical-align:top;"><strong>PDE (3)</strong></td>
-        <td>Poisson2D 128²</td><td class="bad">76.9</td><td>35.3</td><td>3.1</td><td class="best">2.9</td><td class="green">26.8x</td><td class="red">96%</td></tr>
-    <tr><td>Schr&ouml;dinger1D N=4K</td><td class="bad">80.7</td><td>32.0</td><td>2.9</td><td class="best">2.1</td><td class="green">38.2x</td><td class="red">97%</td></tr>
-    <tr><td>KS 1D N=4K</td><td class="bad">86.8</td><td>31.2</td><td>2.8</td><td class="best">2.3</td><td class="green">37.9x</td><td class="red">97%</td></tr>
-    <tr><td rowspan="2" style="vertical-align:top;"><strong>Other (2)</strong></td>
-        <td>Reduction N=16K</td><td class="bad">97.0</td><td>32.3</td><td>2.8</td><td class="best">1.7</td><td class="green">55.8x</td><td class="red">98%</td></tr>
-    <tr><td>MonteCarlo N=4K</td><td class="bad">67.5</td><td>37.6</td><td>1.5</td><td class="best">1.0</td><td class="green">65.2x</td><td class="red">99%</td></tr>
-    <tr><td rowspan="6" style="vertical-align:top;"><strong>Classic<br>(6)</strong></td>
-        <td>Jacobi3D 32³ (PERKS)</td><td class="bad">71.6</td><td>74.7</td><td>3.3</td><td class="best">2.9</td><td class="green">24.5x</td><td class="red">96%</td></tr>
-    <tr><td>HotSpot 128² (Rodinia)</td><td class="bad">81.4</td><td>32.9</td><td>3.7</td><td class="best">3.3</td><td class="green">25.1x</td><td class="red">96%</td></tr>
-    <tr><td>SRAD 128² (Rodinia)</td><td class="bad">76.7</td><td>33.7</td><td>3.5</td><td class="best">3.3</td><td class="green">23.3x</td><td class="red">96%</td></tr>
-    <tr><td>SpMV N=4K</td><td class="bad">75.3</td><td>30.4</td><td>3.0</td><td class="best">1.8</td><td class="green">43.1x</td><td class="red">98%</td></tr>
-    <tr><td>CG Solver 128² <span style="color:#888;">(5k/step)</span></td><td class="bad">502.2</td><td>—</td><td class="na">❌ readback</td><td class="best">12.3</td><td class="green">40.8x</td><td class="red">98%</td></tr>
-    <tr><td>LULESH 64² <span style="color:#888;">(4k/step)</span></td><td class="bad">173.8</td><td>76.8</td><td class="best">7.7</td><td class="best">6.4</td><td class="green">27.0x</td><td class="red">96%</td></tr>
+  <h2>3b. 36 Kernel (2/4): CFD + Particle</h2>
+  <p>RTX 3060 (30 SMs). 4 框架 + CUDA 4 策略。单位: μs/step。</p>
+  <table style="font-size:0.72em;">
+    <tr><th>Kernel</th><th>Taichi</th><th>Warp</th><th>Kokkos</th><th class="bad">CUDA Sync</th><th class="best">Graph</th><th class="best">Persist</th><th>加速</th><th>OH%</th></tr>
+    <tr><td>SWE LaxFried 128sq</td><td>89</td><td>128</td><td>81</td><td>99</td><td class="best">8.0</td><td class="best">8.9</td><td class="green">12x</td><td class="red">92%</td></tr>
+    <tr><td>LBM D2Q9 64sq</td><td>88</td><td>100</td><td>101</td><td>82</td><td class="best">4.9</td><td class="best">6.0</td><td class="green">17x</td><td class="red">94%</td></tr>
+    <tr><td>StableFluids 128sq</td><td>1999</td><td>2364</td><td class="na">—</td><td>853</td><td>81</td><td>71</td><td class="green">12x</td><td class="red">92%</td></tr>
+    <tr><td>Euler1D N=4K</td><td>91</td><td>130</td><td>72</td><td>115</td><td class="best">5.6</td><td class="best">2.5</td><td class="green">46x</td><td class="red">98%</td></tr>
+    <tr><td>NBody N=256</td><td>83</td><td>140</td><td>321</td><td>82</td><td>12</td><td>13</td><td class="green">7x</td><td>86%</td></tr>
+    <tr><td>SPH N=1024</td><td>72</td><td>643</td><td>3097</td><td>696</td><td>587</td><td>615</td><td>1.2x</td><td>16%</td></tr>
+    <tr><td>DEM N=1024</td><td>79</td><td>227</td><td>2670</td><td>628</td><td>508</td><td>531</td><td>1.2x</td><td>19%</td></tr>
+    <tr><td>MD LJ N=1024</td><td>84</td><td>1170</td><td>1148</td><td>385</td><td>280</td><td>301</td><td>1.3x</td><td>27%</td></tr>
+    <tr><td>PIC NP=4096</td><td>1139</td><td>208</td><td>176</td><td>140</td><td class="best">6.0</td><td class="best">4.4</td><td class="green">32x</td><td class="red">97%</td></tr>
   </table>
-
-  <div class="key-finding">
-    <strong>36 种 kernel type, 9 个领域, 系统验证</strong>：<br>
-    1. <strong>Overhead-dominated (30 kernel)</strong>：OH 87-99%，Graph/Persistent <span class="green">7.9x - 65.2x</span><br>
-    2. <strong>Compute-dominated (SPH, DEM, MD_LJ)</strong>：OH 16-24%，加速 1.2-1.3x — overhead 不是瓶颈<br>
-    3. <strong>Multi-kernel (StableFluids 46k/step, CG 5k/step, LULESH 4k/step)</strong>：overhead 被多次 launch 放大<br>
-    4. <strong>CG Solver</strong>：Graph ❌（host readback），只有 Persistent 能做 — <strong>迭代求解器的收敛判断是常见的 host readback pattern</strong><br>
-    <span style="color:#888;">数据：<code>3060_extended_characterization_full.txt</code>, <code>3060_solutions_rerun.txt</code>, <code>3060_cg_fusion.txt</code>, <code>3060_lulesh_fusion.txt</code></span>
-  </div>
-  <div class="page-num">6 / 15</div>
+  <div class="page-num">6 / 17</div>
 </div>
 
-<!-- SLIDE 4: How We Measure — Control Variable Method -->
+<div class="slide">
+  <h2>3c. 36 Kernel (3/4): EM + FEM + Transport + PDE</h2>
+  <p>RTX 3060 (30 SMs). 4 框架 + CUDA 4 策略。单位: μs/step。</p>
+  <table style="font-size:0.72em;">
+    <tr><th>Kernel</th><th>Taichi</th><th>Warp</th><th>Kokkos</th><th class="bad">CUDA Sync</th><th class="best">Graph</th><th class="best">Persist</th><th>加速</th><th>OH%</th></tr>
+    <tr><td>FDTD Maxwell 128sq</td><td>93</td><td>54</td><td>41</td><td>77</td><td class="best">4.1</td><td class="best">4.6</td><td class="green">19x</td><td class="red">95%</td></tr>
+    <tr><td>Helmholtz2D 128sq</td><td>93</td><td>140</td><td>35</td><td>97</td><td class="best">3.4</td><td class="best">2.8</td><td class="green">35x</td><td class="red">97%</td></tr>
+    <tr><td>ExplicitFEM 128sq</td><td>96</td><td>166</td><td>36</td><td>86</td><td class="best">4.1</td><td class="best">3.6</td><td class="green">24x</td><td class="red">96%</td></tr>
+    <tr><td>Cloth 128sq</td><td>93</td><td>101</td><td>68</td><td>108</td><td class="best">3.8</td><td class="best">3.2</td><td class="green">34x</td><td class="red">97%</td></tr>
+    <tr><td>MassSpring1D N=4K</td><td>73</td><td>105</td><td>87</td><td>80</td><td class="best">8.2</td><td class="best">1.9</td><td class="green">41x</td><td class="red">98%</td></tr>
+    <tr><td>SemiLagrangian 128sq</td><td>96</td><td>117</td><td>42</td><td>75</td><td class="best">3.3</td><td class="best">3.0</td><td class="green">25x</td><td class="red">96%</td></tr>
+    <tr><td>Upwind1D N=4K</td><td>94</td><td>104</td><td>42</td><td>104</td><td class="best">2.8</td><td class="best">1.7</td><td class="green">61x</td><td class="red">98%</td></tr>
+    <tr><td>Poisson2D 128sq</td><td>89</td><td>104</td><td>34</td><td>93</td><td class="best">5.7</td><td class="best">2.9</td><td class="green">32x</td><td class="red">97%</td></tr>
+    <tr><td>Schrodinger1D N=4K</td><td>100</td><td>204</td><td>70</td><td>92</td><td class="best">3.0</td><td class="best">2.0</td><td class="green">45x</td><td class="red">98%</td></tr>
+  </table>
+  <div class="page-num">7 / 17</div>
+</div>
+
+<div class="slide">
+  <h2>3d. 36 Kernel (4/4): Other + Classic</h2>
+  <p>RTX 3060 (30 SMs). 4 框架 + CUDA 4 策略。单位: μs/step。</p>
+  <table style="font-size:0.72em;">
+    <tr><th>Kernel</th><th>Taichi</th><th>Warp</th><th>Kokkos</th><th class="bad">CUDA Sync</th><th class="best">Graph</th><th class="best">Persist</th><th>加速</th><th>OH%</th></tr>
+    <tr><td>KS 1D N=4K</td><td>100</td><td>98</td><td>85</td><td>88</td><td class="best">2.4</td><td class="best">2.0</td><td class="green">43x</td><td class="red">98%</td></tr>
+    <tr><td>Reduction N=16K</td><td>132</td><td>104</td><td>86</td><td>87</td><td class="best">3.5</td><td class="best">1.7</td><td class="green">51x</td><td class="red">98%</td></tr>
+    <tr><td>MonteCarlo N=4K</td><td>86</td><td>54</td><td>20</td><td>68</td><td class="best">1.6</td><td class="best">1.0</td><td class="green">66x</td><td class="red">98%</td></tr>
+    <tr><td>Jacobi3D 32cu</td><td>91</td><td>111</td><td>40</td><td>84</td><td class="best">3.3</td><td class="best">2.9</td><td class="green">29x</td><td class="red">97%</td></tr>
+    <tr><td>HotSpot 128sq</td><td>92</td><td>119</td><td>36</td><td>105</td><td class="best">4.9</td><td class="best">3.2</td><td class="green">33x</td><td class="red">97%</td></tr>
+    <tr><td>SRAD 128sq</td><td>105</td><td>100</td><td>67</td><td>82</td><td class="best">6.2</td><td class="best">3.2</td><td class="green">25x</td><td class="red">96%</td></tr>
+    <tr><td>SpMV N=4K</td><td>74</td><td>114</td><td>62</td><td>99</td><td class="best">3.9</td><td class="best">1.7</td><td class="green">58x</td><td class="red">98%</td></tr>
+    <tr><td>CG Solver 128sq</td><td>2161</td><td>1378</td><td class="na">—</td><td>502</td><td class="na">❌</td><td>12</td><td class="green">41x</td><td class="red">98%</td></tr>
+    <tr><td>LULESH 64sq</td><td>238</td><td>250</td><td class="na">—</td><td>174</td><td class="best">7.7</td><td class="best">6.4</td><td class="green">27x</td><td class="red">96%</td></tr>
+  </table>
+  <div class="key-finding">
+    <strong>36 种 kernel type, 4 框架 + CUDA 4 策略, 系统验证</strong>:<br>
+    1. <strong>Taichi (90-130μs) ≈ CUDA Sync (80-130μs)</strong> — DSL 就是 Sync 模式<br>
+    2. <strong>Warp (100-170μs)</strong> — 比 Taichi 稍慢 (runtime overhead)<br>
+    3. <strong>Kokkos (35-85μs) ≈ CUDA Async</strong> — C++ 无 Python OH, 但仍有 launch OH<br>
+    4. <strong>Graph/Persistent (1-8μs)</strong> — 消除 host round-trip, <span class="green">7-66x</span> 加速<br>
+    5. Compute-heavy (SPH/DEM/MD_LJ): OH &lt;27%, 加速 1.2-1.3x — overhead 不是瓶颈
+  </div>
+  <div class="page-num">8 / 17</div>
+</div>
+
 <div class="slide">
   <h2>4. 怎么测的：控制变量实验（不依赖 profiler）</h2>
   <p>核心思路：<span class="highlight">同一个 kernel，只切换执行策略，差值就是该层的损失。</span>全程只用 <code>cudaEvent</code> 计时。</p>
@@ -290,7 +281,7 @@ for day in range(10):
     Block size sweep 通过 <code>--mode persistent</code> 配合不同 <code>THREADS</code> 值获得。<br>
     结果文件：<code>benchmark/results/3060_osher_adaptive.txt</code>
   </div>
-  <div class="page-num">7 / 15</div>
+  <div class="page-num">9 / 17</div>
 </div>
 
 <!-- SLIDE 5: What is Overhead -->
@@ -318,7 +309,7 @@ for day in range(10):
     <code>cudaDeviceSynchronize()</code> 是最大开销 (56%)。Taichi/Warp 每个 kernel 后都调它——因为 Python 要拿到 GPU 结果才能执行下一行代码。<br>
     多 kernel/step 的 case（如 F2 每步 2 kernel、CG 每步 5 kernel）overhead 翻倍。
   </div>
-  <div class="page-num">8 / 15</div>
+  <div class="page-num">10 / 17</div>
 </div>
 
 <!-- ==================== SLIDE 3: 36 Kernel Table (先亮结论) ==================== -->
@@ -369,7 +360,7 @@ persistent_kernel&lt;&lt;&lt;coop_grid, block&gt;&gt;&gt;(...) {
     完整 OSHER solver (106 regs, fp64)：<span class="red">overhead 仍占 37-74%</span>。<br>
     不是 trivial stencil 才有的问题——真实工程 kernel 也是如此。
   </div>
-  <div class="page-num">9 / 15</div>
+  <div class="page-num">11 / 17</div>
 </div>
 
 <!-- SLIDE 5.5: What We Move to GPU — Persistent Kernel Mechanism -->
@@ -429,7 +420,7 @@ __global__ void persistent_kernel(...) {
     <strong>代码来源</strong>：<code>hydro_cuda_osher.cu</code> 第 418-530 行 (<code>persistent_kernel</code>)，第 956-1008 行 (<code>bench_persistent</code>)<br>
     底层实现：每个 block 到达 barrier 后 atomic increment 计数器，然后 spin-wait 直到计数器 == <code>gridDim.x</code>
   </div>
-  <div class="page-num">10 / 15</div>
+  <div class="page-num">12 / 17</div>
 </div>
 
 <!-- SLIDE 5.6: CUDA Graph vs Persistent Comparison -->
@@ -462,7 +453,7 @@ __global__ void persistent_kernel(...) {
     <strong>Block size 影响 (1.86x) ≈ 策略选择影响 (1.91x)</strong> — 意外发现，联合优化必要。<br>
     → <strong>需要 legality-aware cost model 自动选择</strong>，不是人能手动判断的。
   </div>
-  <div class="page-num">11 / 15</div>
+  <div class="page-num">13 / 17</div>
 </div>
 
 <!-- SLIDE 5: CG Case -->
@@ -529,7 +520,7 @@ cg_persistent&lt;&lt;&lt;coop_grid, 256&gt;&gt;&gt;
     我们：5 kernel 融合为 1 + device-side scalar → <span class="green">40.8x</span>。CUDA Graph <span class="red">不可用</span>（不能中断 replay 做 readback）。<br>
     <span style="color:#888;">PERKS 代码已 clone: <code>benchmark/PERKS/conjugateGradient/</code>，可直接对比</span>
   </div>
-  <div class="page-num">12 / 15</div>
+  <div class="page-num">14 / 17</div>
 </div>
 
 <!-- SLIDE 8: LULESH + Strategy Selection -->
@@ -555,7 +546,7 @@ cg_persistent&lt;&lt;&lt;coop_grid, 256&gt;&gt;&gt;
     128² 时 persistent 需要 66 blocks > cooperative limit 60 → <span class="red">不可用</span>，自动 fallback 到 Graph。<br>
     <strong>同一个 kernel，不同 grid size 的最优策略不同</strong> → 需要自动选择。
   </div>
-  <div class="page-num">13 / 15</div>
+  <div class="page-num">15 / 17</div>
 </div>
 
 <!-- SLIDE 9: DMA Overlap -->
@@ -588,7 +579,7 @@ host_thread:
     PERKS (ICS'23) 和 AsyncTaichi <span class="red">都没做过</span> compute-communication overlap。<br>
     CUDA Graph 保存数据必须<span class="red">打断回放</span>（9.34 μs/step, +60%）；Persistent 可以<span class="green">边算边传</span>（6.58 μs/step, +12.5%）。
   </div>
-  <div class="page-num">14 / 15</div>
+  <div class="page-num">16 / 17</div>
 </div>
 
 <!-- SLIDE 12: Related Work -->
@@ -617,7 +608,7 @@ host_thread:
     <strong>CG Solver 是前人都做不了的 case</strong>：<br>
     Graph 不能中断 → ❌ &nbsp; PERKS 不能 fuse 多 kernel → ❌ &nbsp; <strong>只有我们 → <span class="green">40.8x ✓</span></strong>
   </div>
-  <div class="page-num">15 / 15</div>
+  <div class="page-num">17 / 17</div>
 </div>
 
 <script>
