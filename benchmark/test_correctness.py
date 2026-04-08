@@ -51,7 +51,8 @@ def run_taichi_2d(N, steps=5):
     @ti.kernel
     def copy():
         for i, j in v:
-            u[i,j] = v[i,j]
+            if i >= 1 and i < N-1 and j >= 1 and j < N-1:
+                u[i,j] = v[i,j]
 
     for _ in range(steps):
         step()
@@ -78,14 +79,15 @@ def run_warp_2d(N, steps=5):
             v_k[idx] = u_k[idx] + 0.2*(u_k[idx-N_k]+u_k[idx+N_k]+u_k[idx-1]+u_k[idx+1]-4.0*u_k[idx])
 
     @wp.kernel
-    def copy_k(n: int, src: wp.array(dtype=float), dst: wp.array(dtype=float)):
-        i = wp.tid()
-        if i < n:
-            dst[i] = src[i]
+    def copy_k(N_k: int, src: wp.array(dtype=float), dst: wp.array(dtype=float)):
+        i, j = wp.tid()
+        if i >= 1 and i < N_k-1 and j >= 1 and j < N_k-1:
+            idx = i*N_k + j
+            dst[idx] = src[idx]
 
     for _ in range(steps):
         wp.launch(heat_step, dim=(N, N), inputs=[N, u, v], device=device)
-        wp.launch(copy_k, dim=N*N, inputs=[N*N, v, u], device=device)
+        wp.launch(copy_k, dim=(N, N), inputs=[N, v, u], device=device)
     wp.synchronize_device(device)
     return u.numpy().reshape(N, N)
 
