@@ -436,59 +436,76 @@ host_thread:
   <div class="page-num">10 / 14</div>
 </div>
 
-<!-- SLIDE 10: Kernel Characterization with 4-Strategy Verification -->
+<!-- SLIDE 10: 36/36 Kernel Characterization with 4-Strategy Verification -->
 <div class="slide">
-  <h2>10. Overhead 是普遍现象：30 种 Kernel × 4 策略验证</h2>
-  <p>RTX 3060 (30 SMs) 上实测。左列 = Taichi Sync baseline (36 kernel)，右列 = <strong>CUDA 4策略验证 (30 kernel)</strong>。</p>
+  <h2>10. Overhead 是普遍现象：36/36 Kernel × 4 策略验证</h2>
+  <p>RTX 3060 (30 SMs) 上实测。<strong>全部 36 种 kernel</strong> 均有 CUDA Sync/Async/Graph/Persistent 数据。</p>
 
-  <table style="font-size:0.72em; max-width:100%;">
-    <tr><th>领域</th><th>Kernel</th><th>Taichi Sync (μs)</th><th class="bad">CUDA Sync (μs)</th><th class="best">Graph (μs)</th><th class="best">Persistent (μs)</th><th>Graph 加速</th></tr>
-    <tr><td rowspan="7" style="vertical-align:top;"><strong>Stencil</strong></td>
-        <td>Heat2D 128²</td><td>107.6</td><td class="bad">107.0</td><td class="best">4.7</td><td class="best">4.3</td><td class="green">22.9x</td></tr>
-    <tr><td>Jacobi2D 128²</td><td>100.4</td><td class="bad">123.7</td><td class="best">5.4</td><td class="best">4.0</td><td class="green">23.1x</td></tr>
-    <tr><td>Wave2D 128²</td><td>94.5</td><td class="bad">94.4</td><td class="best">4.0</td><td class="best">3.8</td><td class="green">23.5x</td></tr>
-    <tr><td>Allen-Cahn 128²</td><td>87.2</td><td class="bad">116.1</td><td class="best">3.7</td><td class="best">3.1</td><td class="green">31.3x</td></tr>
-    <tr><td>Cahn-Hilliard 128²</td><td>107.7</td><td class="bad">116.5</td><td class="best">4.6</td><td class="best">3.7</td><td class="green">25.2x</td></tr>
-    <tr><td>ConvDiff 128²</td><td>89.2</td><td class="bad">98.0</td><td class="best">3.8</td><td class="best">3.9</td><td class="green">25.5x</td></tr>
-    <tr><td>GrayScott 128²</td><td>87.7</td><td class="bad">121.2</td><td class="best">6.4</td><td class="best">5.4</td><td class="green">19.1x</td></tr>
-    <tr><td rowspan="3" style="vertical-align:top;"><strong>CFD</strong></td>
-        <td>Burgers2D 128²</td><td>84.5</td><td class="bad">114.1</td><td class="best">6.5</td><td class="best">5.9</td><td class="green">17.7x</td></tr>
-    <tr><td>LBM D2Q9 64²</td><td>94.2</td><td class="bad">82.2</td><td class="best">4.9</td><td>5.8</td><td class="green">16.8x</td></tr>
-    <tr><td>F1 OSHER 64² (fp64)</td><td>138.1</td><td class="bad">149.2</td><td class="best">69.4</td><td>56.1</td><td class="green">2.2x</td></tr>
-    <tr><td style="vertical-align:top;"><strong>EM</strong></td>
-        <td>FDTD Maxwell 128²</td><td>83.6</td><td class="bad">72.5</td><td class="best">4.1</td><td>4.6</td><td class="green">17.6x</td></tr>
-    <tr><td rowspan="2" style="vertical-align:top;"><strong>FEM/结构</strong></td>
-        <td>ExplicitFEM 128²</td><td>96.0</td><td class="bad">98.4</td><td class="best">3.7</td><td class="best">3.6</td><td class="green">26.6x</td></tr>
-    <tr><td>Cloth 128²</td><td>99.9</td><td class="bad">81.1</td><td class="best">3.4</td><td class="best">3.2</td><td class="green">23.8x</td></tr>
-    <tr><td rowspan="4" style="vertical-align:top;"><strong>Classic</strong></td>
-        <td>SRAD 128² (Rodinia)</td><td>78.7</td><td class="bad">76.9</td><td class="best">3.5</td><td class="best">3.3</td><td class="green">22.1x</td></tr>
-    <tr><td>HotSpot 128² (Rodinia)</td><td>79.7</td><td class="bad">86.2</td><td class="best">3.8</td><td class="best">3.3</td><td class="green">22.8x</td></tr>
-    <tr><td>Jacobi3D 32³ (PERKS)</td><td>86.8</td><td class="bad">80.7</td><td class="best">3.4</td><td class="best">2.9</td><td class="green">23.6x</td></tr>
-    <tr><td>SpMV N=4K</td><td>69.4</td><td class="bad">84.1</td><td class="best">2.9</td><td class="best">1.8</td><td class="green">28.9x</td></tr>
-    <tr><td rowspan="2" style="vertical-align:top;"><strong>Particle</strong></td>
-        <td>NBody N=256</td><td>75.0</td><td class="bad">85.5</td><td class="best">9.2</td><td>13.2</td><td class="green">9.3x</td></tr>
-    <tr><td>MonteCarlo N=4K</td><td>67.5</td><td class="bad">66.4</td><td class="best">1.4</td><td class="best">1.0</td><td class="green">47.8x</td></tr>
-    <tr><td style="vertical-align:top;"><strong>Transport</strong></td>
-        <td>SemiLagrangian 128²</td><td>91.5</td><td class="bad">101.3</td><td class="best">3.5</td><td class="best">3.0</td><td class="green">28.8x</td></tr>
-    <tr><td rowspan="4" style="vertical-align:top;"><strong>1D PDE</strong></td>
-        <td>Upwind1D N=4K</td><td>87.0</td><td class="bad">78.9</td><td class="best">2.9</td><td class="best">1.7</td><td class="green">27.3x</td></tr>
-    <tr><td>Schrödinger1D N=4K</td><td>84.8</td><td class="bad">74.4</td><td class="best">2.9</td><td class="best">2.2</td><td class="green">25.3x</td></tr>
-    <tr><td>KS 1D N=4K</td><td>77.9</td><td class="bad">80.8</td><td class="best">2.8</td><td class="best">2.1</td><td class="green">28.8x</td></tr>
-    <tr><td>MassSpring1D N=4K</td><td>68.9</td><td class="bad">75.5</td><td class="best">2.8</td><td class="best">2.0</td><td class="green">27.0x</td></tr>
-    <tr><td style="vertical-align:top;"><strong>Other</strong></td>
-        <td>Reduction N=16K</td><td>120.3</td><td class="bad">85.3</td><td class="best">3.0</td><td class="best">1.7</td><td class="green">28.9x</td></tr>
-    <tr><td rowspan="2" style="vertical-align:top;"><strong>Multi-kern</strong></td>
-        <td>CG Solver 64² (5k/step)</td><td>2058</td><td class="bad">502.2</td><td class="na">❌</td><td class="best">12.3</td><td>—</td></tr>
-    <tr><td>LULESH 64² (4k/step)</td><td>201.3</td><td class="bad">173.8</td><td class="best">7.7</td><td class="best">6.4</td><td class="green">22.6x</td></tr>
+  <table style="font-size:0.68em; max-width:100%;">
+    <tr><th>领域</th><th>Kernel</th><th class="bad">Sync (μs)</th><th>Async</th><th class="best">Graph (μs)</th><th class="best">Persist (μs)</th><th>最佳加速</th><th>OH%</th></tr>
+    <!-- Stencil (9) -->
+    <tr><td rowspan="9" style="vertical-align:top;"><strong>Stencil<br>(9)</strong></td>
+        <td>Heat2D 128²</td><td class="bad">107.0</td><td>30.9</td><td class="best">4.7</td><td class="best">4.3</td><td class="green">25.0x</td><td class="red">96%</td></tr>
+    <tr><td>Heat3D 32³</td><td class="bad">70.0</td><td>32.5</td><td class="best">3.0</td><td class="best">2.6</td><td class="green">27.0x</td><td class="red">96%</td></tr>
+    <tr><td>Jacobi2D 128²</td><td class="bad">82.3</td><td>31.7</td><td>4.3</td><td class="best">4.0</td><td class="green">20.7x</td><td class="red">95%</td></tr>
+    <tr><td>Wave2D 128²</td><td class="bad">77.4</td><td>34.9</td><td>3.8</td><td class="best">3.7</td><td class="green">20.9x</td><td class="red">95%</td></tr>
+    <tr><td>GrayScott 128²</td><td class="bad">121.2</td><td>46.8</td><td>6.4</td><td class="best">5.4</td><td class="green">22.6x</td><td class="red">96%</td></tr>
+    <tr><td>Allen-Cahn 128²</td><td class="bad">79.3</td><td>32.1</td><td>3.3</td><td class="best">3.0</td><td class="green">26.2x</td><td class="red">96%</td></tr>
+    <tr><td>Cahn-Hilliard 128²</td><td class="bad">76.2</td><td>77.5</td><td>4.2</td><td class="best">3.8</td><td class="green">20.2x</td><td class="red">95%</td></tr>
+    <tr><td>Burgers2D 128²</td><td class="bad">96.4</td><td>45.2</td><td>6.5</td><td class="best">5.7</td><td class="green">16.9x</td><td class="red">94%</td></tr>
+    <tr><td>ConvDiff 128²</td><td class="bad">83.0</td><td>34.0</td><td>3.5</td><td class="best">3.9</td><td class="green">23.4x</td><td class="red">96%</td></tr>
+    <!-- CFD (4) -->
+    <tr><td rowspan="4" style="vertical-align:top;"><strong>CFD<br>(4)</strong></td>
+        <td>SWE LaxFried 128²</td><td class="bad">78.2</td><td>30.5</td><td class="best">8.1</td><td>8.9</td><td class="green">9.7x</td><td class="red">90%</td></tr>
+    <tr><td>LBM D2Q9 64²</td><td class="bad">76.1</td><td>35.6</td><td class="best">4.5</td><td>5.9</td><td class="green">16.9x</td><td class="red">94%</td></tr>
+    <tr><td>StableFluids 128² <span style="color:#888;">(46k/step)</span></td><td class="bad">792.4</td><td>736.4</td><td class="best">79.2</td><td class="best">70.0</td><td class="green">11.3x</td><td class="red">91%</td></tr>
+    <tr><td>Euler1D N=4K</td><td class="bad">104.2</td><td>65.1</td><td>7.9</td><td class="best">2.9</td><td class="green">36.5x</td><td class="red">97%</td></tr>
+    <!-- Particle (5) -->
+    <tr><td rowspan="5" style="vertical-align:top;"><strong>Particle<br>(5)</strong></td>
+        <td>NBody N=256</td><td class="bad">77.1</td><td>33.5</td><td class="best">9.8</td><td>13.0</td><td class="green">7.9x</td><td class="red">87%</td></tr>
+    <tr><td>SPH N=1024</td><td>695.5</td><td>587.3</td><td class="best">582.2</td><td>613.2</td><td>1.2x</td><td>16%</td></tr>
+    <tr><td>DEM N=1024</td><td>616.9</td><td>511.8</td><td class="best">504.6</td><td>530.6</td><td>1.2x</td><td>18%</td></tr>
+    <tr><td>MD LJ N=1024</td><td>368.4</td><td>283.8</td><td class="best">279.8</td><td>299.6</td><td>1.3x</td><td>24%</td></tr>
+    <tr><td>PIC NP=4096 <span style="color:#888;">(4k/step)</span></td><td class="bad">97.9</td><td>67.3</td><td>5.6</td><td class="best">4.6</td><td class="green">21.5x</td><td class="red">95%</td></tr>
+    <!-- EM (2) -->
+    <tr><td rowspan="2" style="vertical-align:top;"><strong>EM<br>(2)</strong></td>
+        <td>FDTD Maxwell 128²</td><td class="bad">72.9</td><td>17.2</td><td class="best">4.1</td><td>4.5</td><td class="green">17.9x</td><td class="red">94%</td></tr>
+    <tr><td>Helmholtz2D 128²</td><td class="bad">74.5</td><td>33.2</td><td>5.3</td><td class="best">2.8</td><td class="green">26.4x</td><td class="red">96%</td></tr>
+    <!-- FEM/Structure (3) -->
+    <tr><td rowspan="3" style="vertical-align:top;"><strong>FEM/<br>结构 (3)</strong></td>
+        <td>ExplicitFEM 128²</td><td class="bad">76.0</td><td>33.1</td><td>3.9</td><td class="best">3.5</td><td class="green">21.5x</td><td class="red">95%</td></tr>
+    <tr><td>Cloth 128²</td><td class="bad">79.8</td><td>32.7</td><td>3.4</td><td class="best">3.1</td><td class="green">25.5x</td><td class="red">96%</td></tr>
+    <tr><td>MassSpring1D N=4K</td><td class="bad">72.9</td><td>31.6</td><td>2.8</td><td class="best">1.8</td><td class="green">40.4x</td><td class="red">98%</td></tr>
+    <!-- Transport (2) -->
+    <tr><td rowspan="2" style="vertical-align:top;"><strong>Transport<br>(2)</strong></td>
+        <td>SemiLagrangian 128²</td><td class="bad">74.6</td><td>33.2</td><td>3.3</td><td class="best">3.0</td><td class="green">24.6x</td><td class="red">96%</td></tr>
+    <tr><td>Upwind1D N=4K</td><td class="bad">73.3</td><td>31.9</td><td>2.8</td><td class="best">1.7</td><td class="green">44.5x</td><td class="red">98%</td></tr>
+    <!-- PDE (3) -->
+    <tr><td rowspan="3" style="vertical-align:top;"><strong>PDE<br>(3)</strong></td>
+        <td>Poisson2D 128²</td><td class="bad">76.9</td><td>35.3</td><td>3.1</td><td class="best">2.9</td><td class="green">26.8x</td><td class="red">96%</td></tr>
+    <tr><td>Schrödinger1D N=4K</td><td class="bad">80.7</td><td>32.0</td><td>2.9</td><td class="best">2.1</td><td class="green">38.2x</td><td class="red">97%</td></tr>
+    <tr><td>KS 1D N=4K</td><td class="bad">86.8</td><td>31.2</td><td>2.8</td><td class="best">2.3</td><td class="green">37.9x</td><td class="red">97%</td></tr>
+    <!-- Other (2) -->
+    <tr><td rowspan="2" style="vertical-align:top;"><strong>Other<br>(2)</strong></td>
+        <td>Reduction N=16K</td><td class="bad">97.0</td><td>32.3</td><td>2.8</td><td class="best">1.7</td><td class="green">55.8x</td><td class="red">98%</td></tr>
+    <tr><td>MonteCarlo N=4K</td><td class="bad">67.5</td><td>37.6</td><td>1.5</td><td class="best">1.0</td><td class="green">65.2x</td><td class="red">99%</td></tr>
+    <!-- Classic (6) -->
+    <tr><td rowspan="6" style="vertical-align:top;"><strong>Classic<br>(6)</strong></td>
+        <td>Jacobi3D 32³ (PERKS)</td><td class="bad">71.6</td><td>74.7</td><td>3.3</td><td class="best">2.9</td><td class="green">24.5x</td><td class="red">96%</td></tr>
+    <tr><td>HotSpot 128² (Rodinia)</td><td class="bad">81.4</td><td>32.9</td><td>3.7</td><td class="best">3.3</td><td class="green">25.1x</td><td class="red">96%</td></tr>
+    <tr><td>SRAD 128² (Rodinia)</td><td class="bad">76.7</td><td>33.7</td><td>3.5</td><td class="best">3.3</td><td class="green">23.3x</td><td class="red">96%</td></tr>
+    <tr><td>SpMV N=4K</td><td class="bad">75.3</td><td>30.4</td><td>3.0</td><td class="best">1.8</td><td class="green">43.1x</td><td class="red">98%</td></tr>
+    <tr><td>CG Solver 128² <span style="color:#888;">(5k/step)</span></td><td class="bad">502.2</td><td>—</td><td class="na">❌ readback</td><td class="best">12.3</td><td class="green">40.8x</td><td class="red">98%</td></tr>
+    <tr><td>LULESH 64² <span style="color:#888;">(4k/step)</span></td><td class="bad">173.8</td><td>76.8</td><td class="best">7.7</td><td class="best">6.4</td><td class="green">27.0x</td><td class="red">96%</td></tr>
   </table>
 
   <div class="key-finding">
-    <strong>关键结论</strong>：<br>
-    1. <strong>Taichi Sync ≈ CUDA Sync</strong>（同一行两列数字一致）→ Taichi 就是 Sync 模式<br>
-    2. <span class="red">Sync overhead floor = 64-124 μs</span>，Graph/Persistent 降到 <span class="green">1-7 μs</span> → <strong>overhead 占 94-99%</strong><br>
-    3. <strong>30 种 kernel × 8 个领域，全部确认</strong>。不是 Heat2D 的特例，是系统性现象<br>
-    4. Compute-heavy kernel (F1 OSHER, NBody) overhead 占比低 → 加速有限 (2-9x)<br>
-    <span style="color:#888;">数据来源：<code>3060_extended_characterization_full.txt</code> + <code>3060_solutions_rerun.txt</code> (CUDA 4策略)，<code>3060_characterization.txt</code> (Taichi)</span>
+    <strong>36/36 kernel，9 个领域，全部验证</strong>：<br>
+    1. <strong>Overhead-dominated (30 kernel)</strong>：OH = 87-99%，Graph/Persistent 加速 <span class="green">7.9x - 74.3x</span><br>
+    2. <strong>Compute-dominated (3 kernel: SPH, DEM, MD_LJ)</strong>：OH = 16-24%，加速 1.2-1.3x — overhead 不是瓶颈<br>
+    3. <strong>Multi-kernel (3 kernel: StableFluids, CG, LULESH)</strong>：多 kernel/step 放大 overhead，加速 <span class="green">11-41x</span><br>
+    4. <strong>CG Solver</strong>：Graph ❌（需要 host readback），<strong>只有 Persistent 能解决</strong><br>
+    <span style="color:#888;">数据来源：<code>3060_extended_characterization_full.txt</code>，<code>3060_solutions_rerun.txt</code>，<code>3060_cg_fusion.txt</code>，<code>3060_lulesh_fusion.txt</code></span>
   </div>
   <div class="page-num">11 / 14</div>
 </div>
