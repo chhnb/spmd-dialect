@@ -1,0 +1,74 @@
+GPU: NVIDIA GeForce RTX 3060 Laptop GPU (SMs=30, Compute 8.6)
+Extended Overhead Characterization: 4 strategies across all kernel types
+
+Kernel                             Sync      Async      Graph    Persist  | Speedups over Sync
+                                   (us)       (us)       (us)       (us)  |    Async    Graph  Persist
+---------------------------- ---------- ---------- ---------- ----------  | -------- -------- --------
+
+--- Stencil (5-point 2D variants) ---
+Jacobi2D 128sq                   123.66      57.24       5.36       4.02  |     2.2x    23.1x    30.8x
+Jacobi2D 256sq                    98.10      35.85       7.53        N/A  |     2.7x    13.0x      N/A
+Jacobi2D 512sq                   113.82      54.23      17.72        N/A  |     2.1x     6.4x      N/A
+Wave2D 128sq                      94.39      36.62       4.01       3.75  |     2.6x    23.5x    25.2x
+Wave2D 256sq                      92.14      42.48       8.09        N/A  |     2.2x    11.4x      N/A
+AllenCahn 128sq                  116.10      39.70       3.71       3.06  |     2.9x    31.3x    37.9x
+AllenCahn 256sq                  103.38      76.04       8.95        N/A  |     1.4x    11.6x      N/A
+CahnHilliard 128sq               116.49      42.60       4.62       3.74  |     2.7x    25.2x    31.1x
+CahnHilliard 256sq               126.44      44.97       8.92        N/A  |     2.8x    14.2x      N/A
+ConvDiff 128sq                    98.04      36.89       3.84       3.93  |     2.7x    25.5x    25.0x
+ConvDiff 256sq                    93.23      39.12       6.50        N/A  |     2.4x    14.3x      N/A
+SemiLagrangian 128sq             101.31      33.86       3.52       3.03  |     3.0x    28.8x    33.4x
+SemiLagrangian 256sq              99.36      39.92       6.16        N/A  |     2.5x    16.1x      N/A
+
+--- CFD ---
+Burgers2D 128sq                  114.08      65.17       6.46       5.87  |     1.8x    17.7x    19.4x
+Burgers2D 256sq                  124.88      51.98      13.68        N/A  |     2.4x     9.1x      N/A
+LBM D2Q9 64sq                     82.15      35.88       4.89       5.83  |     2.3x    16.8x    14.1x
+LBM D2Q9 128sq                    81.94      44.29      10.50      13.53  |     1.9x     7.8x     6.1x
+
+--- EM ---
+FDTD Maxwell 128sq                72.54      16.13       4.11       4.55  |     4.5x    17.6x    15.9x
+FDTD Maxwell 256sq                79.87      20.53      11.42        N/A  |     3.9x     7.0x      N/A
+
+--- FEM / Structure ---
+ExplicitFEM 128sq                 98.43      32.52       3.70       3.57  |     3.0x    26.6x    27.6x
+ExplicitFEM 256sq                 85.20      32.19       7.95        N/A  |     2.6x    10.7x      N/A
+Cloth 64sq                        84.59      34.65       2.69       2.24  |     2.4x    31.5x    37.8x
+Cloth 128sq                       81.14      35.10       3.42       3.23  |     2.3x    23.8x    25.1x
+
+--- Classic (Rodinia + PERKS) ---
+SRAD 128sq                        76.89      35.32       3.47       3.25  |     2.2x    22.1x    23.6x
+SRAD 256sq                        84.39      41.91       6.78        N/A  |     2.0x    12.4x      N/A
+HotSpot 128sq                     86.20      39.56       3.78       3.31  |     2.2x    22.8x    26.0x
+HotSpot 256sq                     91.49      32.96       6.99        N/A  |     2.8x    13.1x      N/A
+SpMV N=4096                       84.11      30.94       2.91       1.76  |     2.7x    28.9x    47.8x
+SpMV N=16384                      78.82      33.97       4.29       1.82  |     2.3x    18.4x    43.3x
+Reduction N=16384                 85.29      33.97       2.95       1.65  |     2.5x    28.9x    51.5x
+
+--- Particle ---
+NBody N=256                       85.52      33.97       9.20      13.22  |     2.5x     9.3x     6.5x
+NBody N=512                       84.11      35.88      19.42      26.59  |     2.3x     4.3x     3.2x
+NBody N=1024                     108.51      50.69      40.88      54.43  |     2.1x     2.7x     2.0x
+MonteCarlo N=1024                 64.60      19.64       1.35       1.03  |     3.3x    47.9x    62.9x
+MonteCarlo N=4096                 66.35      17.44       1.39       1.01  |     3.8x    47.8x    65.7x
+
+--- 1D PDE ---
+Upwind1D N=4096                   78.90      36.54       2.89       1.67  |     2.2x    27.3x    47.1x
+Upwind1D N=16384                  91.07      32.07       2.58       1.83  |     2.8x    35.3x    49.7x
+Schrodinger1D N=4096              74.37      36.13       2.94       2.17  |     2.1x    25.3x    34.2x
+KuramotoSivash N=4096             80.84      31.72       2.80       2.08  |     2.5x    28.8x    38.9x
+MassSpring1D N=4096               75.48      34.61       2.79       1.95  |     2.2x    27.0x    38.8x
+
+--- 3D Stencil ---
+Jacobi3D 32^3                     80.73      36.45       3.42       2.85  |     2.2x    23.6x    28.3x
+Jacobi3D 64^3                     81.14      48.01      11.44        N/A  |     1.7x     7.1x      N/A
+
+===================================================================
+Also verified in separate files:
+  Heat2D + GrayScott:  overhead_solutions.cu
+  F1 OSHER (fp64):     F1_hydro_shallow_water/hydro_cuda_osher.cu
+  CG Solver (5 kern):  cg_fusion_benchmark.cu
+  LULESH (4 kern):     lulesh_fusion_benchmark.cu
+  DMA overlap:         persistent_async_copy.cu
+===================================================================
+Total coverage: 20+ kernels × 4 strategies across 7+ domains
