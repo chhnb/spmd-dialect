@@ -33,3 +33,6 @@ target_link_libraries(hydro_swe_swap Kokkos::kokkos)
 
 add_executable(hydro_refactored_kokkos hydro_refactored.cpp)
 target_link_libraries(hydro_refactored_kokkos Kokkos::kokkos)
+
+add_executable(characterization_all characterization_all.cpp)
+target_link_libraries(characterization_all Kokkos::kokkos)
