@@ -1,0 +1,122 @@
+Warp 1.12.1 initialized:
+   CUDA Toolkit 12.9, Driver 12.6
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 3060 Laptop GPU" (6 GiB, sm_86, mempool enabled)
+   Kernel cache:
+     /home/chh/.cache/warp/1.12.1
+Warp Characterization on NVIDIA GeForce RTX 3060 Laptop GPU
+============================================================
+
+============================================================
+  1-9. Stencil (9 types)
+============================================================
+Module __main__ 06c358c load on device 'cuda:0' took 10935.00 ms  (compiled)
+  Heat2D 128sq                           111.0 μs/step
+  Heat3D 32cu                            102.0 μs/step
+  Jacobi2D 128sq                         102.9 μs/step
+  Wave2D 128sq                           116.9 μs/step
+  GrayScott 128sq                        116.1 μs/step
+  AllenCahn 128sq                        100.2 μs/step
+  CahnHilliard 128sq                     102.7 μs/step
+  Burgers2D 128sq                        120.5 μs/step
+  ConvDiff 128sq                         104.9 μs/step
+
+============================================================
+  10-13. CFD (4 types)
+============================================================
+  SWE_LaxFried 128sq                     133.0 μs/step
+  LBM D2Q9 64sq                          107.8 μs/step
+  StableFluids 128sq                    2251.9 μs/step
+  Euler1D N=4096                         129.0 μs/step
+
+============================================================
+  14-18. Particle (5 types)
+============================================================
+  NBody N=256                            146.6 μs/step
+  SPH N=1024                             758.0 μs/step
+  DEM N=1024                             218.3 μs/step
+  MD_LJ N=1024                           462.8 μs/step
+  PIC NP=4096                            212.5 μs/step
+
+============================================================
+  19-20. EM (2 types)
+============================================================
+  FDTD Maxwell 128sq                      56.3 μs/step
+  Helmholtz2D 128sq                      103.9 μs/step
+
+============================================================
+  21-23. FEM/Structure (3 types)
+============================================================
+  ExplicitFEM 128sq                      102.7 μs/step
+  Cloth 128sq                            104.2 μs/step
+  MassSpring1D N=4096                     99.2 μs/step
+
+============================================================
+  24-25. Transport (2 types)
+============================================================
+  SemiLagrangian 128sq                    98.9 μs/step
+  Upwind1D N=4096                        102.2 μs/step
+
+============================================================
+  26-28. PDE (3 types)
+============================================================
+  Poisson2D 128sq                        100.8 μs/step
+  Schrodinger1D N=4096                   100.4 μs/step
+  KS 1D N=4096                            99.8 μs/step
+
+============================================================
+  29-30. Other (2 types)
+============================================================
+  Reduction N=16384                       97.0 μs/step
+  MonteCarlo N=4096                       52.9 μs/step
+
+============================================================
+  31-36. Classic (6 types)
+============================================================
+  Jacobi3D 32cu                           99.4 μs/step
+  HotSpot 128sq                          143.3 μs/step
+  SRAD 128sq                             141.4 μs/step
+  SpMV N=4096                            103.5 μs/step
+  CG Solver 128sq                       1392.0 μs/step
+  LULESH 64sq                            261.8 μs/step
+
+============================================================
+SUMMARY: Warp Characterization
+============================================================
+  Heat2D 128sq                           111.0 μs/step
+  Heat3D 32cu                            102.0 μs/step
+  Jacobi2D 128sq                         102.9 μs/step
+  Wave2D 128sq                           116.9 μs/step
+  GrayScott 128sq                        116.1 μs/step
+  AllenCahn 128sq                        100.2 μs/step
+  CahnHilliard 128sq                     102.7 μs/step
+  Burgers2D 128sq                        120.5 μs/step
+  ConvDiff 128sq                         104.9 μs/step
+  SWE_LaxFried 128sq                     133.0 μs/step
+  LBM D2Q9 64sq                          107.8 μs/step
+  StableFluids 128sq                    2251.9 μs/step
+  Euler1D N=4096                         129.0 μs/step
+  NBody N=256                            146.6 μs/step
+  SPH N=1024                             758.0 μs/step
+  DEM N=1024                             218.3 μs/step
+  MD_LJ N=1024                           462.8 μs/step
+  PIC NP=4096                            212.5 μs/step
+  FDTD Maxwell 128sq                      56.3 μs/step
+  Helmholtz2D 128sq                      103.9 μs/step
+  ExplicitFEM 128sq                      102.7 μs/step
+  Cloth 128sq                            104.2 μs/step
+  MassSpring1D N=4096                     99.2 μs/step
+  SemiLagrangian 128sq                    98.9 μs/step
+  Upwind1D N=4096                        102.2 μs/step
+  Poisson2D 128sq                        100.8 μs/step
+  Schrodinger1D N=4096                   100.4 μs/step
+  KS 1D N=4096                            99.8 μs/step
+  Reduction N=16384                       97.0 μs/step
+  MonteCarlo N=4096                       52.9 μs/step
+  Jacobi3D 32cu                           99.4 μs/step
+  HotSpot 128sq                          143.3 μs/step
+  SRAD 128sq                             141.4 μs/step
+  SpMV N=4096                            103.5 μs/step
+  CG Solver 128sq                       1392.0 μs/step
+  LULESH 64sq                            261.8 μs/step

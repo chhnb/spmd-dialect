@@ -57,21 +57,16 @@ Result test_2d(KernelFn kern, int N, int steps) {
 
 // =========================================================================
 // Kernel lambdas (2D stencil variants)
-// =========================================================================
-auto heat2d_fn = KOKKOS_LAMBDA(View2D u, View2D v, int i, int j, int N) {
-    v(i,j) = u(i,j) + 0.2*(u(i-1,j)+u(i+1,j)+u(i,j-1)+u(i,j+1)-4.0*u(i,j));
-};
-
 // Can't use generic lambda with KOKKOS_LAMBDA in all compilers,
 // so we use functors instead.
 
 // =========================================================================
 // Functors for each 2D kernel
 // =========================================================================
-#define STENCIL_2D_FUNCTOR(NAME, BODY)                                    \
+#define STENCIL_2D_FUNCTOR(NAME, ...)                                     \
 struct NAME##_step {                                                       \
     View2D u, v; int N;                                                   \
-    KOKKOS_INLINE_FUNCTION void operator()(int i, int j) const { BODY }   \
+    KOKKOS_INLINE_FUNCTION void operator()(int i, int j) const { __VA_ARGS__ } \
 };                                                                        \
 struct NAME##_copy {                                                       \
     View2D u, v;                                                          \
@@ -390,13 +385,18 @@ struct Euler1D_step {
     }
 };
 
+struct Euler1D_copy {
+    View1D r,ru,e,r2,ru2,e2; int N;
+    KOKKOS_INLINE_FUNCTION void operator()(int i) const {
+        r(i)=r2(i); ru(i)=ru2(i); e(i)=e2(i);
+    }
+};
+
 Result test_euler1d(int N, int steps) {
     View1D rho("rho",N),rhou("rhou",N),E("E",N),rho2("rho2",N),rhou2("rhou2",N),E2("E2",N);
     Kokkos::deep_copy(rho,1.0); Kokkos::deep_copy(E,1.0);
     Euler1D_step sf{rho,rhou,E,rho2,rhou2,E2,N};
-    struct EC{View1D r,ru,e,r2,ru2,e2;int N;
-        KOKKOS_INLINE_FUNCTION void operator()(int i)const{r(i)=r2(i);ru(i)=ru2(i);e(i)=e2(i);}};
-    EC cf{rho,rhou,E,rho2,rhou2,E2,N};
+    Euler1D_copy cf{rho,rhou,E,rho2,rhou2,E2,N};
     auto step=[&](){ Kokkos::parallel_for(N,sf); Kokkos::parallel_for(N,cf); };
     return bench(step,20,steps);
 }
@@ -438,14 +438,18 @@ struct LBM_step {
     }
 };
 
+struct LBM_copy {
+    View1D f, f2; int n;
+    KOKKOS_INLINE_FUNCTION void operator()(int i) const { f(i)=f2(i); }
+};
+
 Result test_lbm(int N, int steps) {
     int N2=N*N;
     View1D f("f",9*N2), f2("f2",9*N2);
     Kokkos::deep_copy(f, 1.0/9.0); Kokkos::deep_copy(f2, 1.0/9.0);
     auto mdpol=Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0,0},{N,N});
     LBM_step sf{f,f2,N};
-    struct LC{View1D f,f2;int n;KOKKOS_INLINE_FUNCTION void operator()(int i)const{f(i)=f2(i);}};
-    LC cf{f,f2,9*N2};
+    LBM_copy cf{f,f2,9*N2};
     auto step=[&](){ Kokkos::parallel_for("lbm",mdpol,sf); Kokkos::parallel_for("lbmcopy",9*N2,cf); };
     return bench(step,20,steps);
 }
