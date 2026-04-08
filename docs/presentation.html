@@ -152,17 +152,20 @@ for day in range(10):
 <!-- 36 Kernel Table: Page 1 of 2 — Stencil + CFD + Particle -->
 <div class="slide">
   <h2>3a. 36 Kernel 验证 (上)：Stencil / CFD / Particle</h2>
-  <p>RTX 3060, 36 种 kernel type, 4 策略框架下系统验证。每种 kernel 来源标注如下。</p>
+  <p>RTX 3060, 36 种 kernel type, 4 策略框架下系统验证。<strong>每种 kernel 均可追溯到已有 benchmark suite 或框架 example</strong>。</p>
 
-  <table style="font-size:0.75em; margin-bottom:8px; max-width:100%;">
-    <tr><th>来源</th><th>Kernel</th></tr>
-    <tr><td>Taichi examples</td><td>LBM D2Q9, SPH (pbf2d), StableFluids, MPM (mpm88), NBody</td></tr>
-    <tr><td>Warp examples</td><td>NBody (tile_nbody), SPH (example_sph), StableFluids (example_fluid)</td></tr>
-    <tr><td>Rodinia (IISWC'09)</td><td>HotSpot, SRAD</td></tr>
-    <tr><td>PERKS (ICS'23)</td><td>Jacobi3D, CG Solver (SpMV-based)</td></tr>
-    <tr><td>ECP proxy app</td><td>LULESH-like (Lagrangian hydro)</td></tr>
-    <tr><td>hydro-cal 工程</td><td>F1 OSHER (浅水方程 Riemann solver)</td></tr>
-    <tr><td>标准数值方法</td><td>Heat2D/3D, Wave2D, Jacobi2D, Poisson, Helmholtz, Burgers, ConvDiff, AllenCahn, CahnHilliard, SWE, Euler1D, FDTD Maxwell, ExplicitFEM, Cloth, MassSpring, Upwind, Schr&ouml;dinger, KS, Reduction, MonteCarlo, SpMV, PIC, DEM, MD_LJ</td></tr>
+  <table style="font-size:0.7em; margin-bottom:8px; max-width:100%;">
+    <tr><th>来源 benchmark / 框架</th><th>Kernel</th><th>repo / 引用</th></tr>
+    <tr><td>PolyBench/GPU (CUDA)</td><td>Jacobi2D, Heat3D, FDTD Maxwell</td><td><code>PolyBenchGPU/</code> (sgrauerg/polybenchGpu)</td></tr>
+    <tr><td>Parboil (UIUC)</td><td>Jacobi3D (stencil), LBM, SpMV</td><td><code>Parboil/</code> (abduld/Parboil)</td></tr>
+    <tr><td>Rodinia (IISWC'09)</td><td>HotSpot, SRAD</td><td>yuhc/gpu-rodinia</td></tr>
+    <tr><td>PERKS (ICS'23)</td><td>Jacobi3D, CG Solver</td><td><code>PERKS/</code> (neozhang307/PERKS)</td></tr>
+    <tr><td>LULESH (LLNL ECP)</td><td>LULESH-like (Lagrangian hydro)</td><td><code>LULESH-official/</code> (LLNL/LULESH)</td></tr>
+    <tr><td>Taichi examples</td><td>LBM (karman_vortex), SPH (pbf2d), StableFluids, NBody</td><td>taichi-dev/taichi/examples/simulation/</td></tr>
+    <tr><td>Warp examples</td><td>NBody, SPH, StableFluids</td><td>nvidia/warp/examples/</td></tr>
+    <tr><td>DiffTaichi (ICLR'20)</td><td>Wave2D, MassSpring, MPM</td><td><code>DiffTaichi/</code> (taichi-dev/difftaichi)</td></tr>
+    <tr><td>hydro-cal 工程</td><td>F1 OSHER (浅水方程)</td><td>本项目原始工程案例</td></tr>
+    <tr><td>数值方法教科书实现</td><td>Heat2D, AllenCahn, CahnHilliard, Burgers, ConvDiff, SWE_LF, Euler1D, Helmholtz, Poisson, Schr&ouml;dinger, KS, Upwind, ExplicitFEM, Cloth, Reduction, MonteCarlo, DEM, MD_LJ, PIC</td><td>LeVeque 2007, Toro 2009, Yee 1966 等</td></tr>
   </table>
 
   <table style="font-size:0.72em; max-width:100%;">
