@@ -152,7 +152,8 @@ for day in range(10):
 <!-- 36 Kernel Table: Page 1 of 2 — Stencil + CFD + Particle -->
 <div class="slide">
   <h2>3a. 36 Kernel 验证 (上)：Stencil / CFD / Particle</h2>
-  <p>RTX 3060, 36 种 kernel type, 4 策略框架下系统验证（测试所有合法策略）。</p>
+  <p>RTX 3060, 36 种 kernel type, 4 策略框架下系统验证。<br>
+  <span style="color:#888;">来源：Taichi 官方 examples (LBM, SPH, StableFluids)、Rodinia (HotSpot, SRAD)、Parboil/PERKS (Jacobi3D, CG)、ECP proxy app (LULESH)、hydro-cal (F1 OSHER)、标准数值方法 (Heat, Wave, Jacobi, NBody, FDTD 等)</span></p>
 
   <table style="font-size:0.72em; max-width:100%;">
     <tr><th>领域</th><th>Kernel</th><th class="bad">Sync (μs)</th><th>Async</th><th class="best">Graph</th><th class="best">Persist</th><th>最佳加速</th><th>OH%</th></tr>
@@ -428,7 +429,9 @@ __global__ void persistent_kernel(...) {
 <!-- SLIDE 5: CG Case -->
 <div class="slide">
   <h2>9. Case Study: CG Solver — Graph 做不了，只有 Persistent 能做</h2>
-  <p>Conjugate Gradient 每步 <span class="highlight">5 个 kernel</span> + <span class="red">2 次 host readback</span>（读标量回 CPU）：</p>
+  <p><strong>来源</strong>：CG (Conjugate Gradient) 是 PERKS (ICS'23) 的 benchmark case (SpMV-based CG, 4.86x)。
+  CG 的 host readback pattern（每步读标量回 CPU 做除法）代表了所有<strong>迭代求解器的收敛判断</strong>——这是 simulation 中非常常见的结构。</p>
+  <p>每步 <span class="highlight">5 个 kernel</span> + <span class="red">2 次 host readback</span>（读标量回 CPU）：</p>
 
   <div class="cols">
     <div class="col">
