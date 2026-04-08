@@ -10,47 +10,47 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .slide { min-height: 100vh; padding: 50px 70px; display: flex; flex-direction: column; justify-content: center; border-bottom: 1px solid #222; position: relative; }
 .slide:nth-child(odd) { background: #0a0a0a; }
 .slide:nth-child(even) { background: #0f1117; }
-h1 { font-size: 2.6em; color: #60a5fa; margin-bottom: 24px; }
-h2 { font-size: 1.9em; color: #60a5fa; margin-bottom: 20px; }
-h3 { font-size: 1.3em; color: #93c5fd; margin: 16px 0 10px; }
-p { font-size: 1.1em; line-height: 1.65; margin-bottom: 12px; color: #c0c0c0; }
+h1 { font-size: 2.9em; color: #60a5fa; margin-bottom: 24px; }
+h2 { font-size: 2.1em; color: #60a5fa; margin-bottom: 20px; }
+h3 { font-size: 1.45em; color: #93c5fd; margin: 16px 0 10px; }
+p { font-size: 1.2em; line-height: 1.65; margin-bottom: 12px; color: #c0c0c0; }
 .highlight { color: #fbbf24; font-weight: 600; }
 .red { color: #f87171; font-weight: 600; }
 .green { color: #4ade80; font-weight: 600; }
-.big-number { font-size: 3em; font-weight: 800; color: #fbbf24; }
-.subtitle { font-size: 1.2em; color: #888; margin-top: -16px; margin-bottom: 24px; }
+.big-number { font-size: 3.2em; font-weight: 800; color: #fbbf24; }
+.subtitle { font-size: 1.35em; color: #888; margin-top: -16px; margin-bottom: 24px; }
 table { border-collapse: collapse; margin: 14px 0; width: 100%; max-width: 950px; }
-th { background: #1e293b; color: #93c5fd; padding: 10px 14px; text-align: left; font-size: 0.9em; }
-td { padding: 8px 14px; border-bottom: 1px solid #1e293b; font-size: 0.9em; }
+th { background: #1e293b; color: #93c5fd; padding: 10px 14px; text-align: left; font-size: 0.98em; }
+td { padding: 8px 14px; border-bottom: 1px solid #1e293b; font-size: 0.98em; }
 tr:hover { background: #1a1a2e; }
 .best { color: #4ade80; font-weight: 700; }
 .bad { color: #f87171; }
 .na { color: #666; }
-pre { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; margin: 12px 0; font-size: 0.88em; line-height: 1.55; overflow-x: auto; color: #d1d5db; font-family: 'Fira Code','Consolas',monospace; }
-code { font-family: 'Fira Code','Consolas',monospace; background: #1e293b; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+pre { background: #111827; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; margin: 12px 0; font-size: 0.96em; line-height: 1.6; overflow-x: auto; color: #d1d5db; font-family: 'Fira Code','Consolas',monospace; }
+code { font-family: 'Fira Code','Consolas',monospace; background: #1e293b; padding: 2px 6px; border-radius: 4px; font-size: 0.95em; }
 .cols { display: flex; gap: 30px; align-items: flex-start; }
 .col { flex: 1; }
 .bar-chart { margin: 16px 0; }
 .bar-row { display: flex; align-items: center; margin: 6px 0; }
-.bar-label { width: 130px; font-size: 0.85em; text-align: right; padding-right: 10px; }
+.bar-label { width: 145px; font-size: 0.94em; text-align: right; padding-right: 10px; }
 .bar-container { flex: 1; height: 26px; background: #1e293b; border-radius: 4px; }
-.bar { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 8px; font-size: 0.78em; font-weight: 600; }
+.bar { height: 100%; border-radius: 4px; display: flex; align-items: center; padding-left: 8px; font-size: 0.86em; font-weight: 600; }
 .bar-sync { background: #ef4444; } .bar-async { background: #f59e0b; }
 .bar-graph { background: #22c55e; } .bar-persist { background: #3b82f6; }
 .pipeline { display: flex; align-items: center; gap: 0; margin: 16px 0; flex-wrap: wrap; }
-.pipe-stage { padding: 10px 14px; border-radius: 6px; font-size: 0.82em; font-weight: 600; white-space: nowrap; }
+.pipe-stage { padding: 10px 14px; border-radius: 6px; font-size: 0.9em; font-weight: 600; white-space: nowrap; }
 .pipe-arrow { font-size: 1.1em; color: #555; margin: 0 3px; }
 .pipe-python { background: #1e3a5f; color: #60a5fa; border: 1px solid #3b82f6; }
 .pipe-runtime { background: #3b1f1f; color: #f87171; border: 1px solid #ef4444; }
 .pipe-driver { background: #3b2f1f; color: #fbbf24; border: 1px solid #f59e0b; }
 .pipe-compute { background: #1f3b1f; color: #4ade80; border: 1px solid #22c55e; }
-.pipe-label { font-size: 0.7em; color: #888; display: block; margin-top: 3px; }
-.tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.78em; font-weight: 600; margin: 2px; }
+.pipe-label { font-size: 0.78em; color: #888; display: block; margin-top: 3px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.84em; font-weight: 600; margin: 2px; }
 .tag-red { background: #3b1f1f; color: #f87171; border: 1px solid #f87171; }
 .tag-green { background: #1f3b1f; color: #4ade80; border: 1px solid #4ade80; }
 .tag-blue { background: #1e3a5f; color: #60a5fa; border: 1px solid #3b82f6; }
-.key-finding { background: linear-gradient(135deg, #1e293b, #0f172a); border-left: 4px solid #fbbf24; padding: 14px 20px; margin: 14px 0; border-radius: 0 8px 8px 0; font-size: 1.05em; }
-.page-num { position: absolute; bottom: 16px; right: 36px; color: #444; font-size: 0.85em; }
+.key-finding { background: linear-gradient(135deg, #1e293b, #0f172a); border-left: 4px solid #fbbf24; padding: 14px 20px; margin: 14px 0; border-radius: 0 8px 8px 0; font-size: 1.12em; }
+.page-num { position: absolute; bottom: 16px; right: 36px; color: #444; font-size: 0.95em; }
 </style>
 </head>
 <body>
@@ -116,7 +116,7 @@ for day in range(10):
     <tr><td>Heat3D 32³</td><td class="bad">70.0</td><td>32.5</td><td class="best">3.0</td><td class="best">2.6</td><td class="green">27.0x</td><td class="red">96%</td></tr>
     <tr><td>Jacobi2D 128²</td><td class="bad">82.3</td><td>31.7</td><td>4.3</td><td class="best">4.0</td><td class="green">20.7x</td><td class="red">95%</td></tr>
     <tr><td>Wave2D 128²</td><td class="bad">77.4</td><td>34.9</td><td>3.8</td><td class="best">3.7</td><td class="green">20.9x</td><td class="red">95%</td></tr>
-    <tr><td>GrayScott 128²</td><td class="bad">95.3</td><td>39.7</td><td>6.0</td><td class="best">5.1</td><td class="green">18.7x</td><td class="red">95%</td></tr>
+    <tr><td>GrayScott 128²</td><td class="bad">121.0</td><td>120.3</td><td>5.9</td><td class="best">5.5</td><td class="green">22.1x</td><td class="red">95%</td></tr>
     <tr><td>Allen-Cahn 128²</td><td class="bad">79.3</td><td>32.1</td><td>3.3</td><td class="best">3.0</td><td class="green">26.2x</td><td class="red">96%</td></tr>
     <tr><td>Cahn-Hilliard 128²</td><td class="bad">76.2</td><td>77.5</td><td>4.2</td><td class="best">3.8</td><td class="green">20.2x</td><td class="red">95%</td></tr>
     <tr><td>Burgers2D 128²</td><td class="bad">96.4</td><td>45.2</td><td>6.5</td><td class="best">5.7</td><td class="green">16.9x</td><td class="red">94%</td></tr>
@@ -490,12 +490,13 @@ host_thread:
     <tr><th>方案</th><th>μs/step</th><th>额外开销</th></tr>
     <tr><td>Persistent (不保存)</td><td>5.85</td><td>—</td></tr>
     <tr><td class="best">Persistent + DMA 保存 (每100步)</td><td class="best">6.58</td><td class="green">+12.5%</td></tr>
+    <tr><td>Graph (break at save)</td><td>9.34</td><td>+60%</td></tr>
     <tr><td class="bad">Sync loop + 阻塞保存</td><td class="bad">76.69</td><td class="red">+1210%</td></tr>
   </table>
 
   <div class="key-finding">
     PERKS (ICS'23) 和 AsyncTaichi <span class="red">都没做过</span> compute-communication overlap。<br>
-    CUDA Graph 保存数据必须<span class="red">打断回放</span>；Persistent 可以<span class="green">边算边传</span>。
+    CUDA Graph 保存数据必须<span class="red">打断回放</span>（9.34 μs/step, +60%）；Persistent 可以<span class="green">边算边传</span>（6.58 μs/step, +12.5%）。
   </div>
   <div class="page-num">11 / 13</div>
 </div>
