@@ -530,26 +530,49 @@ host_thread:
   <div class="page-num">12 / 13</div>
 </div>
 
-<!-- SLIDE 13: Summary -->
+<!-- SLIDE 12: F1 OSHER Deep Dive -->
 <div class="slide">
-  <h2>12. 总结 & 讨论</h2>
+  <h2>12. 深入 Case: F1 OSHER — 真实水文模拟 Kernel</h2>
+  <p>hydro-cal 浅水方程 OSHER Riemann solver, fp64, 106 regs/thread, 2 kernels/step (compute + transfer)</p>
 
-  <h3>核心 thesis</h3>
-  <p>GPU simulation 的 time-stepping loop 经常被 host round-trip overhead 主导；<br>
-  Graph 和 Persistent 都能消除，但最优策略受 <strong>legality 和 kernel structure 约束</strong>：<br>
-  CG 这类 multi-kernel + host readback 的 case <strong>只有 Persistent 能做</strong>。</p>
+  <h3>跨框架对比 (3060, 500 steps)</h3>
+  <table>
+    <tr><th>框架</th><th>32² (1024 cells)</th><th>64² (4096 cells)</th><th>128² (16384 cells)</th></tr>
+    <tr><td class="bad">Taichi (Python DSL)</td><td class="bad">189.7 μs</td><td class="bad">138.1 μs</td><td>160.9 μs</td></tr>
+    <tr><td>Warp (Python DSL)</td><td>131.4 μs</td><td>128.1 μs</td><td>129.3 μs</td></tr>
+    <tr><td>Kokkos (C++)</td><td>52.5 μs</td><td>57.0 μs</td><td>154.7 μs</td></tr>
+    <tr><td class="bad">CUDA Sync</td><td class="bad">137.4 μs</td><td class="bad">149.2 μs</td><td>212.4 μs</td></tr>
+    <tr><td>CUDA Async</td><td>84.9 μs</td><td>75.0 μs</td><td>153.4 μs</td></tr>
+    <tr><td class="best">CUDA Graph</td><td>42.2 μs</td><td class="best">69.4 μs</td><td class="best">144.4 μs</td></tr>
+    <tr><td class="best">CUDA Persistent (adaptive B)</td><td class="best">38.5 μs</td><td>56.1 μs</td><td>153.4 μs</td></tr>
+  </table>
 
-  <h3>已有的实验证据</h3>
-  <p>✅ 36 种 kernel type × 4 种策略，在 3060 上系统验证 overhead 普遍性</p>
-  <p>✅ CG Solver：Graph 不可用，Persistent <span class="green">40.8x</span></p>
-  <p>✅ LULESH：128² 时 Persistent 超限 → Graph fallback 10x（策略翻转）</p>
-  <p>✅ DMA overlap：Persistent 边算边传，+12.5%（Graph 必须打断，+60%）</p>
-  <p>✅ hydro-cal F1 跨框架对比：Taichi ≈ CUDA Sync，验证 DSL 就是 Sync 模式</p>
+  <div class="cols">
+    <div class="col">
+      <h3>观察</h3>
+      <p>1. <strong>Taichi ≈ CUDA Sync</strong> → Taichi 就是 Sync 模式</p>
+      <p>2. <strong>Kokkos ≈ CUDA Async</strong> → C++ 没有 Python OH，但仍有 launch OH</p>
+      <p>3. <strong>Warp 有固定 ~130μs floor</strong> → 网格大 16 倍时间不变</p>
+      <p>4. <strong>128² 时所有方案收敛</strong> → compute 主导，overhead 不再是瓶颈</p>
+    </div>
+    <div class="col">
+      <h3>Block size 的影响 (Persistent 32²)</h3>
+      <table>
+        <tr><th>Block size</th><th>Blocks</th><th>SM 覆盖</th><th>μs/step</th></tr>
+        <tr><td>256</td><td>4</td><td>4/30 = 13%</td><td>71.8</td></tr>
+        <tr><td class="best">128</td><td class="best">8</td><td class="best">8/30 = 27%</td><td class="best">38.5</td></tr>
+        <tr><td colspan="3">改善</td><td class="green">1.86x</td></tr>
+      </table>
+      <p>Block size 影响 (<span class="green">1.86x</span>) ≈ 策略选择影响 (1.91x)</p>
+    </div>
+  </div>
 
-  <h3>请导师拍板</h3>
-  <p>1. 这组 benchmark 发现 + CG/LULESH case study 够不够一篇 paper 的核心？</p>
-  <p>2. 定位为 characterization paper (ISPASS) 还是 systems paper (ICS/PPoPP)？</p>
-  <p>3. 下一步方向：cost model 做精 → auto-selector？还是先写论文？</p>
+  <div class="key-finding">
+    <strong>F1 是最完整的 case</strong>：真实工程 kernel + 5 个框架 + 4 种策略 + block size sweep。<br>
+    小 grid (32²): Persistent (B=128) 最优 38.5μs, 比 Taichi 快 <span class="green">4.9x</span>。<br>
+    大 grid (128²): Graph 最优 144.4μs, Persistent <span class="red">超限</span>。<br>
+    <span style="color:#888;">数据来源：<code>3060_hydro_f1_frameworks_rerun2.txt</code> + <code>3060_hydro_f1_osher_adaptive_threads_v2.txt</code></span>
+  </div>
   <div class="page-num">13 / 13</div>
 </div>
 
