@@ -3,12 +3,12 @@ GPU: NVIDIA GeForce RTX 3060 Laptop GPU (SMs=30, Compute 8.6)
 Kernel                          Sync      Async      Graph    Persist  | Speedups over Sync
                                 (us)       (us)       (us)       (us)  |    Async    Graph  Persist
 ------------------------- ---------- ---------- ---------- ----------  | -------- -------- --------
-Heat2D 128sq                  107.04      30.91       4.66       4.28  |     3.5x    22.9x    25.0x
-Heat2D 256sq                   96.40      37.99       7.80        N/A  |     2.5x    12.4x      N/A
-Heat2D 512sq                  138.54      35.67      19.92        N/A  |     3.9x     7.0x      N/A
-Heat2D 1024sq                 179.13     100.31      89.41        N/A  |     1.8x     2.0x      N/A
-Heat2D 2048sq                 441.33     375.78     359.63        N/A  |     1.2x     1.2x      N/A
-GrayScott 128sq               121.23      46.78       6.35       5.37  |     2.6x    19.1x    22.6x
-GrayScott 256sq                91.21      50.52      12.85        N/A  |     1.8x     7.1x      N/A
-GrayScott 512sq               136.36      60.97      48.61        N/A  |     2.2x     2.8x      N/A
-GrayScott 1024sq              300.05     195.25     193.03        N/A  |     1.5x     1.6x      N/A
+Heat2D 128sq                   83.38      36.12       4.44       4.31  |     2.3x    18.8x    19.4x
+Heat2D 256sq                   88.87      32.55       6.45        N/A  |     2.7x    13.8x      N/A
+Heat2D 512sq                   94.40      37.98      19.83        N/A  |     2.5x     4.8x      N/A
+Heat2D 1024sq                 164.30      91.81      88.50        N/A  |     1.8x     1.9x      N/A
+Heat2D 2048sq                 474.45     361.66     355.58        N/A  |     1.3x     1.3x      N/A
+GrayScott 128sq               120.97     120.30       5.93       5.47  |     1.0x    20.4x    22.1x
+GrayScott 256sq                94.77      51.23      12.50        N/A  |     1.8x     7.6x      N/A
+GrayScott 512sq               119.79      60.09      48.75        N/A  |     2.0x     2.5x      N/A
+GrayScott 1024sq              271.06     199.46     192.34        N/A  |     1.4x     1.4x      N/A
