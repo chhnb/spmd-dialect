@@ -1555,14 +1555,158 @@ int main(){
     printf("\n--- 1D PDE ---\n");
     print_result("Upwind1D N=4096",   test_1d(upwind1d_step, upwind1d_persistent, 4096, 2000));
     print_result("Upwind1D N=16384",  test_1d(upwind1d_step, upwind1d_persistent, 16384, 2000));
-    // Euler1D has 6 arrays (rho,rhou,E + rho2,rhou2,E2), skip from generic harness
-    // (It's covered by the Taichi characterization data)
     print_result("Schrodinger1D N=4096",test_1d(schrodinger1d_step, schrodinger1d_persistent, 4096, 2000));
     print_result("KuramotoSivash N=4096",test_1d(ks1d_step, ks1d_persistent, 4096, 2000));
     print_result("MassSpring1D N=4096",test_1d(massspring1d_step, massspring1d_persistent, 4096, 2000));
 
+    // === Euler1D (6 arrays: rho, rhou, E + copies) ===
+    {
+        int N=4096, STEPS=2000; float *rho,*rhou,*E,*rho2,*rhou2,*E2;
+        CHECK(cudaMalloc(&rho,N*4));CHECK(cudaMalloc(&rhou,N*4));CHECK(cudaMalloc(&E,N*4));
+        CHECK(cudaMalloc(&rho2,N*4));CHECK(cudaMalloc(&rhou2,N*4));CHECK(cudaMalloc(&E2,N*4));
+        float*h=(float*)malloc(N*4);
+        for(int i=0;i<N;i++)h[i]=1.0f+0.01f*(i%100);
+        cudaMemcpy(rho,h,N*4,cudaMemcpyHostToDevice);cudaMemcpy(E,h,N*4,cudaMemcpyHostToDevice);
+        CHECK(cudaMemset(rhou,0,N*4));free(h);
+        int bl=(N+255)/256;
+        cudaEvent_t t0,t1;CHECK(cudaEventCreate(&t0));CHECK(cudaEventCreate(&t1));
+        for(int i=0;i<20;i++){euler1d_step<<<bl,256>>>(N,rho,rhou,E,rho2,rhou2,E2);
+            copy_f<<<bl,256>>>(N,rho2,rho);copy_f<<<bl,256>>>(N,rhou2,rhou);copy_f<<<bl,256>>>(N,E2,E);}
+        cudaDeviceSynchronize();
+        Result r;float ms;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){euler1d_step<<<bl,256>>>(N,rho,rhou,E,rho2,rhou2,E2);
+            copy_f<<<bl,256>>>(N,rho2,rho);copy_f<<<bl,256>>>(N,rhou2,rhou);copy_f<<<bl,256>>>(N,E2,E);cudaDeviceSynchronize();}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.sync_us=ms*1000/STEPS;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){euler1d_step<<<bl,256>>>(N,rho,rhou,E,rho2,rhou2,E2);
+            copy_f<<<bl,256>>>(N,rho2,rho);copy_f<<<bl,256>>>(N,rhou2,rhou);copy_f<<<bl,256>>>(N,E2,E);}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.async_us=ms*1000/STEPS;
+        {int REPS=5;cudaGraph_t g;cudaGraphExec_t ge;cudaStream_t stream;
+         CHECK(cudaStreamCreate(&stream));
+         CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+         for(int s=0;s<STEPS;s++){euler1d_step<<<bl,256,0,stream>>>(N,rho,rhou,E,rho2,rhou2,E2);
+             copy_f<<<bl,256,0,stream>>>(N,rho2,rho);copy_f<<<bl,256,0,stream>>>(N,rhou2,rhou);copy_f<<<bl,256,0,stream>>>(N,E2,E);}
+         CHECK(cudaStreamEndCapture(stream,&g));CHECK(cudaGraphInstantiate(&ge,g,NULL,NULL,0));
+         for(int i=0;i<3;i++){cudaGraphLaunch(ge,stream);cudaStreamSynchronize(stream);}
+         cudaEventRecord(t0,stream);for(int i=0;i<REPS;i++)cudaGraphLaunch(ge,stream);
+         cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+         cudaEventElapsedTime(&ms,t0,t1);r.graph_us=ms*1000/(STEPS*REPS);
+         cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);}
+        {int numBSm=0;cudaDeviceProp prop;cudaGetDeviceProperties(&prop,0);
+         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm,euler1d_persistent,256,0);
+         int maxB=numBSm*prop.multiProcessorCount;
+         if(bl<=maxB){
+             void*args[]={(void*)&N,(void*)&rho,(void*)&rhou,(void*)&E,(void*)&rho2,(void*)&rhou2,(void*)&E2,(void*)&STEPS};
+             cudaLaunchCooperativeKernel((void*)euler1d_persistent,dim3(bl),dim3(256),args);cudaDeviceSynchronize();
+             int REPS=5;cudaEventRecord(t0);
+             for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)euler1d_persistent,dim3(bl),dim3(256),args);
+             cudaEventRecord(t1);cudaDeviceSynchronize();
+             cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
+         } else r.persistent_us=-1;}
+        print_result("Euler1D N=4096",r);
+        cudaEventDestroy(t0);cudaEventDestroy(t1);
+        cudaFree(rho);cudaFree(rhou);cudaFree(E);cudaFree(rho2);cudaFree(rhou2);cudaFree(E2);
+    }
+
+    // === SWE Lax-Friedrichs (6 arrays: h, hu, hv + copies) ===
+    {
+        int N=128, STEPS=2000, N2=N*N; float *h_f,*hu,*hv,*h2,*hu2,*hv2;
+        CHECK(cudaMalloc(&h_f,N2*4));CHECK(cudaMalloc(&hu,N2*4));CHECK(cudaMalloc(&hv,N2*4));
+        CHECK(cudaMalloc(&h2,N2*4));CHECK(cudaMalloc(&hu2,N2*4));CHECK(cudaMalloc(&hv2,N2*4));
+        float*hh=(float*)malloc(N2*4);for(int i=0;i<N2;i++)hh[i]=1.0f+0.01f*(i%100);
+        cudaMemcpy(h_f,hh,N2*4,cudaMemcpyHostToDevice);CHECK(cudaMemset(hu,0,N2*4));CHECK(cudaMemset(hv,0,N2*4));free(hh);
+        dim3 block(16,16),grid((N+15)/16,(N+15)/16);int cg=(N2+255)/256;
+        cudaEvent_t t0,t1;CHECK(cudaEventCreate(&t0));CHECK(cudaEventCreate(&t1));
+        for(int i=0;i<20;i++){swe_step<<<grid,block>>>(N,h_f,hu,hv,h2,hu2,hv2);copy3_f<<<cg,256>>>(N2,h2,h_f,hu2,hu,hv2,hv);}
+        cudaDeviceSynchronize();
+        Result r;float ms;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){swe_step<<<grid,block>>>(N,h_f,hu,hv,h2,hu2,hv2);copy3_f<<<cg,256>>>(N2,h2,h_f,hu2,hu,hv2,hv);cudaDeviceSynchronize();}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.sync_us=ms*1000/STEPS;
+        cudaEventRecord(t0);
+        for(int s=0;s<STEPS;s++){swe_step<<<grid,block>>>(N,h_f,hu,hv,h2,hu2,hv2);copy3_f<<<cg,256>>>(N2,h2,h_f,hu2,hu,hv2,hv);}
+        cudaEventRecord(t1);cudaEventSynchronize(t1);cudaEventElapsedTime(&ms,t0,t1);r.async_us=ms*1000/STEPS;
+        {int REPS=5;cudaGraph_t g;cudaGraphExec_t ge;cudaStream_t stream;
+         CHECK(cudaStreamCreate(&stream));
+         CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+         for(int s=0;s<STEPS;s++){swe_step<<<grid,block,0,stream>>>(N,h_f,hu,hv,h2,hu2,hv2);copy3_f<<<cg,256,0,stream>>>(N2,h2,h_f,hu2,hu,hv2,hv);}
+         CHECK(cudaStreamEndCapture(stream,&g));CHECK(cudaGraphInstantiate(&ge,g,NULL,NULL,0));
+         for(int i=0;i<3;i++){cudaGraphLaunch(ge,stream);cudaStreamSynchronize(stream);}
+         cudaEventRecord(t0,stream);for(int i=0;i<REPS;i++)cudaGraphLaunch(ge,stream);
+         cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+         cudaEventElapsedTime(&ms,t0,t1);r.graph_us=ms*1000/(STEPS*REPS);
+         cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);}
+        {int numBSm=0;cudaDeviceProp prop;cudaGetDeviceProperties(&prop,0);
+         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm,swe_persistent,256,0);
+         int maxB=numBSm*prop.multiProcessorCount;
+         if((int)(grid.x*grid.y)<=maxB){
+             void*args[]={(void*)&N,(void*)&h_f,(void*)&hu,(void*)&hv,(void*)&h2,(void*)&hu2,(void*)&hv2,(void*)&STEPS};
+             cudaLaunchCooperativeKernel((void*)swe_persistent,grid,block,args);cudaDeviceSynchronize();
+             int REPS=5;cudaEventRecord(t0);
+             for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)swe_persistent,grid,block,args);
+             cudaEventRecord(t1);cudaDeviceSynchronize();
+             cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
+         } else r.persistent_us=-1;}
+        print_result("SWE_LaxFried 128sq",r);
+        cudaEventDestroy(t0);cudaEventDestroy(t1);
+        cudaFree(h_f);cudaFree(hu);cudaFree(hv);cudaFree(h2);cudaFree(hu2);cudaFree(hv2);
+    }
+
+    // === Helmholtz/Poisson (same stencil as Jacobi, different name) ===
+    printf("\n--- Helmholtz/Poisson ---\n");
+    // Poisson2D = Jacobi iteration with RHS=0, same as Jacobi2D kernel
+    print_result("Poisson2D 128sq",  test_2d_stencil(jacobi2d_step, jacobi2d_persistent, 128, 2000));
+    // Helmholtz2D = Jacobi + shift, using same kernel as proxy
+    print_result("Helmholtz2D 128sq",test_2d_stencil(jacobi2d_step, jacobi2d_persistent, 128, 2000));
+
     // === 3D ===
     printf("\n--- 3D Stencil ---\n");
+    // Heat3D (already defined, 1D flat launch)
+    {
+        for(int N : {32, 64}) {
+            int N3=N*N*N; float *u3,*v3;
+            CHECK(cudaMalloc(&u3,N3*4)); CHECK(cudaMalloc(&v3,N3*4));
+            CHECK(cudaMemset(u3,0,N3*4)); CHECK(cudaMemset(v3,0,N3*4));
+            int bl=(N3+255)/256; int STEPS=(N==32)?1000:500;
+            cudaEvent_t t0,t1; CHECK(cudaEventCreate(&t0)); CHECK(cudaEventCreate(&t1));
+            for(int i=0;i<20;i++){heat3d_step<<<bl,256>>>(N,u3,v3);copy_f<<<bl,256>>>(N3,v3,u3);}
+            cudaDeviceSynchronize();
+            Result r; float ms;
+            cudaEventRecord(t0);
+            for(int s=0;s<STEPS;s++){heat3d_step<<<bl,256>>>(N,u3,v3);copy_f<<<bl,256>>>(N3,v3,u3);cudaDeviceSynchronize();}
+            cudaEventRecord(t1);cudaEventSynchronize(t1);
+            cudaEventElapsedTime(&ms,t0,t1);r.sync_us=ms*1000/STEPS;
+            cudaEventRecord(t0);
+            for(int s=0;s<STEPS;s++){heat3d_step<<<bl,256>>>(N,u3,v3);copy_f<<<bl,256>>>(N3,v3,u3);}
+            cudaEventRecord(t1);cudaEventSynchronize(t1);
+            cudaEventElapsedTime(&ms,t0,t1);r.async_us=ms*1000/STEPS;
+            {int REPS=5;cudaGraph_t g;cudaGraphExec_t ge;cudaStream_t stream;
+             CHECK(cudaStreamCreate(&stream));
+             CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+             for(int s=0;s<STEPS;s++){heat3d_step<<<bl,256,0,stream>>>(N,u3,v3);copy_f<<<bl,256,0,stream>>>(N3,v3,u3);}
+             CHECK(cudaStreamEndCapture(stream,&g));CHECK(cudaGraphInstantiate(&ge,g,NULL,NULL,0));
+             for(int i=0;i<3;i++){cudaGraphLaunch(ge,stream);cudaStreamSynchronize(stream);}
+             cudaEventRecord(t0,stream);for(int i=0;i<REPS;i++)cudaGraphLaunch(ge,stream);
+             cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+             cudaEventElapsedTime(&ms,t0,t1);r.graph_us=ms*1000/(STEPS*REPS);
+             cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);}
+            {int numBSm=0;cudaDeviceProp prop;cudaGetDeviceProperties(&prop,0);
+             cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm,heat3d_persistent,256,0);
+             int maxB=numBSm*prop.multiProcessorCount;
+             if(bl<=maxB){
+                 void*args[]={(void*)&N,(void*)&u3,(void*)&v3,(void*)&STEPS};
+                 cudaLaunchCooperativeKernel((void*)heat3d_persistent,dim3(bl),dim3(256),args);cudaDeviceSynchronize();
+                 int REPS=5;cudaEventRecord(t0);
+                 for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)heat3d_persistent,dim3(bl),dim3(256),args);
+                 cudaEventRecord(t1);cudaDeviceSynchronize();
+                 cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
+             } else r.persistent_us=-1;}
+            char name[64]; snprintf(name,64,"Heat3D %d^3",N);
+            print_result(name,r);
+            cudaEventDestroy(t0);cudaEventDestroy(t1);cudaFree(u3);cudaFree(v3);
+        }
+    }
     // Jacobi3D: uses (N3, N, u, v) signature - needs dedicated test
     {
         for(int N : {32, 64}) {
