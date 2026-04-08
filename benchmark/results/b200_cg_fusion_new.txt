@@ -1,0 +1,16 @@
+GPU: NVIDIA B200 (SMs=148)
+CG Solver: N=128 (16384 unknowns), 200 CG iterations
+Per CG step: 5 kernels (matvec + 2 dots + update_xr + update_p)
+
+[1] Sync (5 kern + host readback):    71.7 us/step  (14.3 ms total)
+
+  Persistent: need 64 blocks, max 592 (4/SM × 148 SMs)
+[2] Persistent fused (1 kern):        17.7 us/step  (3.5 ms total)
+[3] CUDA Graph (3 kern, no dots):      3.7 us/step  (0.7 ms total)
+    Note: Graph uses fixed alpha/beta (overhead-only measurement)
+
+Key insight:
+  Sync CG needs host readback for alpha/beta → 2 extra sync points per step
+  Persistent CG computes alpha/beta on device → 0 host sync, 1 kernel launch total
+  This is exactly the 'dynamic control flow' case where Graph can't help
+  but Persistent can.

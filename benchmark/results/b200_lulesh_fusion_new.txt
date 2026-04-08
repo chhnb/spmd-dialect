@@ -1,0 +1,12 @@
+GPU: NVIDIA B200 (SMs=148)
+LULESH-like: N=64 (4096 elements, 4225 nodes), 500 steps
+Per step: reset_forces + calc_forces + update_nodes + EOS = 4 kernels
+
+[1] Sync (4 kernels/step):        20.3 us/step
+[2] Async (4 kernels, no sync):   14.3 us/step
+[3] CUDA Graph (4 kern batch):     7.0 us/step
+
+  Persistent: need 17 blocks, max 444 (3/SM × 148 SMs)
+[4] Persistent fused (1 kern):     9.8 us/step
+
+Speedups vs Sync: Async=1.4x Graph=2.1x Persistent=2.1x

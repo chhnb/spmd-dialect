@@ -155,9 +155,38 @@ persistent_kernel&lt;&lt;&lt;coop_grid, block&gt;&gt;&gt;(...) {
   <div class="page-num">3 / 11</div>
 </div>
 
-<!-- SLIDE 4: What is Overhead -->
+<!-- SLIDE 4: How We Measure — Control Variable Method -->
 <div class="slide">
-  <h2>3. Overhead 是什么</h2>
+  <h2>3. 怎么测的：控制变量实验（不依赖 profiler）</h2>
+  <p>核心思路：<span class="highlight">同一个 kernel，只切换执行策略，差值就是该层的损失。</span>全程只用 <code>cudaEvent</code> 计时。</p>
+
+  <h3>逐层剥洋葱（F1 OSHER 32², 3060, fp64）</h3>
+  <table>
+    <tr><th>步骤</th><th>改变的变量</th><th>时间 (μs)</th><th>差值</th><th>归因</th></tr>
+    <tr><td>① Sync loop (B=256)</td><td>baseline (Taichi/Warp 默认)</td><td class="bad">137.4</td><td></td><td></td></tr>
+    <tr><td>② Persistent (B=256)</td><td>消除 host round-trip</td><td>71.8</td><td class="green">−65.6 (48%)</td><td><strong>L1 Temporal</strong></td></tr>
+    <tr><td>③ Persistent (B=128)</td><td>增加 SM 覆盖率 (4→8 blocks)</td><td>38.5</td><td class="green">−33.3 (24%)</td><td><strong>L2 Coverage</strong></td></tr>
+    <tr><td>④ 理论下界</td><td>—</td><td>~13</td><td>−25.5 (28%)</td><td><strong>L3-L5 Compute</strong></td></tr>
+  </table>
+
+  <pre style="font-size:0.85em;">137.4 μs  ← Sync: 每步 GPU→host→driver→launch→GPU (PCIe round-trip ~65μs)
+ 71.8 μs  ← Persistent: 去掉 host round-trip，但只有 4/28 SMs 在跑
+ 38.5 μs  ← 减小 block size: 8/28 SMs 在跑，SM 覆盖率 ×2
+ ~13  μs  ← 剩余 = 真正的计算 + memory + scheduler</pre>
+
+  <p><strong>为什么不用 nsys?</strong> 控制变量法直接给出每一层的量化贡献，可复现、不依赖特定 profiler 版本。nsys 只是可选的可视化验证。</p>
+
+  <div class="key-finding">
+    <strong>数据来源</strong>：<code>hydro_cuda_osher.cu</code> 中 <code>bench_sync()</code> / <code>bench_persistent()</code>，用 <code>cudaEvent</code> 计时。<br>
+    Block size sweep 通过 <code>--mode persistent</code> 配合不同 <code>THREADS</code> 值获得。<br>
+    结果文件：<code>benchmark/results/3060_osher_adaptive.txt</code>
+  </div>
+  <div class="page-num">4 / 14</div>
+</div>
+
+<!-- SLIDE 5: What is Overhead -->
+<div class="slide">
+  <h2>4. Overhead 是什么</h2>
   <p>每步 Taichi/Warp 走完这条路径（F1 hydro-cal 64², 3060 实测）：</p>
 
   <div class="pipeline">
@@ -189,7 +218,100 @@ persistent_kernel&lt;&lt;&lt;coop_grid, block&gt;&gt;&gt;(...) {
     因为 Python 要拿到 GPU 结果才能执行下一行代码。<br>
     F2 每步 2 个 kernel → <span class="red">2 次 launch + 2 次 sync = overhead 翻倍</span>。
   </div>
-  <div class="page-num">4 / 11</div>
+  <div class="page-num">5 / 14</div>
+</div>
+
+<!-- SLIDE 5.5: What We Move to GPU — Persistent Kernel Mechanism -->
+<div class="slide">
+  <h2>5. 我们做了什么：把循环和同步搬到 GPU 上</h2>
+  <p>不是"去掉同步"——<span class="highlight">步间同步是正确性必需的</span>。我们做的是把同步从 host round-trip 换成 GPU 片上 barrier。</p>
+
+  <div class="cols">
+    <div class="col">
+      <h3>Sync Loop（Taichi/Warp 默认）</h3>
+      <pre style="font-size:0.85em;"><span style="color:#f87171;">// 循环在 Host (Python) 上</span>
+for step in range(500):
+  launch kernel_1  → GPU 跑完
+  <span style="color:#f87171;">cudaDeviceSynchronize()</span>
+    <span style="color:#888;">// GPU → PCIe → host → PCIe → GPU</span>
+    <span style="color:#888;">// ~70 μs round-trip (3060)</span>
+  launch kernel_2  → GPU 跑完
+  <span style="color:#f87171;">cudaDeviceSynchronize()</span>
+    <span style="color:#888;">// 又一次 round-trip</span>
+
+<span style="color:#888;">// 每步 2× host-device 往返</span></pre>
+    </div>
+    <div class="col">
+      <h3>Persistent Kernel（我们的方案）</h3>
+      <pre style="font-size:0.85em;"><span style="color:#4ade80;">// 循环在 GPU kernel 内部</span>
+__global__ void persistent_kernel(...) {
+  cg::grid_group grid = cg::this_grid();
+  <span style="color:#4ade80;">for (int step = 0; step &lt; 500; step++)</span> {
+    compute(my_cells);   // Phase 1
+    <span style="color:#4ade80;">grid.sync();</span>
+      <span style="color:#888;">// GPU 片上 barrier（所有 block）</span>
+      <span style="color:#888;">// ~几百 ns, 不离开 GPU</span>
+    transfer(my_cells);  // Phase 2
+    <span style="color:#4ade80;">grid.sync();</span>
+  }
+}
+<span style="color:#888;">// Host 只 launch 1 次，最后收结果</span></pre>
+    </div>
+  </div>
+
+  <h3><code>grid.sync()</code> 的硬件机制与约束</h3>
+  <table>
+    <tr><th></th><th><code>cudaDeviceSynchronize()</code></th><th><code>cg::grid_group::sync()</code></th></tr>
+    <tr><td>路径</td><td class="bad">GPU → PCIe → host → driver → PCIe → GPU</td><td class="best">GPU 片上 atomics + spin-wait</td></tr>
+    <tr><td>延迟</td><td class="bad">~70 μs (3060) / ~10 μs (B200)</td><td class="best">~几百 ns</td></tr>
+    <tr><td>前提</td><td>无</td><td class="red">所有 block 必须同时驻留 SM 上</td></tr>
+    <tr><td>编译</td><td>无特殊要求</td><td><code>-rdc=true -lcudadevrt</code></td></tr>
+    <tr><td>Launch</td><td><code>&lt;&lt;&lt;grid,block&gt;&gt;&gt;</code></td><td><code>cudaLaunchCooperativeKernel()</code></td></tr>
+  </table>
+
+  <p><strong>为什么要全部驻留？</strong> GPU 没有抢占。如果 block A 在等 block B 到达 barrier，但 block B 还在排队等 SM 空位 → <span class="red">死锁</span>。</p>
+  <p>约束公式：<code>blocks &le; blocks_per_SM(B, R) &times; num_SMs</code></p>
+  <p>3060, F1 OSHER (106 regs, B=256): 每 SM 最多 1 block → 上限 28 blocks → 128² = 64 blocks <span class="red">超限，非法</span></p>
+
+  <div class="key-finding">
+    <strong>参考文档</strong>：<a href="https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#cooperative-groups" style="color:#60a5fa;">CUDA C++ Programming Guide — Cooperative Groups</a> (CUDA 9.0+)<br>
+    <strong>代码来源</strong>：<code>hydro_cuda_osher.cu</code> 第 418-530 行 (<code>persistent_kernel</code>)，第 956-1008 行 (<code>bench_persistent</code>)<br>
+    底层实现：每个 block 到达 barrier 后 atomic increment 计数器，然后 spin-wait 直到计数器 == <code>gridDim.x</code>
+  </div>
+  <div class="page-num">6 / 14</div>
+</div>
+
+<!-- SLIDE 5.6: CUDA Graph vs Persistent Comparison -->
+<div class="slide">
+  <h2>6. CUDA Graph vs Persistent Kernel：不存在万能最优</h2>
+
+  <table>
+    <tr><th></th><th>CUDA Graph</th><th>Persistent Kernel</th></tr>
+    <tr><td><strong>循环在哪</strong></td><td>Host 上 replay N 次</td><td>GPU kernel 内部 for loop</td></tr>
+    <tr><td><strong>每步开销</strong></td><td>~2 μs (graph replay)</td><td class="best">~几百 ns (grid.sync)</td></tr>
+    <tr><td><strong>Grid size 约束</strong></td><td class="best">无限制</td><td class="red">blocks &le; coop_limit</td></tr>
+    <tr><td><strong>Register cache</strong></td><td class="red">不行（每次新 launch，寄存器清空）</td><td class="best">可以（thread 跨步存活）</td></tr>
+    <tr><td><strong>DMA overlap</strong></td><td class="red">不行（打断 replay）</td><td class="best">可以（Compute ∥ Copy Engine）</td></tr>
+    <tr><td><strong>Host readback</strong></td><td class="red">不行（不能中断 replay 回 host）</td><td class="best">可以（device-side 计算标量）</td></tr>
+    <tr><td><strong>动态控制流</strong></td><td>受限 (CUDA 12.x conditional nodes)</td><td class="best">完全灵活（就是普通 CUDA 代码）</td></tr>
+  </table>
+
+  <h3>实测：最优策略随 (grid_size, kernel, GPU) 翻转</h3>
+  <table>
+    <tr><th>场景</th><th>最优</th><th>原因</th><th>数据来源</th></tr>
+    <tr><td>F1 OSHER 32² (3060)</td><td class="best">Persistent</td><td>blocks=4 &lt; coop_limit=28, 开销更低</td><td><code>3060_osher_adaptive.txt</code></td></tr>
+    <tr><td>F1 OSHER 128² (3060)</td><td class="best">Graph</td><td>blocks=64 &gt; coop_limit=28, Persistent <span class="red">非法</span></td><td><code>hydro_cuda_osher.cu bench_persistent()</code></td></tr>
+    <tr><td>CG Solver 64² (3060)</td><td class="best">Persistent</td><td>Graph <span class="red">不可用</span>（需要 host readback alpha/beta）</td><td><code>cg_persistent.cu</code></td></tr>
+    <tr><td>Jacobi2D 128² (3060)</td><td class="best">Persistent 29.6x</td><td>轻 kernel (16 regs), coop_limit 宽裕</td><td><code>3060 characterization</code></td></tr>
+    <tr><td>Jacobi2D 128² (<span class="highlight">B200</span>)</td><td class="best">Graph 4.3x</td><td>148 SMs → grid.sync 代价更高</td><td><code>b200 characterization</code></td></tr>
+  </table>
+
+  <div class="key-finding">
+    <strong>同一个 kernel (Jacobi2D 128²)</strong>：3060 上 Persistent 最优，B200 上 Graph 最优 — <span class="red">最优策略和 GPU 有关</span>。<br>
+    <strong>Block size 影响 (1.86x) ≈ 策略选择影响 (1.91x)</strong> — 意外发现，联合优化必要。<br>
+    → <strong>需要 legality-aware cost model 自动选择</strong>，不是人能手动判断的。
+  </div>
+  <div class="page-num">7 / 14</div>
 </div>
 
 <!-- SLIDE 5: CG Case -->
@@ -253,12 +375,12 @@ cg_persistent&lt;&lt;&lt;coop_grid, 256&gt;&gt;&gt;
     <strong>只有 multi-kernel persistent fusion + device-side scalar computation 能解决。</strong><br>
     正确性验证通过：max relative diff = 3.18×10⁻⁶。
   </div>
-  <div class="page-num">5 / 11</div>
+  <div class="page-num">8 / 14</div>
 </div>
 
-<!-- SLIDE 6: LULESH + Strategy Selection -->
+<!-- SLIDE 8: LULESH + Strategy Selection -->
 <div class="slide">
-  <h2>5. LULESH：不同 Grid Size 需要不同策略</h2>
+  <h2>8. LULESH：不同 Grid Size 需要不同策略</h2>
   <p>LULESH-like Lagrangian hydro，<span class="highlight">4 kernels/step</span>，<strong>无 host readback</strong> → Graph 和 Persistent 都可以</p>
 
   <pre>for step in range(1000):
@@ -279,12 +401,12 @@ cg_persistent&lt;&lt;&lt;coop_grid, 256&gt;&gt;&gt;
     128² 时 persistent 需要 66 blocks > cooperative limit 60 → <span class="red">不可用</span>，自动 fallback 到 Graph。<br>
     <strong>同一个 kernel，不同 grid size 的最优策略不同</strong> → 需要自动选择。
   </div>
-  <div class="page-num">6 / 11</div>
+  <div class="page-num">9 / 14</div>
 </div>
 
-<!-- SLIDE 7: DMA Overlap -->
+<!-- SLIDE 9: DMA Overlap -->
 <div class="slide">
-  <h2>6. 新发现：Persistent Kernel 可以零开销保存数据</h2>
+  <h2>9. 新发现：Persistent Kernel 可以零开销保存数据</h2>
   <p>GPU 的 Compute Engine 和 DMA Copy Engine 是<span class="highlight">独立硬件</span>，可以并行工作：</p>
 
   <pre>// Persistent kernel 在 Compute Engine 上跑
@@ -311,57 +433,75 @@ host_thread:
     PERKS (ICS'23) 和 AsyncTaichi <span class="red">都没做过</span> compute-communication overlap。<br>
     CUDA Graph 保存数据必须<span class="red">打断回放</span>；Persistent 可以<span class="green">边算边传</span>。
   </div>
-  <div class="page-num">7 / 11</div>
+  <div class="page-num">10 / 14</div>
 </div>
 
-<!-- SLIDE 8: Broader Validation -->
+<!-- SLIDE 10: 36 Kernel Characterization -->
 <div class="slide">
-  <h2>7. 不只是 hydro-cal：36 种 Kernel 的验证</h2>
+  <h2>10. 36 种 Kernel × 130 配置：Overhead 是普遍现象</h2>
+  <p>全部在 RTX 3060 上用 <strong>Taichi (CUDA backend)</strong> 实测。<span class="highlight">Overhead floor ≈ 63-110 μs</span>，不管 kernel 多简单多复杂。</p>
 
-  <div class="cols">
-    <div class="col">
-      <table>
-        <tr><th>领域</th><th>数量</th><th>代表</th></tr>
-        <tr><td>Stencil</td><td>9</td><td>Heat2D/3D, Wave, Jacobi</td></tr>
-        <tr><td>CFD</td><td>4</td><td>SWE, LBM, StableFluids</td></tr>
-        <tr><td>Particle</td><td>5</td><td>NBody, SPH, DEM, PIC</td></tr>
-        <tr><td>EM</td><td>2</td><td>FDTD Maxwell</td></tr>
-        <tr><td>FEM</td><td>3</td><td>ExplicitFEM, Cloth</td></tr>
-        <tr><td>Classic</td><td>6</td><td>Jacobi3D, HotSpot, SRAD, CG, LULESH</td></tr>
-        <tr><td>Other</td><td>7</td><td>Poisson, Schrodinger, MonteCarlo...</td></tr>
-      </table>
-      <p>共 <span class="highlight">36 种 kernel × 130 个配置</span></p>
-    </div>
-    <div class="col">
-      <h3>NCU Profiling (5 kernels)</h3>
-      <table>
-        <tr><th>Kernel</th><th>Regs</th><th>SM%</th><th>类型</th></tr>
-        <tr><td>jacobi2d</td><td>16</td><td>7.7</td><td>轻量</td></tr>
-        <tr><td>heat2d</td><td>18</td><td>7.7</td><td>轻量</td></tr>
-        <tr><td>srad</td><td>26</td><td>14.5</td><td>中等</td></tr>
-        <tr><td class="highlight">osher</td><td class="highlight">106</td><td class="highlight">60.6</td><td class="highlight">重量</td></tr>
-      </table>
-      <h3>Heat2D 4 策略 (轻 kernel)</h3>
-      <table>
-        <tr><th>Grid</th><th class="bad">Sync</th><th class="best">Graph</th><th>OH%</th></tr>
-        <tr><td>128²</td><td>73.7</td><td class="best">4.2 (17.6x)</td><td class="red">94%</td></tr>
-        <tr><td>512²</td><td>80.6</td><td class="best">18.9 (4.3x)</td><td class="red">77%</td></tr>
-        <tr><td>1024²</td><td>150.7</td><td class="best">83.2 (1.8x)</td><td>45%</td></tr>
-      </table>
-    </div>
-  </div>
+  <table style="font-size:0.78em; max-width:100%;">
+    <tr><th>领域</th><th>Kernel</th><th>小 grid (μs)</th><th>大 grid (μs)</th><th>特点</th></tr>
+    <tr><td rowspan="9" style="vertical-align:top;"><strong>Stencil (9)</strong></td>
+        <td>Heat2D</td><td>79.5 (64²)</td><td>257.7 (2048²)</td><td>最简单 5-point stencil</td></tr>
+    <tr><td>Heat3D</td><td>87.6 (32³)</td><td>156.1 (64³)</td><td>7-point 3D</td></tr>
+    <tr><td>Wave2D</td><td>63.2 (256²)</td><td>83.7 (1024²)</td><td>二阶时间</td></tr>
+    <tr><td>Jacobi2D</td><td>80.7 (256²)</td><td>100.4 (64²)</td><td>迭代 solver</td></tr>
+    <tr><td>GrayScott</td><td>81.9 (256²)</td><td>130.3 (1024²)</td><td>耦合 reaction-diffusion</td></tr>
+    <tr><td>Allen-Cahn</td><td>85.8 (256²)</td><td>91.6 (1024²)</td><td>相场</td></tr>
+    <tr><td>Cahn-Hilliard</td><td>94.7 (512²)</td><td>111.9 (256²)</td><td>四阶 PDE</td></tr>
+    <tr><td>Burgers2D</td><td>77.7 (256²)</td><td>127.9 (1024²)</td><td>非线性对流</td></tr>
+    <tr><td>ConvDiff</td><td>83.7 (256²)</td><td>96.9 (1024²)</td><td>对流扩散</td></tr>
+    <tr><td rowspan="4" style="vertical-align:top;"><strong>CFD (4)</strong></td>
+        <td>SWE Lax-Friedrichs</td><td>82.5 (128²)</td><td>176.4 (1024²)</td><td>浅水方程</td></tr>
+    <tr><td>LBM D2Q9</td><td>90.1 (128²)</td><td>262.7 (512²)</td><td>格子 Boltzmann</td></tr>
+    <tr><td>Stable Fluids</td><td class="best">1875.8 (128²)</td><td>2123.0 (64²)</td><td>22 kernels/step, OH&lt;1%</td></tr>
+    <tr><td>Euler1D</td><td>77.1 (N=4K)</td><td>115.5 (N=16K)</td><td>可压缩流</td></tr>
+    <tr><td rowspan="5" style="vertical-align:top;"><strong>Particle (5)</strong></td>
+        <td>N-Body</td><td>75.0 (N=256)</td><td class="best">1114.5 (N=4K)</td><td>O(N²) pairwise</td></tr>
+    <tr><td>SPH Density</td><td>61.4 (N=1K)</td><td>81.8 (N=16K)</td><td>光滑粒子</td></tr>
+    <tr><td>DEM</td><td>68.8 (N=4K)</td><td>73.6 (N=256)</td><td>离散元</td></tr>
+    <tr><td>MD Lennard-Jones</td><td>71.3 (N=1K)</td><td>194.3 (N=4K)</td><td>分子动力学</td></tr>
+    <tr><td>PIC 1D</td><td class="best">1104.6 (NP=1K)</td><td class="best">1231.5 (NP=4K)</td><td>粒子网格，OH&lt;1%</td></tr>
+    <tr><td rowspan="2" style="vertical-align:top;"><strong>EM (2)</strong></td>
+        <td>FDTD Maxwell</td><td>83.6 (128²)</td><td>147.1 (1024²)</td><td>时域有限差分</td></tr>
+    <tr><td>Helmholtz2D</td><td>85.5 (512²)</td><td>88.0 (256²)</td><td>Jacobi 迭代</td></tr>
+    <tr><td rowspan="3" style="vertical-align:top;"><strong>FEM/结构 (3)</strong></td>
+        <td>Explicit FEM</td><td>96.0 (2K elem)</td><td>111.8 (8K elem)</td><td>显式有限元</td></tr>
+    <tr><td>Cloth Mass-Spring</td><td>84.9 (256²)</td><td>157.1 (32²)</td><td>弹簧质点</td></tr>
+    <tr><td>MassSpring 1D</td><td>63.0 (N=256)</td><td>75.0 (N=4K)</td><td>一维弹簧链</td></tr>
+    <tr><td rowspan="2" style="vertical-align:top;"><strong>Transport (2)</strong></td>
+        <td>Semi-Lagrangian</td><td>79.1 (512²)</td><td>91.5 (128²)</td><td>半拉格朗日</td></tr>
+    <tr><td>Upwind 1D</td><td>84.4 (N=16K)</td><td>89.3 (N=1K)</td><td>一阶迎风</td></tr>
+    <tr><td rowspan="3" style="vertical-align:top;"><strong>PDE (3)</strong></td>
+        <td>Poisson2D</td><td>81.3 (128²)</td><td>93.2 (1024²)</td><td>Jacobi 求解</td></tr>
+    <tr><td>Schrödinger 1D</td><td>84.3 (N=16K)</td><td>90.0 (N=1K)</td><td>量子力学 FTCS</td></tr>
+    <tr><td>Kuramoto-Sivashinsky</td><td>77.9 (N=1K)</td><td>87.6 (N=4K)</td><td>混沌 PDE</td></tr>
+    <tr><td rowspan="2" style="vertical-align:top;"><strong>Other (2)</strong></td>
+        <td>Reduction (sum)</td><td>104.2 (N=262K)</td><td>120.3 (N=16K)</td><td>全局归约</td></tr>
+    <tr><td>Monte Carlo RW</td><td>63.6 (N=1K)</td><td>68.7 (N=16K)</td><td>随机游走</td></tr>
+    <tr><td rowspan="6" style="vertical-align:top;"><strong>Classic (6)</strong></td>
+        <td>Jacobi3D 7pt</td><td>86.3 (64³)</td><td>141.1 (128³)</td><td>PERKS benchmark</td></tr>
+    <tr><td>HotSpot</td><td>79.7 (128²)</td><td>107.8 (1024²)</td><td>Rodinia</td></tr>
+    <tr><td>SRAD</td><td>76.2 (512²)</td><td>80.5 (256²)</td><td>Rodinia</td></tr>
+    <tr><td>SpMV CSR</td><td>64.0 (N=1K)</td><td>69.4 (N=4K)</td><td>稀疏矩阵向量乘</td></tr>
+    <tr><td>CG Solver</td><td class="best">1937.9 (128²)</td><td class="best">2193.0 (256²)</td><td>5 kern/step, OH&lt;1%</td></tr>
+    <tr><td>LULESH-like</td><td>201.3 (64²)</td><td>222.2 (32²)</td><td>4 kern/step</td></tr>
+  </table>
 
   <div class="key-finding">
-    轻量 kernel (18 regs): OH = 77-94% → Graph 给 4-18x<br>
-    重量 kernel (106 regs): OH = 37-74% → Graph/Persistent 给 1.6-3.8x<br>
-    <strong>Overhead 是普遍问题，不只是 hydro-cal 特有的。</strong>
+    <strong>核心观察</strong>：除了 StableFluids/NBody/PIC/CG 这些 compute 极重的 kernel 外，<br>
+    <span class="red">几乎所有 kernel 在小/中 grid 上的 step time 都落在 63-110 μs</span> — 这就是 overhead floor (~70-80 μs)。<br>
+    Kernel 的复杂度不同，但 step time 被 overhead 拉平了。<strong>9 个领域，36 种 kernel，同一个现象。</strong><br>
+    <span style="color:#888;">数据来源：<code>benchmark/results/3060_characterization.txt</code>，Taichi 1.7.4 CUDA backend</span>
   </div>
-  <div class="page-num">8 / 11</div>
+  <div class="page-num">11 / 14</div>
 </div>
 
-<!-- SLIDE 9: Strategy Selection Method -->
+<!-- SLIDE 11: Strategy Selection Method -->
 <div class="slide">
-  <h2>8. 方法论：自动 Strategy Selection</h2>
+  <h2>11. 方法论：自动 Strategy Selection</h2>
 
   <pre style="font-size:1em;">分析 kernel 特征 → 自动选择最优策略
 
@@ -385,12 +525,12 @@ host_thread:
   <h3>已实现工具</h3>
   <p><code>strategy_selector.py</code>: 输入 kernel 参数 + GPU → 推荐策略 + 预测时间</p>
   <p><code>sim_optimizer.py</code>: trace Taichi 循环 → 自动检测 host readback → 推荐策略</p>
-  <div class="page-num">9 / 11</div>
+  <div class="page-num">12 / 14</div>
 </div>
 
-<!-- SLIDE 10: Related Work -->
+<!-- SLIDE 12: Related Work -->
 <div class="slide">
-  <h2>9. 与前人工作的关系</h2>
+  <h2>12. 与前人工作的关系</h2>
   <table>
     <tr><th style="width:20%">前人</th><th style="width:35%">做了什么</th><th style="width:45%">我们的差异</th></tr>
     <tr>
@@ -414,12 +554,12 @@ host_thread:
     <strong>CG Solver 是前人都做不了的 case</strong>：<br>
     Graph 不能中断 → ❌ &nbsp; PERKS 不能 fuse 多 kernel → ❌ &nbsp; <strong>只有我们 → <span class="green">40.8x ✓</span></strong>
   </div>
-  <div class="page-num">10 / 11</div>
+  <div class="page-num">13 / 14</div>
 </div>
 
-<!-- SLIDE 11: Summary -->
+<!-- SLIDE 13: Summary -->
 <div class="slide">
-  <h2>10. 总结 & 讨论</h2>
+  <h2>13. 总结 & 讨论</h2>
 
   <h3>已完成</h3>
   <p>✅ hydro-cal F1/F2 跨框架 benchmark (Taichi/Warp/Kokkos/CUDA, 完整 OSHER)</p>
@@ -435,7 +575,7 @@ host_thread:
   <p>1. CG 40x + LULESH strategy selection 够不够作为核心贡献？</p>
   <p>2. 投 characterization paper (ISPASS) 还是 systems paper (ICS/PPoPP)？</p>
   <p>3. 下一步：hook 进 Taichi runtime 做完整自动化？还是先写论文？</p>
-  <div class="page-num">11 / 11</div>
+  <div class="page-num">14 / 14</div>
 </div>
 
 <script>
