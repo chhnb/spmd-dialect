@@ -134,23 +134,26 @@ def parse_overhead_solutions(output):
     return rows
 
 
-def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_prefix="CUDA"):
+def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_prefix="CUDA", configured_steps=""):
     path = BD/binary
     if not path.exists(): return []
     cmd = [str(path)] + args_str.split()
     if dry_run: print(f"    {' '.join(cmd)}"); return []
-    # Extract steps from output (look for "steps=N" or "N steps")
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         timings, compute = parse_cuda(r.stdout)
         # Try to find step count from output (various formats)
         steps_val = ""
         for pat in [r'(\d+)\s*steps', r'(\d+)\s+CG iterations',
-                    r'(\d+)\s+iterations', r'steps[=:]\s*(\d+)']:
+                    r'(\d+)\s+iterations', r'steps[=:]\s*(\d+)',
+                    r'tsteps=(\d+)', r'(\d+)\s+launches']:
             m_steps = re.search(pat, r.stdout)
             if m_steps:
                 steps_val = m_steps.group(1)
                 break
+        # Fallback to configured step count from args
+        if not steps_val and configured_steps:
+            steps_val = str(configured_steps)
         rows = []
         for strat, us in timings:
             oh = ""
@@ -419,8 +422,10 @@ def main():
         if "cuda" in a.strategies:
             rows = []
             if cid in CUDA:
-                for args_str, label in CUDA[cid]:
-                    rows.extend(run_binary(CUDA[cid][0], args_str, label, cid, gpu, a.dry_run))
+                binary_name, size_configs = CUDA[cid]
+                for args_str, label in size_configs:
+                    rows.extend(run_binary(binary_name, args_str, label, cid, gpu, a.dry_run,
+                                          configured_steps=CUDA_STEPS.get(cid, "")))
             all_rows.extend(rows)
             if rows: print(f"  CUDA: {len(rows)}")
         if "taichi" in a.strategies:

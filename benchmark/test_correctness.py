@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """Per-case cross-framework correctness validation.
 
-For each case, runs >=2 implementations and compares outputs numerically.
-Covers all 21 cases (Taichi for all, plus Warp/Triton where available).
-Warp/Triton modules are auto-detected from the filesystem.
+For each case, runs >=2 distinct implementations and compares output arrays
+elementwise. Multi-framework cases compare Taichi-CUDA vs Warp/Triton.
+Single-framework cases compare Taichi-CUDA vs Taichi-CPU backend (a genuine
+cross-implementation check: different code generation and execution paths).
 
 Each module calls ti.init()/wp.init() internally — this script does NOT
 initialize any framework before importing.
 """
-import sys, os, subprocess, argparse, json, re
+import sys, os, subprocess, argparse, json, re, tempfile
 
 PYTHON = "/home/scratch.huanhuanc_gpu/spmd/spmd-venv/bin/python"
 BD = os.path.dirname(os.path.abspath(__file__))
 
 def run_impl(subdir, module, call, framework="taichi"):
     """Run implementation, save output array to temp .npy file. Return dict with path + stats."""
-    import tempfile
     env_setup = ""
     if framework == "warp":
         env_setup = "import os; os.environ['WARP_CACHE_PATH']='/home/scratch.huanhuanc_gpu/spmd/.warp_cache'\nimport warp as wp; wp.init()\n"
@@ -43,7 +43,8 @@ print(json.dumps({{"min": float(a.min()), "max": float(a.max()),
                    "mean": float(a.mean()), "n": len(a), "path": '{out_npy}'}}))
 """
     try:
-        r = subprocess.run([PYTHON, "-c", code], capture_output=True, text=True, timeout=120, cwd=BD)
+        timeout = 300 if "cpu" in framework else 120
+        r = subprocess.run([PYTHON, "-c", code], capture_output=True, text=True, timeout=timeout, cwd=BD)
         for line in r.stdout.strip().split("\n"):
             if line.startswith("{"):
                 d = json.loads(line)
@@ -98,7 +99,11 @@ for cid, subdir, mod, call in [
     ("C20", ".", "adi_taichi", "run(N=64,steps=3,backend='cuda')"),
     ("C21", ".", "gramschmidt_taichi", "run(N=64,steps=1,backend='cuda')"),
 ]:
-    CASES[cid] = [("taichi", subdir, mod, call)]
+    CASES[cid] = [("taichi_cuda", subdir, mod, call)]
+    # Add CPU-backend reference for cross-implementation check
+    # GPU and CPU backends use entirely different code generation paths
+    cpu_call = call.replace("backend='cuda'", "backend='cpu'")
+    CASES[cid].append(("taichi_cpu", subdir, mod, cpu_call))
 
 # Add Warp implementations where available
 WARP_IMPLS = [
@@ -139,8 +144,8 @@ def main():
     for cid in ids:
         if cid not in CASES: continue
         impls = CASES[cid]
-        has_multi = len(impls) >= 2
-        print(f"{cid}: {len(impls)} framework(s)" + (" + deterministic re-run" if not has_multi else ""))
+        fws_str = ", ".join(fw for fw, _, _, _ in impls)
+        print(f"{cid}: {len(impls)} implementation(s) [{fws_str}]")
 
         results = {}
         for fw, subdir, mod, call in impls:
@@ -150,18 +155,6 @@ def main():
                 print(f"  {fw}: ERROR — {r['error'][:120]}")
             else:
                 print(f"  {fw}: [{r['min']:.6f}, {r['max']:.6f}] mean={r['mean']:.6f} n={r['n']}")
-
-        # For single-impl cases: run a second time for deterministic cross-check
-        if not has_multi and len(impls) == 1:
-            fw0, sub0, mod0, call0 = impls[0]
-            if fw0 in results and "error" not in results[fw0]:
-                r2 = run_impl(sub0, mod0, call0, fw0)
-                label = f"{fw0}_rerun"
-                results[label] = r2
-                if "error" not in r2:
-                    print(f"  {fw0} (re-run): [{r2['min']:.6f}, {r2['max']:.6f}] mean={r2['mean']:.6f}")
-                else:
-                    print(f"  {fw0} (re-run): ERROR — {r2.get('error','')[:120]}")
 
         # Elementwise cross-check: compare .npy arrays between all pairs
         fws = [fw for fw in results if "error" not in results[fw] and "npy_path" in results[fw]]
