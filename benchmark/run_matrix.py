@@ -450,7 +450,7 @@ def main():
         if "kokkos" in a.strategies and cid in KOKKOS:
             binary_name = KOKKOS[cid][0]
             kokkos_rows = []
-            for args_str, label in KOKKOS[cid]:
+            for args_str, label in KOKKOS[cid][1]:
                 path = BD/binary_name
                 if not path.exists(): continue
                 if a.dry_run: print(f"    Kokkos: {path} {args_str}"); continue
