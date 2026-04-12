@@ -151,9 +151,10 @@ def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_pre
         timings, compute = parse_cuda(r.stdout)
         # Try to find step count from output (various formats)
         steps_val = ""
+        # Note: do NOT match "launches" — that's launch count, not step count
         for pat in [r'(\d+)\s*steps', r'(\d+)\s+CG iterations',
                     r'(\d+)\s+iterations', r'steps[=:]\s*(\d+)',
-                    r'tsteps=(\d+)', r'(\d+)\s+launches']:
+                    r'tsteps=(\d+)']:
             m_steps = re.search(pat, r.stdout)
             if m_steps:
                 steps_val = m_steps.group(1)
@@ -163,9 +164,12 @@ def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_pre
             steps_val = str(configured_steps)
         rows = []
         for strat, us in timings:
-            oh = ""
             if us is not None and compute is not None and us > 0:
                 oh = f"{max(0,(us-compute)/us*100):.1f}"
+            elif us is not None and compute is None:
+                oh = "N/A"  # no GPU compute baseline available for this binary
+            else:
+                oh = ""
             rows.append({"case":CN[case_id],"strategy":f"{strategy_prefix}_{strat}","gpu":gpu,
                         "problem_size":size_label,"steps":steps_val,
                         "median_us":f"{us:.2f}" if us else "N/A",

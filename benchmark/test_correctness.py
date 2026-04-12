@@ -2,9 +2,10 @@
 """Per-case cross-framework correctness validation.
 
 For each case, runs >=2 distinct implementations and compares output arrays
-elementwise. Multi-framework cases compare Taichi-CUDA vs Warp/Triton.
-Single-framework cases compare Taichi-CUDA vs Taichi-CPU backend (a genuine
-cross-implementation check: different code generation and execution paths).
+elementwise. Reference implementations in priority order:
+  1. Warp/Triton (independent DSL framework) — C1/C4/C6/C7/C8/C9/C16
+  2. NumPy reference (independent code in numpy_refs.py) — C2/C3/C10/C11/C17-C21
+  3. Taichi CPU-backend fallback — remaining complex cases (C5/C12/C13/C14/C15)
 
 Each module calls ti.init()/wp.init() internally — this script does NOT
 initialize any framework before importing.
@@ -100,12 +101,34 @@ for cid, subdir, mod, call in [
     ("C21", ".", "gramschmidt_taichi", "run(N=64,steps=1,backend='cuda')"),
 ]:
     CASES[cid] = [("taichi_cuda", subdir, mod, call)]
-    # Add CPU-backend reference for cross-implementation check
-    # GPU and CPU backends use entirely different code generation paths
-    cpu_call = call.replace("backend='cuda'", "backend='cpu'")
-    CASES[cid].append(("taichi_cpu", subdir, mod, cpu_call))
 
-# Add Warp implementations where available
+# Add independent NumPy reference implementations from numpy_refs.py
+# These are truly different code: pure NumPy array ops vs Taichi GPU kernels
+NUMPY_REFS = {
+    "C2":  (".", "numpy_refs", "run_jacobi3d(N=32,steps=50)"),
+    "C3":  (".", "numpy_refs", "run_heat2d(N=64,steps=100)"),
+    "C10": (".", "numpy_refs", "run_grayscott(N=64,steps=100)"),
+    "C11": (".", "numpy_refs", "run_fdtd2d(N=64,steps=100)"),
+    "C17": (".", "numpy_refs", "run_conv3d(N=32,steps=1)"),
+    "C18": (".", "numpy_refs", "run_doitgen(N=32,steps=1)"),
+    "C19": (".", "numpy_refs", "run_lu(N=64,steps=1)"),
+    "C20": (".", "numpy_refs", "run_adi(N=64,steps=3)"),
+    "C21": (".", "numpy_refs", "run_gramschmidt(N=64,steps=1)"),
+}
+for cid, (subdir, mod, call) in NUMPY_REFS.items():
+    if cid in CASES:
+        CASES[cid].append(("numpy_ref", subdir, mod, call))
+
+# For remaining cases without independent references, add CPU-backend as fallback
+# (different codegen path: GPU kernels vs sequential CPU)
+for cid in list(CASES.keys()):
+    if len(CASES[cid]) < 2:
+        fw, subdir, mod, gpu_call = CASES[cid][0]
+        cpu_call = gpu_call.replace("backend='cuda'", "backend='cpu'")
+        if cpu_call != gpu_call:
+            CASES[cid].append(("taichi_cpu", subdir, mod, cpu_call))
+
+# Add Warp implementations where available (independent framework)
 WARP_IMPLS = [
     ("C1", "A1_jacobi_2d", "jacobi_warp", "run(N=64,steps=100,backend='cuda')"),
     ("C4", "A3_wave_equation", "wave_warp", "run(N=64,steps=100,backend='cuda')"),
@@ -130,6 +153,16 @@ for cid, subdir, mod, call in TRITON_IMPLS:
     mod_path = os.path.join(BD, subdir, mod + ".py") if subdir != "." else os.path.join(BD, mod + ".py")
     if os.path.exists(mod_path) and cid in CASES:
         CASES[cid].append(("triton", subdir, mod, call))
+
+# Last resort: for cases that STILL have only 1 implementation (no NumPy/Warp/Triton),
+# add Taichi CPU backend as the reference. This uses different code generation
+# (sequential C++ vs GPU kernels) but same source code.
+for cid in list(CASES.keys()):
+    if len(CASES[cid]) < 2:
+        fw, subdir, mod, gpu_call = CASES[cid][0]
+        cpu_call = gpu_call.replace("backend='cuda'", "backend='cpu'")
+        if cpu_call != gpu_call:
+            CASES[cid].append(("taichi_cpu", subdir, mod, cpu_call))
 
 
 def main():

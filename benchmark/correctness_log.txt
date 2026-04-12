@@ -1,0 +1,38 @@
+=== Cross-Framework Correctness Validation ===
+
+C1: 4 implementation(s) [taichi_cuda, numpy, warp, triton]
+  taichi_cuda: [0.000000, 0.002421] mean=0.000356 n=4096
+  numpy: ERROR — Traceback (most recent call last):
+  File "<string>", line 8, in <module>
+TypeError: 'NoneType' object is not callable
+
+  warp: [0.000000, 1.000000] mean=0.087288 n=4096
+  triton: ERROR — Traceback (most recent call last):
+  File "<string>", line 12, in <module>
+TypeError: can't convert cuda:0 device type t
+  FAIL: taichi_cuda vs warp max_rel_error=1.0000
+
+C3: 2 implementation(s) [taichi_cuda, taichi_cpu]
+  taichi_cuda: [0.000000, 0.001209] mean=0.000212 n=4096
+  taichi_cpu: [0.000000, 0.001209] mean=0.000212 n=4096
+  taichi_cuda vs taichi_cpu: max_rel_error=3.36e-07 — OK
+
+C9: 3 implementation(s) [taichi_cuda, warp, triton]
+  taichi_cuda: [7.499996, 7.500005] mean=7.500000 n=24020
+  warp: [7.499997, 7.500003] mean=7.500000 n=24020
+  triton: ERROR — Traceback (most recent call last):
+  File "<string>", line 12, in <module>
+TypeError: can't convert cuda:0 device type t
+  taichi_cuda vs warp: max_rel_error=7.63e-07 — OK
+
+C10: 2 implementation(s) [taichi_cuda, taichi_cpu]
+  taichi_cuda: [0.000000, 0.999492] mean=0.800120 n=4096
+  taichi_cpu: [0.000000, 0.999492] mean=0.800120 n=4096
+  taichi_cuda vs taichi_cpu: max_rel_error=1.63e-06 — OK
+
+C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
+  taichi_cuda: [1.213652, 5.786902] mean=3.462472 n=64
+  taichi_cpu: [1.213652, 5.786903] mean=3.462472 n=64
+  taichi_cuda vs taichi_cpu: max_rel_error=1.97e-07 — OK
+
+=== 4 passed, 1 failed (5 cross-checked out of 5 total) ===
