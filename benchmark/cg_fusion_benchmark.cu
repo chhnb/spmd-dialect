@@ -292,7 +292,20 @@ int main(int argc, char** argv) {
                ms*1000/(STEPS*REPS), ms/REPS);
     }
 
-    // --- [2] Persistent fused CG ---
+    // --- [2] Async ---
+    // Async loop is N/A for CG: each iteration requires cudaMemcpy (D2H) to
+    // read dot-product results for computing alpha and beta on the host.
+    // Without these synchronization points, the CG iteration produces incorrect
+    // results. Unlike simple stencil loops, CG has data-dependent host logic
+    // that cannot be deferred to the end of the loop.
+    printf("[2] Async: N/A (CG requires host readback of dot products each iteration — cannot defer synchronization)\n");
+
+    // --- [3] CUDA Graph ---
+    // Graph is also N/A for CG (same reason as Async): data-dependent host
+    // readback of dot products cannot be captured in a static graph.
+    printf("[3] CUDA Graph: N/A (CG requires host readback for alpha/beta — data-dependent control flow incompatible with static Graph capture)\n");
+
+    // --- [4] Persistent fused CG ---
     {
         int numBSm = 0;
         cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBSm, cg_persistent, B, 0);
@@ -326,27 +339,18 @@ int main(int argc, char** argv) {
             }
             cudaEventRecord(t1); cudaDeviceSynchronize();
             cudaEventElapsedTime(&ms, t0, t1);
-            printf("[2] Persistent fused (1 kern):     %7.1f us/step  (%.1f ms total)\n",
+            printf("[4] Persistent fused (1 kern):     %7.1f us/step  (%.1f ms total)\n",
                    ms*1000/(STEPS*REPS), ms/REPS);
 
             float sync_us = 0;  // will be filled from [1]
             // Note: speedup reported at the end
         } else {
-            printf("[2] Persistent: SKIP (grid too large)\n");
+            printf("[4] Persistent: SKIP (grid too large)\n");
         }
     }
 
-    // --- [3] CUDA Graph ---
+    // (Old Graph section removed — N/A printed above as [3])
     {
-        cudaMemset(x, 0, N2*4);
-        cudaMemcpy(r, b, N2*4, cudaMemcpyDeviceToDevice);
-        cudaMemcpy(p, b, N2*4, cudaMemcpyDeviceToDevice);
-
-        // CUDA Graph is N/A for CG: each iteration requires host readback of
-        // dot products to compute alpha/beta (data-dependent control flow).
-        // Graph requires a static launch pattern and cannot capture host-device
-        // synchronization points within the captured sequence.
-        printf("[3] CUDA Graph: N/A (CG requires host readback for alpha/beta — data-dependent control flow incompatible with static Graph capture)\n");
     }
 
     printf("\nKey insight:\n");

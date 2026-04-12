@@ -36,10 +36,16 @@ def run(N, steps=1, backend="cuda"):
 
     init_data()
 
+    @ti.kernel
+    def copy_out_to_in():
+        for p, q, r in A:
+            A[p, q, r] = A_out[p, q, r]
+
     def step_fn():
         for _ in range(steps):
             for r in range(NR):  # one kernel per r-index
                 doitgen_slice(r)
+            copy_out_to_in()  # propagate output to input for next step
 
     def sync_fn():
         ti.sync()

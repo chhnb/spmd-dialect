@@ -1,6 +1,7 @@
 """2D Shallow Water Equations (Osher Riemann solver) — Warp.
 
 Dam-break on unstructured quad mesh. Port of hydro-cal calculate_gpu.cu.
+Uses wp.struct packing so wp.launch() receives a single struct argument (AC-3.1).
 """
 import numpy as np
 import warp as wp
@@ -16,6 +17,38 @@ VMIN_C = 0.001
 C0_C = 1.0
 C1_C = 0.3
 MANNING_N = 0.03
+
+
+# ---------------------------------------------------------------------------
+# wp.struct: single argument for all kernels
+# ---------------------------------------------------------------------------
+@wp.struct
+class HydroF1Mesh:
+    CEL: int
+    DT: float
+    # Cell topology arrays [5][CEL+1] (2D, 1-indexed)
+    NAC: wp.array(dtype=int, ndim=2)
+    KLAS: wp.array(dtype=int, ndim=2)
+    SIDE: wp.array(dtype=float, ndim=2)
+    COSF: wp.array(dtype=float, ndim=2)
+    SINF: wp.array(dtype=float, ndim=2)
+    SLCOS: wp.array(dtype=float, ndim=2)
+    SLSIN: wp.array(dtype=float, ndim=2)
+    # Cell scalar arrays [CEL+1]
+    AREA: wp.array(dtype=float)
+    ZBC: wp.array(dtype=float)
+    FNC: wp.array(dtype=float)
+    # State arrays [CEL+1]
+    H_pre: wp.array(dtype=float)
+    U_pre: wp.array(dtype=float)
+    V_pre: wp.array(dtype=float)
+    Z_pre: wp.array(dtype=float)
+    W_pre: wp.array(dtype=float)
+    H_res: wp.array(dtype=float)
+    U_res: wp.array(dtype=float)
+    V_res: wp.array(dtype=float)
+    Z_res: wp.array(dtype=float)
+    W_res: wp.array(dtype=float)
 
 
 # ---------------------------------------------------------------------------
@@ -195,31 +228,17 @@ def osher_solver(QL_h: float, QL_u: float, QL_v: float,
 # Main shallow water kernel
 # ---------------------------------------------------------------------------
 @wp.kernel
-def shallow_water_step(
-    CEL: int,
-    DT: float,
-    NAC: wp.array(dtype=int, ndim=2),
-    KLAS: wp.array(dtype=int, ndim=2),
-    SIDE: wp.array(dtype=float, ndim=2),
-    COSF: wp.array(dtype=float, ndim=2),
-    SINF: wp.array(dtype=float, ndim=2),
-    SLCOS: wp.array(dtype=float, ndim=2),
-    SLSIN: wp.array(dtype=float, ndim=2),
-    AREA: wp.array(dtype=float),
-    ZBC: wp.array(dtype=float),
-    FNC: wp.array(dtype=float),
-    H_pre: wp.array(dtype=float),
-    U_pre: wp.array(dtype=float),
-    V_pre: wp.array(dtype=float),
-    Z_pre: wp.array(dtype=float),
-    H_res: wp.array(dtype=float),
-    U_res: wp.array(dtype=float),
-    V_res: wp.array(dtype=float),
-    Z_res: wp.array(dtype=float),
-    W_res: wp.array(dtype=float),
-):
+def shallow_water_step(m: HydroF1Mesh):
     tid = wp.tid()
     pos = tid + 1  # 1-indexed
+
+    CEL = m.CEL; DT = m.DT
+    NAC = m.NAC; KLAS = m.KLAS; SIDE = m.SIDE
+    COSF = m.COSF; SINF = m.SINF; SLCOS = m.SLCOS; SLSIN = m.SLSIN
+    AREA = m.AREA; ZBC = m.ZBC; FNC = m.FNC
+    H_pre = m.H_pre; U_pre = m.U_pre; V_pre = m.V_pre; Z_pre = m.Z_pre
+    H_res = m.H_res; U_res = m.U_res; V_res = m.V_res; Z_res = m.Z_res; W_res = m.W_res
+
     if pos > CEL:
         return
 
@@ -388,21 +407,14 @@ def shallow_water_step(
 
 
 @wp.kernel
-def transfer_data(
-    CEL: int,
-    H_pre: wp.array(dtype=float),
-    U_pre: wp.array(dtype=float),
-    V_pre: wp.array(dtype=float),
-    Z_pre: wp.array(dtype=float),
-    W_pre: wp.array(dtype=float),
-    H_res: wp.array(dtype=float),
-    U_res: wp.array(dtype=float),
-    V_res: wp.array(dtype=float),
-    Z_res: wp.array(dtype=float),
-    W_res: wp.array(dtype=float),
-):
+def transfer_data(m: HydroF1Mesh):
     tid = wp.tid()
     pos = tid + 1
+
+    CEL = m.CEL
+    H_pre = m.H_pre; U_pre = m.U_pre; V_pre = m.V_pre; Z_pre = m.Z_pre; W_pre = m.W_pre
+    H_res = m.H_res; U_res = m.U_res; V_res = m.V_res; Z_res = m.Z_res; W_res = m.W_res
+
     if pos > CEL:
         return
     H_pre[pos] = H_res[pos]
@@ -467,48 +479,42 @@ def run(N, steps=1, backend="cuda"):
     slcos_np = side_np * cosf_np
     slsin_np = side_np * sinf_np
 
-    # Upload to device
-    NAC = wp.array(nac_np, dtype=int, device=backend)
-    KLAS_d = wp.array(klas_np, dtype=int, device=backend)
-    SIDE_d = wp.array(side_np, dtype=float, device=backend)
-    COSF_d = wp.array(cosf_np, dtype=float, device=backend)
-    SINF_d = wp.array(sinf_np, dtype=float, device=backend)
-    SLCOS_d = wp.array(slcos_np, dtype=float, device=backend)
-    SLSIN_d = wp.array(slsin_np, dtype=float, device=backend)
-    AREA_d = wp.array(area_np, dtype=float, device=backend)
-    ZBC_d = wp.array(zbc_np, dtype=float, device=backend)
-    FNC_d = wp.array(fnc_np, dtype=float, device=backend)
-
-    H_pre = wp.array(h_np, dtype=float, device=backend)
-    U_pre = wp.array(np.zeros(CEL + 1, dtype=np.float64), dtype=float, device=backend)
-    V_pre = wp.array(np.zeros(CEL + 1, dtype=np.float64), dtype=float, device=backend)
-    Z_pre = wp.array(z_np, dtype=float, device=backend)
-    W_pre = wp.array(np.zeros(CEL + 1, dtype=np.float64), dtype=float, device=backend)
-
-    H_res = wp.zeros(CEL + 1, dtype=float, device=backend)
-    U_res = wp.zeros(CEL + 1, dtype=float, device=backend)
-    V_res = wp.zeros(CEL + 1, dtype=float, device=backend)
-    Z_res = wp.zeros(CEL + 1, dtype=float, device=backend)
-    W_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    # Build HydroF1Mesh struct (single argument for both kernels)
+    hm = HydroF1Mesh()
+    hm.CEL = CEL
+    hm.DT = DT
+    hm.NAC = wp.array(nac_np, dtype=int, device=backend)
+    hm.KLAS = wp.array(klas_np, dtype=int, device=backend)
+    hm.SIDE = wp.array(side_np, dtype=float, device=backend)
+    hm.COSF = wp.array(cosf_np, dtype=float, device=backend)
+    hm.SINF = wp.array(sinf_np, dtype=float, device=backend)
+    hm.SLCOS = wp.array(slcos_np, dtype=float, device=backend)
+    hm.SLSIN = wp.array(slsin_np, dtype=float, device=backend)
+    hm.AREA = wp.array(area_np, dtype=float, device=backend)
+    hm.ZBC = wp.array(zbc_np, dtype=float, device=backend)
+    hm.FNC = wp.array(fnc_np, dtype=float, device=backend)
+    hm.H_pre = wp.array(h_np, dtype=float, device=backend)
+    hm.U_pre = wp.array(np.zeros(CEL + 1, dtype=np.float64), dtype=float, device=backend)
+    hm.V_pre = wp.array(np.zeros(CEL + 1, dtype=np.float64), dtype=float, device=backend)
+    hm.Z_pre = wp.array(z_np, dtype=float, device=backend)
+    hm.W_pre = wp.array(np.zeros(CEL + 1, dtype=np.float64), dtype=float, device=backend)
+    hm.H_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    hm.U_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    hm.V_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    hm.Z_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    hm.W_res = wp.zeros(CEL + 1, dtype=float, device=backend)
 
     def step():
         for _ in range(steps):
             wp.launch(shallow_water_step, dim=CEL,
-                      inputs=[CEL, DT,
-                              NAC, KLAS_d, SIDE_d, COSF_d, SINF_d, SLCOS_d, SLSIN_d,
-                              AREA_d, ZBC_d, FNC_d,
-                              H_pre, U_pre, V_pre, Z_pre,
-                              H_res, U_res, V_res, Z_res, W_res],
-                      device=backend)
+                      inputs=[hm], device=backend)
             wp.launch(transfer_data, dim=CEL,
-                      inputs=[CEL, H_pre, U_pre, V_pre, Z_pre, W_pre,
-                              H_res, U_res, V_res, Z_res, W_res],
-                      device=backend)
+                      inputs=[hm], device=backend)
 
     def sync():
         wp.synchronize_device(backend)
 
-    return step, sync, H_pre
+    return step, sync, hm.H_pre
 
 
 def run_real(steps=1, backend="cuda", mesh="default"):
@@ -522,45 +528,39 @@ def run_real(steps=1, backend="cuda", mesh="default"):
     min_side = side_flat[side_flat > 0].min()
     DT = float(0.5 * min_side / (np.sqrt(G * 2.0) + 1e-6))
 
-    # Upload to device
-    NAC_d = wp.array(m["NAC"], dtype=int, device=backend)
-    KLAS_d = wp.array(m["KLAS"], dtype=int, device=backend)
-    SIDE_d = wp.array(m["SIDE"], dtype=float, device=backend)
-    COSF_d = wp.array(m["COSF"], dtype=float, device=backend)
-    SINF_d = wp.array(m["SINF"], dtype=float, device=backend)
-    SLCOS_d = wp.array(m["SLCOS"], dtype=float, device=backend)
-    SLSIN_d = wp.array(m["SLSIN"], dtype=float, device=backend)
-    AREA_d = wp.array(m["AREA"], dtype=float, device=backend)
-    ZBC_d = wp.array(m["ZBC"], dtype=float, device=backend)
-    FNC_d = wp.array(m["FNC"], dtype=float, device=backend)
-
-    H_pre = wp.array(m["H"], dtype=float, device=backend)
-    U_pre = wp.array(m["U"], dtype=float, device=backend)
-    V_pre = wp.array(m["V"], dtype=float, device=backend)
-    Z_pre = wp.array(m["Z"], dtype=float, device=backend)
-    W_pre = wp.array(m["W"], dtype=float, device=backend)
-
-    H_res = wp.zeros(CEL + 1, dtype=float, device=backend)
-    U_res = wp.zeros(CEL + 1, dtype=float, device=backend)
-    V_res = wp.zeros(CEL + 1, dtype=float, device=backend)
-    Z_res = wp.zeros(CEL + 1, dtype=float, device=backend)
-    W_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    # Build HydroF1Mesh struct (single argument for both kernels)
+    hm = HydroF1Mesh()
+    hm.CEL = CEL
+    hm.DT = DT
+    hm.NAC = wp.array(m["NAC"], dtype=int, device=backend)
+    hm.KLAS = wp.array(m["KLAS"], dtype=int, device=backend)
+    hm.SIDE = wp.array(m["SIDE"], dtype=float, device=backend)
+    hm.COSF = wp.array(m["COSF"], dtype=float, device=backend)
+    hm.SINF = wp.array(m["SINF"], dtype=float, device=backend)
+    hm.SLCOS = wp.array(m["SLCOS"], dtype=float, device=backend)
+    hm.SLSIN = wp.array(m["SLSIN"], dtype=float, device=backend)
+    hm.AREA = wp.array(m["AREA"], dtype=float, device=backend)
+    hm.ZBC = wp.array(m["ZBC"], dtype=float, device=backend)
+    hm.FNC = wp.array(m["FNC"], dtype=float, device=backend)
+    hm.H_pre = wp.array(m["H"], dtype=float, device=backend)
+    hm.U_pre = wp.array(m["U"], dtype=float, device=backend)
+    hm.V_pre = wp.array(m["V"], dtype=float, device=backend)
+    hm.Z_pre = wp.array(m["Z"], dtype=float, device=backend)
+    hm.W_pre = wp.array(m["W"], dtype=float, device=backend)
+    hm.H_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    hm.U_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    hm.V_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    hm.Z_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    hm.W_res = wp.zeros(CEL + 1, dtype=float, device=backend)
 
     def step():
         for _ in range(steps):
             wp.launch(shallow_water_step, dim=CEL,
-                      inputs=[CEL, DT,
-                              NAC_d, KLAS_d, SIDE_d, COSF_d, SINF_d, SLCOS_d, SLSIN_d,
-                              AREA_d, ZBC_d, FNC_d,
-                              H_pre, U_pre, V_pre, Z_pre,
-                              H_res, U_res, V_res, Z_res, W_res],
-                      device=backend)
+                      inputs=[hm], device=backend)
             wp.launch(transfer_data, dim=CEL,
-                      inputs=[CEL, H_pre, U_pre, V_pre, Z_pre, W_pre,
-                              H_res, U_res, V_res, Z_res, W_res],
-                      device=backend)
+                      inputs=[hm], device=backend)
 
     def sync():
         wp.synchronize_device(backend)
 
-    return step, sync, H_pre
+    return step, sync, hm.H_pre

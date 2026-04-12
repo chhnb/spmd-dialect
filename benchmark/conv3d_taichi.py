@@ -33,10 +33,16 @@ def run(N, steps=1, backend="cuda"):
 
     init_data()
 
+    @ti.kernel
+    def copy_B_to_A():
+        for i, j, k in A:
+            A[i, j, k] = B[i, j, k]
+
     def step_fn():
         for _ in range(steps):
             for z in range(1, NZ - 1):   # one kernel per z-slice
                 conv3d_slice(z)
+            copy_B_to_A()  # propagate output to input for next step
 
     def sync_fn():
         ti.sync()
