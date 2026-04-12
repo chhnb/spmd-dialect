@@ -143,10 +143,14 @@ def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_pre
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         timings, compute = parse_cuda(r.stdout)
-        # Try to find step count from output
+        # Try to find step count from output (various formats)
         steps_val = ""
-        m_steps = re.search(r'(\d+)\s*steps', r.stdout)
-        if m_steps: steps_val = m_steps.group(1)
+        for pat in [r'(\d+)\s*steps', r'(\d+)\s+CG iterations',
+                    r'(\d+)\s+iterations', r'steps[=:]\s*(\d+)']:
+            m_steps = re.search(pat, r.stdout)
+            if m_steps:
+                steps_val = m_steps.group(1)
+                break
         rows = []
         for strat, us in timings:
             oh = ""
@@ -433,7 +437,7 @@ def main():
             if rows: print(f"  Triton: {len(rows)}")
         if "kokkos" in a.strategies and cid in KOKKOS:
             binary_name = KOKKOS[cid][0]
-            rows = []
+            kokkos_rows = []
             for args_str, label in KOKKOS[cid]:
                 path = BD/binary_name
                 if not path.exists(): continue
@@ -441,37 +445,50 @@ def main():
                 try:
                     cmd = [str(path)] + args_str.split()
                     r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-                    # Parse Kokkos CSV output: "CSV: name,N,steps,min,median,avg,max"
+                    inv_rows = []  # per-invocation rows
+                    # Parse Kokkos CSV output lines
                     for line in r.stdout.split("\n"):
                         if line.startswith("CSV:"):
-                            parts = line.split(",")
+                            parts = [p.strip() for p in line[4:].split(",")]
                             if len(parts) >= 7:
-                                steps_k = parts[2].strip()
-                                median_ms = float(parts[4].strip())
-                                min_ms = float(parts[3].strip())
-                                max_ms = float(parts[6].strip())
-                                us = median_ms * 1000 / max(1, int(steps_k))
-                                rows.append({"case":CN[cid],"strategy":"Kokkos","gpu":gpu,
-                                            "problem_size":label,"steps":steps_k,
-                                            "median_us":f"{us:.2f}",
-                                            "min_us":f"{min_ms*1000/max(1,int(steps_k)):.2f}",
-                                            "max_us":f"{max_ms*1000/max(1,int(steps_k)):.2f}",
-                                            "overhead_pct":""})
-                    # Fallback: parse median=X.XXXms
-                    if not rows:
-                        m = re.search(r'median=([\d.]+)ms', r.stdout)
+                                # 7-field: name,N,steps,min,median,avg,max
+                                steps_k = parts[2]
+                                median_ms = float(parts[4])
+                                min_ms = float(parts[3])
+                                max_ms = float(parts[6])
+                                st_int = max(1, int(steps_k))
+                                inv_rows.append({"case":CN[cid],"strategy":"Kokkos","gpu":gpu,
+                                                "problem_size":label,"steps":steps_k,
+                                                "median_us":f"{median_ms*1000/st_int:.2f}",
+                                                "min_us":f"{min_ms*1000/st_int:.2f}",
+                                                "max_us":f"{max_ms*1000/st_int:.2f}",
+                                                "overhead_pct":""})
+                            elif len(parts) >= 3:
+                                # 3-field: name,steps,median_ms (e.g. kokkos_f2)
+                                steps_k = parts[1]
+                                median_ms = float(parts[2])
+                                st_int = max(1, int(steps_k))
+                                inv_rows.append({"case":CN[cid],"strategy":"Kokkos","gpu":gpu,
+                                                "problem_size":label,"steps":steps_k,
+                                                "median_us":f"{median_ms*1000/st_int:.2f}",
+                                                "min_us":"","max_us":"",
+                                                "overhead_pct":""})
+                    # Fallback: parse "median=X.XXXms" or "N steps, median=X.XXXms"
+                    if not inv_rows:
+                        m = re.search(r'median=([\d.]+)\s*ms', r.stdout)
                         if m:
                             ms = float(m.group(1))
-                            m2 = re.search(r'steps=(\d+)', r.stdout)
+                            m2 = re.search(r'(\d+)\s*steps', r.stdout)
                             st = int(m2.group(1)) if m2 else 100
-                            rows.append({"case":CN[cid],"strategy":"Kokkos","gpu":gpu,
-                                        "problem_size":label,"steps":str(st),
-                                        "median_us":f"{ms*1000/st:.2f}","min_us":"","max_us":"",
-                                        "overhead_pct":""})
+                            inv_rows.append({"case":CN[cid],"strategy":"Kokkos","gpu":gpu,
+                                            "problem_size":label,"steps":str(st),
+                                            "median_us":f"{ms*1000/st:.2f}","min_us":"","max_us":"",
+                                            "overhead_pct":""})
+                    kokkos_rows.extend(inv_rows)
                 except Exception as e:
                     print(f"    Kokkos {cid}: {e}")
-            all_rows.extend(rows)
-            if rows: print(f"  Kokkos: {len(rows)}")
+            all_rows.extend(kokkos_rows)
+            if kokkos_rows: print(f"  Kokkos: {len(kokkos_rows)}")
         if "perks" in a.strategies:
             rows = run_perks(cid, gpu, a.dry_run)
             all_rows.extend(rows)

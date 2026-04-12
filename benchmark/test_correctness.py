@@ -14,12 +14,14 @@ PYTHON = "/home/scratch.huanhuanc_gpu/spmd/spmd-venv/bin/python"
 BD = os.path.dirname(os.path.abspath(__file__))
 
 def run_impl(subdir, module, call, framework="taichi"):
-    """Run a single implementation, return (min, max, mean) of output."""
+    """Run implementation, save output array to temp .npy file. Return dict with path + stats."""
+    import tempfile
     env_setup = ""
     if framework == "warp":
         env_setup = "import os; os.environ['WARP_CACHE_PATH']='/home/scratch.huanhuanc_gpu/spmd/.warp_cache'\nimport warp as wp; wp.init()\n"
 
     mod_dir = os.path.join(BD, subdir) if subdir != "." else BD
+    out_npy = tempfile.mktemp(suffix=".npy")
     code = f"""
 import sys, os, json, numpy as np
 sys.path.insert(0, '{mod_dir}')
@@ -35,26 +37,40 @@ elif hasattr(o, 'numpy'):
 else:
     import torch
     a = o.cpu().numpy()
-a = a.flatten().astype(float)
-finite = a[np.isfinite(a)]
-if len(finite) == 0:
-    print(json.dumps({{"error": "all NaN/Inf"}}))
-else:
-    # Output full array hash for cross-framework comparison
-    print(json.dumps({{"min": float(finite.min()), "max": float(finite.max()),
-                       "mean": float(finite.mean()), "std": float(finite.std()),
-                       "n": len(finite), "hash": float(np.sum(np.abs(finite[:1000])))}}))
+a = a.flatten().astype(np.float32)
+np.save('{out_npy}', a)
+print(json.dumps({{"min": float(a.min()), "max": float(a.max()),
+                   "mean": float(a.mean()), "n": len(a), "path": '{out_npy}'}}))
 """
     try:
         r = subprocess.run([PYTHON, "-c", code], capture_output=True, text=True, timeout=120, cwd=BD)
         for line in r.stdout.strip().split("\n"):
             if line.startswith("{"):
-                return json.loads(line)
+                d = json.loads(line)
+                d["npy_path"] = out_npy
+                return d
         return {"error": r.stderr[:200] if r.stderr else "no output"}
     except subprocess.TimeoutExpired:
         return {"error": "timeout"}
     except Exception as e:
         return {"error": str(e)}
+
+
+def compare_arrays(path_a, path_b):
+    """Elementwise comparison of two .npy arrays. Returns max_rel_error."""
+    import numpy as np
+    a = np.load(path_a)
+    b = np.load(path_b)
+    if a.shape != b.shape:
+        min_len = min(len(a), len(b))
+        a, b = a[:min_len], b[:min_len]
+    diff = np.abs(a - b)
+    denom = np.maximum(np.abs(a), np.abs(b)) + 1e-12
+    rel = diff / denom
+    finite_rel = rel[np.isfinite(rel)]
+    if len(finite_rel) == 0:
+        return float('inf')
+    return float(finite_rel.max())
 
 
 # Case definitions: list of (framework, subdir, module, call)
@@ -133,38 +149,47 @@ def main():
             else:
                 print(f"  {fw}: [{r['min']:.6f}, {r['max']:.6f}] mean={r['mean']:.6f}")
 
-        # Cross-check: compare all pairs using mean, std, max, and hash
-        fws = [fw for fw in results if "error" not in results[fw]]
+        # Elementwise cross-check: compare .npy arrays between all pairs
+        fws = [fw for fw in results if "error" not in results[fw] and "npy_path" in results[fw]]
         if len(fws) >= 2:
             ref = fws[0]
             ok = True
             for other in fws[1:]:
-                r_ref, r_oth = results[ref], results[other]
-                max_diff = abs(r_ref["max"] - r_oth["max"])
-                mean_diff = abs(r_ref["mean"] - r_oth["mean"])
-                std_diff = abs(r_ref.get("std",0) - r_oth.get("std",0))
-                hash_diff = abs(r_ref.get("hash",0) - r_oth.get("hash",0))
-                denom = abs(r_ref["max"]) + abs(r_ref["mean"]) + 1e-12
-                rel_err = (max_diff + mean_diff) / denom
-                if rel_err > 0.05:
-                    print(f"  FAIL: {ref} vs {other} rel_err={rel_err:.4f} (max_diff={max_diff:.2e}, mean_diff={mean_diff:.2e})")
+                path_ref = results[ref]["npy_path"]
+                path_oth = results[other]["npy_path"]
+                try:
+                    max_rel = compare_arrays(path_ref, path_oth)
+                    if max_rel > 0.05:
+                        print(f"  FAIL: {ref} vs {other} max_rel_error={max_rel:.4f}")
+                        ok = False
+                    else:
+                        print(f"  {ref} vs {other}: max_rel_error={max_rel:.2e} — OK")
+                except Exception as e:
+                    print(f"  FAIL: {ref} vs {other} compare error: {e}")
                     ok = False
-                else:
-                    print(f"  {ref} vs {other}: rel_err={rel_err:.2e}, hash_diff={hash_diff:.2e} — OK")
             if ok: passed += 1
             else: failed += 1
         elif len(fws) == 1:
-            # Single impl cannot satisfy AC-6 cross-check requirement
+            # Single impl: verify finite outputs, note no cross-check
             r = results[fws[0]]
-            is_finite = r["n"] > 0 and r["min"] != float('inf')
-            print(f"  Single-impl: finite={is_finite}, n={r['n']} — SKIPPED (need >=2 impls for AC-6)")
+            is_finite = r.get("n", 0) > 0
+            print(f"  Single-impl check: finite={is_finite}, n={r.get('n',0)} — no cross-check available")
             # Don't count as passed or failed — it's not a cross-check
         else:
             print(f"  All implementations errored — FAIL")
             failed += 1
+
+        # Cleanup temp files
+        for fw in results:
+            p = results[fw].get("npy_path")
+            if p and os.path.exists(p):
+                try: os.unlink(p)
+                except: pass
         print()
 
-    print(f"=== {passed} passed, {failed} failed out of {passed+failed} ===")
+    cross_checked = passed + failed
+    total_cases = len(ids)
+    print(f"=== {passed} passed, {failed} failed ({cross_checked} cross-checked out of {total_cases} total) ===")
     return 0 if failed == 0 else 1
 
 if __name__ == "__main__":
