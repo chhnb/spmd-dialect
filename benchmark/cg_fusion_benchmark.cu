@@ -247,7 +247,7 @@ int main(int argc, char** argv) {
     cudaEvent_t t0, t1;
     CHECK(cudaEventCreate(&t0)); CHECK(cudaEventCreate(&t1));
     float ms;
-    int REPS = 3;
+    int REPS = 10;
 
     // Warmup
     for (int i = 0; i < 10; i++) {
@@ -342,35 +342,11 @@ int main(int argc, char** argv) {
         cudaMemcpy(r, b, N2*4, cudaMemcpyDeviceToDevice);
         cudaMemcpy(p, b, N2*4, cudaMemcpyDeviceToDevice);
 
-        // For Graph, we can't do host readback inside. We put alpha/beta computation
-        // in a small device kernel instead.
-        // Simplified: capture the kernel sequence with fixed alpha=0.1, beta=0.1
-        // (not mathematically correct, but measures overhead correctly)
-        float fixed_alpha = 0.1f, fixed_beta = 0.1f;
-
-        cudaGraph_t g; cudaGraphExec_t ge;
-        cudaStream_t stream; CHECK(cudaStreamCreate(&stream));
-        CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
-        for (int s = 0; s < STEPS; s++) {
-            k_matvec<<<grid,B,0,stream>>>(N,N2,p,Ap);
-            k_update_xr<<<grid,B,0,stream>>>(N2,x,r,p,Ap,fixed_alpha);
-            k_update_p<<<grid,B,0,stream>>>(N2,r,p,fixed_beta);
-        }
-        CHECK(cudaStreamEndCapture(stream, &g));
-        CHECK(cudaGraphInstantiate(&ge, g, NULL, NULL, 0));
-
-        // Warmup
-        cudaGraphLaunch(ge, stream); cudaStreamSynchronize(stream);
-
-        cudaEventRecord(t0, stream);
-        for (int rep = 0; rep < REPS; rep++) cudaGraphLaunch(ge, stream);
-        cudaEventRecord(t1, stream); cudaStreamSynchronize(stream);
-        cudaEventElapsedTime(&ms, t0, t1);
-        printf("[3] CUDA Graph (3 kern, no dots):  %7.1f us/step  (%.1f ms total)\n",
-               ms*1000/(STEPS*REPS), ms/REPS);
-        printf("    Note: Graph uses fixed alpha/beta (overhead-only measurement)\n");
-
-        cudaGraphExecDestroy(ge); cudaGraphDestroy(g); cudaStreamDestroy(stream);
+        // CUDA Graph is N/A for CG: each iteration requires host readback of
+        // dot products to compute alpha/beta (data-dependent control flow).
+        // Graph requires a static launch pattern and cannot capture host-device
+        // synchronization points within the captured sequence.
+        printf("[3] CUDA Graph: N/A (CG requires host readback for alpha/beta — data-dependent control flow incompatible with static Graph capture)\n");
     }
 
     printf("\nKey insight:\n");

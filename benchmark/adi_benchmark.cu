@@ -19,7 +19,7 @@ __global__ void adi_col(int N, float* u, float* v, int col, float a, float b) {
 }
 
 int main(int argc,char**argv){
-    int N=(argc>1)?atoi(argv[1]):512, TS=(argc>2)?atoi(argv[2]):5, REP=(argc>3)?atoi(argv[3]):5;
+    int N=(argc>1)?atoi(argv[1]):512, TS=(argc>2)?atoi(argv[2]):5, REP=(argc>3)?atoi(argv[3]):10;
     int lps=2*(N-2);
     cudaDeviceProp p; CHECK(cudaGetDeviceProperties(&p,0));
     printf("=== C20: ADI ===\nGPU: %s, N=%d, tsteps=%d, launches/step=%d\n",p.name,N,TS,lps);
@@ -55,6 +55,13 @@ int main(int argc,char**argv){
      bench([&]{cudaGraphLaunch(ge,s);cudaStreamSynchronize(s);},"Graph");
      CHECK(cudaGraphExecDestroy(ge));CHECK(cudaGraphDestroy(g));CHECK(cudaStreamDestroy(s));}
 
-    printf("[Persistent] N/A (variable row/col per launch)\n");
+    // Persistent is N/A: ADI launches one kernel per row/column with different
+    // row/col index parameters. A cooperative persistent kernel would require all
+    // rows/columns to be processed by the same grid, but each row kernel only
+    // processes N elements (1 block), while persistent requires the grid to be
+    // fixed at launch. The total grid would need N-2 concurrent blocks per row
+    // direction, exceeding cooperative limits for large N. Additionally, the
+    // row-sweep and column-sweep phases have a sequential dependency between them.
+    printf("[Persistent] N/A (each launch processes a different row/col with 1-block grid; cooperative launch requires fixed grid size, and row↔column phase has sequential dependency)\n");
     CHECK(cudaFree(u));CHECK(cudaFree(v)); return 0;
 }

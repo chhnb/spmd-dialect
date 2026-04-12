@@ -53,3 +53,4 @@ benchmark/results/b200_warp_characterization_full.txt
 # Compiled benchmark binaries
 benchmark/*_bench
 benchmark/*_a100
+.codex

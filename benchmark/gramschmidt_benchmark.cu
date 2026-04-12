@@ -31,7 +31,7 @@ __global__ void gs_project(int M, float* Q, float* R, int k, int j) {
 }
 
 int main(int argc,char**argv){
-    int N=(argc>1)?atoi(argv[1]):512, REP=(argc>2)?atoi(argv[2]):5;
+    int N=(argc>1)?atoi(argv[1]):512, REP=(argc>2)?atoi(argv[2]):10;
     int launches=3*N; // normalize + (N-k-1) projects per col ≈ 1.5*N^2 but simplified to 3*N per-column model
     // Actually: N normalize + N*(N-1)/2 projects. For timing, use the PolyBench pattern: 3 kernels per column
     cudaDeviceProp p; CHECK(cudaGetDeviceProperties(&p,0));
@@ -69,7 +69,11 @@ int main(int argc,char**argv){
     };
 
     bench([&]{full_gs();cudaDeviceSynchronize();},"Sync");
-    bench([&]{full_gs();cudaDeviceSynchronize();},"Async"); // same as sync since each project depends on normalize
+    // Async: Gram-Schmidt has serial dependencies (project[j] depends on normalize[k],
+    // and normalize[k+1] depends on all project[j] for j>k). Without explicit sync
+    // between launches, the GPU driver serializes them via implicit dependencies on
+    // the default stream. Async timing equals Sync because the algorithm is inherently serial.
+    printf("[Async] N/A (serial data dependency: each projection depends on prior normalization; launches on default stream are implicitly serialized)\n");
 
     // Graph
     {cudaGraph_t g;cudaGraphExec_t ge;cudaStream_t s;CHECK(cudaStreamCreate(&s));

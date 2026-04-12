@@ -190,7 +190,7 @@ int main(int argc, char** argv) {
     }
 
     cudaEvent_t t0, t1; CHECK(cudaEventCreate(&t0)); CHECK(cudaEventCreate(&t1));
-    float ms; int REPS = 3;
+    float ms; int REPS = 10;
 
     // Warmup
     for (int i = 0; i < 20; i++) {

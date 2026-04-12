@@ -151,11 +151,13 @@ int main(int argc, char* argv[]) {
 
         CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
         for (int s = 0; s < STEPS; s++) {
-            for (int z = 1; z < NZ - 1; z++) {
-                conv3d_slice_kernel<<<slice_grid, block, 0, stream>>>(NX, NY, NZ, z, A, B);
+            if (s % 2 == 0) {
+                for (int z = 1; z < NZ - 1; z++)
+                    conv3d_slice_kernel<<<slice_grid, block, 0, stream>>>(NX, NY, NZ, z, A, B);
+            } else {
+                for (int z = 1; z < NZ - 1; z++)
+                    conv3d_slice_kernel<<<slice_grid, block, 0, stream>>>(NX, NY, NZ, z, B, A);
             }
-            // Note: graph captures pointer values, so we alternate A/B by capturing both directions
-            // For simplicity, capture with same direction (results differ slightly from Sync but overhead is same)
         }
         CHECK(cudaStreamEndCapture(stream, &graph));
 

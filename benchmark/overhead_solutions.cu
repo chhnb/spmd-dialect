@@ -75,7 +75,7 @@ Result test_heat(int N, int STEPS) {
     cudaEventRecord(t1);cudaEventSynchronize(t1);
     cudaEventElapsedTime(&ms,t0,t1); r.async_us=ms*1000/STEPS;
 
-    {int REPS=5;cudaGraph_t g;cudaGraphExec_t ge;
+    {int REPS=10;cudaGraph_t g;cudaGraphExec_t ge;
      cudaStream_t stream;CHECK(cudaStreamCreate(&stream));
      CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
      for(int s=0;s<STEPS;s++){heat2d<<<grid,block,0,stream>>>(N,u,v);copy_f<<<cg,256,0,stream>>>(N2,v,u);}
@@ -92,7 +92,7 @@ Result test_heat(int N, int STEPS) {
      if((int)(grid.x*grid.y)<=maxB){
          void*args[]={(void*)&N,(void*)&u,(void*)&v,(void*)&STEPS};
          cudaLaunchCooperativeKernel((void*)heat2d_persistent,grid,block,args);cudaDeviceSynchronize();
-         int REPS=5;cudaEventRecord(t0);
+         int REPS=10;cudaEventRecord(t0);
          for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)heat2d_persistent,grid,block,args);
          cudaEventRecord(t1);cudaDeviceSynchronize();
          cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
@@ -123,7 +123,7 @@ Result test_gs(int N, int STEPS) {
     cudaEventRecord(t1);cudaEventSynchronize(t1);
     cudaEventElapsedTime(&ms,t0,t1);r.async_us=ms*1000/STEPS;
 
-    {int REPS=5;cudaGraph_t g;cudaGraphExec_t ge;
+    {int REPS=10;cudaGraph_t g;cudaGraphExec_t ge;
      cudaStream_t stream;CHECK(cudaStreamCreate(&stream));
      CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
      for(int s=0;s<STEPS;s++){gs_step<<<grid,block,0,stream>>>(N,gu,gv,gu2,gv2);copy_f<<<cg,256,0,stream>>>(N2,gu2,gu);copy_f<<<cg,256,0,stream>>>(N2,gv2,gv);}
@@ -140,7 +140,7 @@ Result test_gs(int N, int STEPS) {
      if((int)(grid.x*grid.y)<=maxB){
          void*args[]={(void*)&N,(void*)&gu,(void*)&gv,(void*)&gu2,(void*)&gv2,(void*)&STEPS};
          cudaLaunchCooperativeKernel((void*)gs_persistent,grid,block,args);cudaDeviceSynchronize();
-         int REPS=5;cudaEventRecord(t0);
+         int REPS=10;cudaEventRecord(t0);
          for(int i=0;i<REPS;i++)cudaLaunchCooperativeKernel((void*)gs_persistent,grid,block,args);
          cudaEventRecord(t1);cudaDeviceSynchronize();
          cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
