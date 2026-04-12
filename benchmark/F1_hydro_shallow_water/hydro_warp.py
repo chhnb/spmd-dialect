@@ -509,3 +509,58 @@ def run(N, steps=1, backend="cuda"):
         wp.synchronize_device(backend)
 
     return step, sync, H_pre
+
+
+def run_real(steps=1, backend="cuda", mesh="default"):
+    """Run on a real hydro-cal mesh loaded from data files."""
+    from mesh_loader import load_hydro_mesh
+    m = load_hydro_mesh(mesh=mesh)
+
+    CEL = m["CEL"]
+    # Estimate DT from minimum positive edge length
+    side_flat = m["SIDE"][1][1:CEL+1]
+    min_side = side_flat[side_flat > 0].min()
+    DT = float(0.5 * min_side / (np.sqrt(G * 2.0) + 1e-6))
+
+    # Upload to device
+    NAC_d = wp.array(m["NAC"], dtype=int, device=backend)
+    KLAS_d = wp.array(m["KLAS"], dtype=int, device=backend)
+    SIDE_d = wp.array(m["SIDE"], dtype=float, device=backend)
+    COSF_d = wp.array(m["COSF"], dtype=float, device=backend)
+    SINF_d = wp.array(m["SINF"], dtype=float, device=backend)
+    SLCOS_d = wp.array(m["SLCOS"], dtype=float, device=backend)
+    SLSIN_d = wp.array(m["SLSIN"], dtype=float, device=backend)
+    AREA_d = wp.array(m["AREA"], dtype=float, device=backend)
+    ZBC_d = wp.array(m["ZBC"], dtype=float, device=backend)
+    FNC_d = wp.array(m["FNC"], dtype=float, device=backend)
+
+    H_pre = wp.array(m["H"], dtype=float, device=backend)
+    U_pre = wp.array(m["U"], dtype=float, device=backend)
+    V_pre = wp.array(m["V"], dtype=float, device=backend)
+    Z_pre = wp.array(m["Z"], dtype=float, device=backend)
+    W_pre = wp.array(m["W"], dtype=float, device=backend)
+
+    H_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    U_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    V_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    Z_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+    W_res = wp.zeros(CEL + 1, dtype=float, device=backend)
+
+    def step():
+        for _ in range(steps):
+            wp.launch(shallow_water_step, dim=CEL,
+                      inputs=[CEL, DT,
+                              NAC_d, KLAS_d, SIDE_d, COSF_d, SINF_d, SLCOS_d, SLSIN_d,
+                              AREA_d, ZBC_d, FNC_d,
+                              H_pre, U_pre, V_pre, Z_pre,
+                              H_res, U_res, V_res, Z_res, W_res],
+                      device=backend)
+            wp.launch(transfer_data, dim=CEL,
+                      inputs=[CEL, H_pre, U_pre, V_pre, Z_pre, W_pre,
+                              H_res, U_res, V_res, Z_res, W_res],
+                      device=backend)
+
+    def sync():
+        wp.synchronize_device(backend)
+
+    return step, sync, H_pre

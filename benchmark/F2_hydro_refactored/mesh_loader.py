@@ -11,12 +11,19 @@ import math
 import os
 import numpy as np
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+_BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(_BASE_DIR, "data")
+
+# Available mesh datasets
+MESH_DATASETS = {
+    "default": os.path.join(_BASE_DIR, "data"),       # 24,020 cells
+    "20w":     os.path.join(_BASE_DIR, "data_20w"),    # 207,234 cells
+}
 
 
-def _read_lines(filename):
+def _read_lines(filename, data_dir=None):
     """Read non-empty, non-comment lines from a data file."""
-    path = os.path.join(DATA_DIR, filename)
+    path = os.path.join(data_dir or DATA_DIR, filename)
     with open(path, 'r', encoding='latin-1') as f:
         lines = []
         for line in f:
@@ -26,8 +33,12 @@ def _read_lines(filename):
         return lines
 
 
-def load_mesh():
+def load_mesh(mesh="default"):
     """Load the refactored hydro-cal mesh.
+
+    Args:
+        mesh: Dataset name ("default" for 24020 cells, "20w" for 207234 cells)
+              or a path to a custom data directory.
 
     Returns dict with:
         CELL, NOD, HM1, HM2, DT, MDT, NDAYS, JL,
@@ -42,41 +53,51 @@ def load_mesh():
         # Mesh geometry
         XC, YC, NV
     """
+    if mesh in MESH_DATASETS:
+        data_dir = MESH_DATASETS[mesh]
+    elif os.path.isdir(mesh):
+        data_dir = mesh
+    else:
+        raise ValueError(f"Unknown mesh '{mesh}'. Available: {list(MESH_DATASETS.keys())}")
+
+    def rd(filename):
+        return _read_lines(filename, data_dir=data_dir)
+
     # ---- GIRD.DAT: NOD, CEL ----
-    lines = _read_lines("GIRD.DAT")
+    lines = rd("GIRD.DAT")
     NOD = int(lines[0].split()[0])
     CELL = int(lines[1].split()[0])
 
     # ---- DEPTH.DAT: HM1, HM2 ----
-    lines = _read_lines("DEPTH.DAT")
+    lines = rd("DEPTH.DAT")
     HM1 = float(lines[0].split()[0])
     HM2 = float(lines[1].split()[0])
 
     # ---- TIME.DAT: MDT, NDAYS ----
-    lines = _read_lines("TIME.DAT") if os.path.exists(os.path.join(DATA_DIR, "TIME.DAT")) else ["3600", "50", "1"]
+    lines = rd("TIME.DAT") if os.path.exists(os.path.join(data_dir, "TIME.DAT")) else ["3600", "50", "1"]
     MDT = int(lines[0].split()[0])
     NDAYS = int(lines[1].split()[0])
 
     # ---- CALTIME.DAT: DT ----
-    lines = _read_lines("CALTIME.DAT") if os.path.exists(os.path.join(DATA_DIR, "CALTIME.DAT")) else ["0", "4"]
+    lines = rd("CALTIME.DAT") if os.path.exists(os.path.join(data_dir, "CALTIME.DAT")) else ["0", "4"]
     DT = float(lines[1].split()[0])
 
     # ---- JL.DAT ----
     JL = 0.0
-    if os.path.exists(os.path.join(DATA_DIR, "JL.DAT")):
-        lines = _read_lines("JL.DAT")
+    if os.path.exists(os.path.join(data_dir, "JL.DAT")):
+        lines = rd("JL.DAT")
         if lines:
             JL = float(lines[0].split()[0])
 
     # ---- BOUNDARY.DAT ----
-    lines = _read_lines("BOUNDARY.DAT")
+    lines = rd("BOUNDARY.DAT")
     NZ = int(lines[0].split()[0])
     NQ = int(lines[1].split()[0])
     NZQ = int(lines[2].split()[0]) if len(lines) > 2 else 0
     NHQ = int(lines[3].split()[0]) if len(lines) > 3 else 5
 
     # ---- PXY.DAT: node coordinates ----
-    lines = _read_lines("PXY.DAT")
+    lines = rd("PXY.DAT")
     XP = np.zeros(NOD + 1, dtype=np.float32)
     YP = np.zeros(NOD + 1, dtype=np.float32)
     for k in range(1, NOD + 1):
@@ -87,7 +108,7 @@ def load_mesh():
     YP[1:] -= YP[1:].min()
 
     # ---- PNAP.DAT: cell-to-node ----
-    lines = _read_lines("PNAP.DAT")
+    lines = rd("PNAP.DAT")
     NAP = np.zeros((5, CELL + 1), dtype=np.int32)
     for k in range(1, CELL + 1):
         parts = lines[k].split()
@@ -95,7 +116,7 @@ def load_mesh():
             NAP[j][k] = int(parts[j])
 
     # ---- PNAC.DAT: cell neighbors (1-indexed, 0=no neighbor) ----
-    lines = _read_lines("PNAC.DAT")
+    lines = rd("PNAC.DAT")
     # Refactored layout: NAC[4*cell + edge], stores 1-indexed (kernel does NC-1)
     NAC = np.zeros(4 * CELL, dtype=np.int32)
     for k in range(1, CELL + 1):
@@ -104,7 +125,7 @@ def load_mesh():
             NAC[4 * (k - 1) + (j - 1)] = int(parts[j])
 
     # ---- PKLAS.DAT: edge types ----
-    lines = _read_lines("PKLAS.DAT")
+    lines = rd("PKLAS.DAT")
     KLAS = np.zeros(4 * CELL, dtype=np.float32)  # float in refactored version
     for k in range(1, CELL + 1):
         parts = lines[k].split()
@@ -112,7 +133,7 @@ def load_mesh():
             KLAS[4 * (k - 1) + (j - 1)] = float(parts[j])
 
     # ---- PZBC.DAT: bed elevation ----
-    lines = _read_lines("PZBC.DAT")
+    lines = rd("PZBC.DAT")
     ZBC = np.zeros(CELL, dtype=np.float32)
     idx = 0
     for line in lines:
@@ -126,7 +147,7 @@ def load_mesh():
 
     # ---- Initial conditions ----
     def _read_cell_values(filename):
-        lines = _read_lines(filename)
+        lines = rd(filename)
         arr = np.zeros(CELL, dtype=np.float32)
         idx = 0
         for line in lines:
@@ -211,7 +232,7 @@ def load_mesh():
     BoundaryFeature = np.zeros(CELL, dtype=np.float32)
 
     # MBQ data
-    lines = _read_lines("MBQ.DAT")
+    lines = rd("MBQ.DAT")
     NQ_actual = int(lines[0]) if lines else 0
 
     steps_per_day = int(MDT / DT)
@@ -232,7 +253,9 @@ def load_mesh():
 
 
 if __name__ == "__main__":
-    mesh = load_mesh()
+    import sys
+    mesh_name = sys.argv[1] if len(sys.argv) > 1 else "default"
+    mesh = load_mesh(mesh=mesh_name)
     print(f"Loaded mesh: {mesh['CELL']} cells")
     print(f"HM1={mesh['HM1']}, HM2={mesh['HM2']}, DT={mesh['DT']}")
     print(f"Steps/day={mesh['steps_per_day']}, NDAYS={mesh['NDAYS']}")

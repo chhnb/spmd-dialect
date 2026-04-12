@@ -20,6 +20,7 @@ from common.harness import (
 FRAMEWORKS = {
     "taichi_cuda": ("hydro_refactored_taichi", "cuda", "Taichi"),
     "warp_cuda":   ("hydro_refactored_warp",   "cuda", "Warp"),
+    "triton_cuda": ("hydro_refactored_triton",  "cuda", "Triton"),
 }
 
 def main():
@@ -27,6 +28,8 @@ def main():
         description="Benchmark F2: Refactored Hydro-Cal (edge-parallel, fp32)"
     )
     parser.add_argument("--frameworks", nargs="+", default=None)
+    parser.add_argument("--mesh", type=str, default="default",
+                        help="Mesh dataset: 'default' (24020 cells), '20w' (207234 cells)")
     parser.add_argument("--days", type=int, default=10, help="Number of simulation days")
     parser.add_argument("--warmup", type=int, default=3)
     parser.add_argument("--repeat", type=int, default=10)
@@ -47,9 +50,9 @@ def main():
             print(f"  Skip {fw}: {e}")
             continue
 
-        print(f"[{fw}] {args.days} days (6675 cells, fp32)...")
+        print(f"[{fw}] {args.days} days (mesh={args.mesh}, fp32)...")
         try:
-            step_fn, sync_fn, _ = mod.run(days=args.days, backend=backend)
+            step_fn, sync_fn, _ = mod.run(days=args.days, backend=backend, mesh=args.mesh)
         except Exception as e:
             print(f"  Error: {e}")
             import traceback; traceback.print_exc()
@@ -62,7 +65,7 @@ def main():
             kernel="hydro_refactored",
             framework=display,
             backend=backend,
-            problem_size=f"6675cells_{args.days}days",
+            problem_size=f"{args.mesh}_{args.days}days",
             warmup_runs=args.warmup,
             timed_runs=args.repeat,
             times_ms=times,

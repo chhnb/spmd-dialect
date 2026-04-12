@@ -614,3 +614,64 @@ def run(N, steps=1, backend="cuda"):
     return step, sync, H_pre
 
 
+def run_real(steps=1, backend="cuda", mesh="default"):
+    """Run on a real hydro-cal mesh loaded from data files."""
+    assert backend == "cuda", "Triton requires CUDA backend"
+    from mesh_loader import load_hydro_mesh
+    m = load_hydro_mesh(mesh=mesh)
+
+    CEL = m["CEL"]
+    # Estimate DT from minimum positive edge length
+    side_flat = m["SIDE"][1][1:CEL+1]
+    min_side = side_flat[side_flat > 0].min()
+    DT = float(0.5 * min_side / (np.sqrt(9.81 * 2.0) + 1e-6))
+    stride_edge = CEL + 1
+
+    # Upload to GPU as contiguous torch tensors
+    dev = "cuda"
+    NAC = torch.from_numpy(m["NAC"].astype(np.int32).ravel()).to(dev)
+    KLAS = torch.from_numpy(m["KLAS"].astype(np.int32).ravel()).to(dev)
+    SIDE = torch.from_numpy(m["SIDE"].ravel()).to(dtype=torch.float64, device=dev)
+    COSF = torch.from_numpy(m["COSF"].ravel()).to(dtype=torch.float64, device=dev)
+    SINF = torch.from_numpy(m["SINF"].ravel()).to(dtype=torch.float64, device=dev)
+    AREA = torch.from_numpy(m["AREA"]).to(dtype=torch.float64, device=dev)
+    ZBC = torch.from_numpy(m["ZBC"]).to(dtype=torch.float64, device=dev)
+    FNC = torch.from_numpy(m["FNC"]).to(dtype=torch.float64, device=dev)
+
+    H_pre = torch.from_numpy(m["H"]).to(dtype=torch.float64, device=dev)
+    U_pre = torch.from_numpy(m["U"]).to(dtype=torch.float64, device=dev)
+    V_pre = torch.from_numpy(m["V"]).to(dtype=torch.float64, device=dev)
+    Z_pre = torch.from_numpy(m["Z"]).to(dtype=torch.float64, device=dev)
+    W_pre = torch.from_numpy(m["W"]).to(dtype=torch.float64, device=dev)
+    H_res = torch.zeros_like(H_pre)
+    U_res = torch.zeros_like(U_pre)
+    V_res = torch.zeros_like(V_pre)
+    Z_res = torch.zeros_like(Z_pre)
+    W_res = torch.zeros_like(W_pre)
+
+    grid = lambda meta: (triton.cdiv(CEL, meta["BLOCK_SIZE"]),)
+
+    def step():
+        for _ in range(steps):
+            shallow_water_kernel[grid](
+                CEL, DT,
+                NAC, KLAS, SIDE, COSF, SINF, COSF, SINF,
+                AREA, ZBC, FNC,
+                H_pre, U_pre, V_pre, Z_pre,
+                H_res, U_res, V_res, Z_res, W_res,
+                stride_edge,
+                BLOCK_SIZE=BLOCK_SIZE,
+            )
+            transfer_kernel[grid](
+                CEL,
+                H_pre, U_pre, V_pre, Z_pre, W_pre,
+                H_res, U_res, V_res, Z_res, W_res,
+                BLOCK_SIZE=BLOCK_SIZE,
+            )
+
+    def sync():
+        torch.cuda.synchronize()
+
+    return step, sync, H_pre
+
+

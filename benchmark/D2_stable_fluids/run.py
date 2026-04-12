@@ -9,7 +9,7 @@ FRAMEWORKS = {
     "taichi_cpu":  ("fluid_taichi",  "cpu",  "Taichi"),
     "warp_cuda":   ("fluid_warp",    "cuda", "Warp"),
 }
-DEFAULT_SIZES = [256, 512, 1024]
+DEFAULT_SIZES = [512, 1024, 2048]
 
 def main():
     parser = argparse.ArgumentParser()

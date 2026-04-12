@@ -27,7 +27,7 @@ FRAMEWORKS = {
     "tilelang_cuda": ("hydro_tilelang", "cuda", "TileLang"),
 }
 
-DEFAULT_SIZES = [32, 64, 128, 256]
+DEFAULT_SIZES = [128, 256, 512]
 
 
 def run_synthetic(args):
@@ -75,7 +75,12 @@ def run_synthetic(args):
 
 
 def run_real_mesh(args):
-    """Run benchmarks on the real hydro-cal mesh (6675 cells)."""
+    """Run benchmarks on real hydro-cal mesh."""
+    from mesh_loader import load_hydro_mesh
+    mesh_data = load_hydro_mesh(mesh=args.mesh)
+    cel = mesh_data['CEL']
+    print(f"Loaded mesh: {cel} cells (mesh={args.mesh})")
+
     fw_keys = args.frameworks or ["numpy"]
     results = []
 
@@ -90,14 +95,13 @@ def run_real_mesh(args):
             print(f"  Skip {fw}: {e}")
             continue
 
-        # Only numpy has run_real for now
         if not hasattr(mod, "run_real"):
-            print(f"  Skip {fw}: no run_real() — only numpy supports real mesh currently")
+            print(f"  Skip {fw}: no run_real() function")
             continue
 
-        print(f"[{fw}] real mesh (6675 cells)...")
+        print(f"[{fw}] real mesh ({cel} cells)...")
         try:
-            step_fn, sync_fn, _ = mod.run_real(steps=args.steps, backend=backend)
+            step_fn, sync_fn, _ = mod.run_real(steps=args.steps, backend=backend, mesh=args.mesh)
         except Exception as e:
             print(f"  Error: {e}")
             import traceback; traceback.print_exc()
@@ -110,7 +114,7 @@ def run_real_mesh(args):
             kernel="hydro_swe_osher_real",
             framework=display,
             backend=backend,
-            problem_size="6675cells",
+            problem_size=f"{cel}cells",
             warmup_runs=args.warmup,
             timed_runs=args.repeat,
             times_ms=times,
@@ -135,7 +139,9 @@ def main():
     parser.add_argument("--repeat", type=int, default=10)
     parser.add_argument("--output", type=str, default="results.csv")
     parser.add_argument("--real", action="store_true",
-                        help="Use real hydro-cal mesh (6675 cells) instead of synthetic")
+                        help="Use real hydro-cal mesh instead of synthetic")
+    parser.add_argument("--mesh", type=str, default="default",
+                        help="Mesh dataset: 'default' (6675 cells), '20w' (207234 cells)")
     args = parser.parse_args()
 
     if args.real:

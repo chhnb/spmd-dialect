@@ -459,9 +459,11 @@ void restoreState(float* d_H, float* d_U, float* d_V, float* d_Z, float* d_W, in
 
 int main(int argc, char* argv[]) {
     // ===== Parse params =====
+    // Usage: hydro_osher [steps] [repeat] [data_dir]
     std::string binDir = "/home/scratch.huanhuanc_gpu/spmd/spmd-dialect/benchmark/F2_hydro_refactored/data/binary/";
+    if (argc > 3) binDir = std::string(argv[3]);
     std::ifstream pf(binDir + "params.txt");
-    if (!pf) { fprintf(stderr, "Cannot open params.txt\n"); return 1; }
+    if (!pf) { fprintf(stderr, "Cannot open %sparams.txt\n", binDir.c_str()); return 1; }
     std::string line;
     std::getline(pf, line); int CELL = std::stoi(line);
     std::getline(pf, line); float HM1 = std::stof(line);

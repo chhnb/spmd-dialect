@@ -10,7 +10,7 @@ FRAMEWORKS = {
     "taichi_cuda": ("wave_taichi",  "cuda", "Taichi"),
     "warp_cuda":   ("wave_warp",    "cuda", "Warp"),
 }
-DEFAULT_SIZES = [512, 1024, 2048, 4096]
+DEFAULT_SIZES = [1024, 4096, 8192]
 
 def main():
     parser = argparse.ArgumentParser()

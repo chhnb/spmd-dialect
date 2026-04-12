@@ -6,6 +6,7 @@ Two-kernel design:
 
 Real mesh data loaded via mesh_loader.  All arrays use fp32 (float in Warp).
 """
+import sys
 import numpy as np
 import warp as wp
 
@@ -202,34 +203,51 @@ def osher_solver(
 # ---------------------------------------------------------------------------
 # Kernel 1: CalculateFlux  (1 thread per edge, 4*CELL threads)
 # ---------------------------------------------------------------------------
-@wp.kernel
-def calculate_flux_kernel(
-    CELL: int,
-    HM1: float,
-    HM2: float,
+@wp.struct
+class HydroMesh:
+    CELL: int
+    DT: float
+    HM1: float
+    HM2: float
     # Cell arrays [CELL]
-    H: wp.array(dtype=float),
-    U: wp.array(dtype=float),
-    V: wp.array(dtype=float),
-    Z: wp.array(dtype=float),
-    ZBC: wp.array(dtype=float),
-    ZB1: wp.array(dtype=float),
+    H: wp.array(dtype=float)
+    U: wp.array(dtype=float)
+    V: wp.array(dtype=float)
+    Z: wp.array(dtype=float)
+    W: wp.array(dtype=float)
+    ZBC: wp.array(dtype=float)
+    ZB1: wp.array(dtype=float)
+    AREA: wp.array(dtype=float)
+    FNC: wp.array(dtype=float)
+    NV: wp.array(dtype=int)
     # Edge arrays [4*CELL]
-    NAC: wp.array(dtype=int),
-    KLAS: wp.array(dtype=float),
-    COSF: wp.array(dtype=float),
-    SINF: wp.array(dtype=float),
-    # Flux outputs [4*CELL]
-    FLUX0: wp.array(dtype=float),
-    FLUX1: wp.array(dtype=float),
-    FLUX2: wp.array(dtype=float),
-    FLUX3: wp.array(dtype=float),
-):
+    NAC: wp.array(dtype=int)
+    KLAS: wp.array(dtype=float)
+    COSF: wp.array(dtype=float)
+    SINF: wp.array(dtype=float)
+    SIDE: wp.array(dtype=float)
+    SLCOS: wp.array(dtype=float)
+    SLSIN: wp.array(dtype=float)
+    FLUX0: wp.array(dtype=float)
+    FLUX1: wp.array(dtype=float)
+    FLUX2: wp.array(dtype=float)
+    FLUX3: wp.array(dtype=float)
+
+
+@wp.kernel
+def calculate_flux_kernel(m: HydroMesh):
     idx = wp.tid()
-    if idx >= 4 * CELL:
+    if idx >= 4 * m.CELL:
         return
 
     i = idx / 4   # cell index (0-based)
+    CELL = m.CELL
+    HM1 = m.HM1
+    HM2 = m.HM2
+    H = m.H; U = m.U; V = m.V; Z = m.Z
+    ZBC = m.ZBC; ZB1 = m.ZB1
+    NAC = m.NAC; KLAS = m.KLAS; COSF = m.COSF; SINF = m.SINF
+    FLUX0 = m.FLUX0; FLUX1 = m.FLUX1; FLUX2 = m.FLUX2; FLUX3 = m.FLUX3
     # j = idx % 4  # edge within cell (not needed explicitly)
 
     # Load cell i state
@@ -372,33 +390,16 @@ def calculate_flux_kernel(
 # Kernel 2: UpdateCell  (1 thread per cell)
 # ---------------------------------------------------------------------------
 @wp.kernel
-def update_cell_kernel(
-    CELL: int,
-    DT: float,
-    HM1: float,
-    HM2: float,
-    # Cell arrays [CELL]
-    H: wp.array(dtype=float),
-    U: wp.array(dtype=float),
-    V: wp.array(dtype=float),
-    Z: wp.array(dtype=float),
-    W: wp.array(dtype=float),
-    ZBC: wp.array(dtype=float),
-    AREA: wp.array(dtype=float),
-    FNC: wp.array(dtype=float),
-    NV: wp.array(dtype=int),
-    # Edge arrays [4*CELL]
-    SIDE: wp.array(dtype=float),
-    SLCOS: wp.array(dtype=float),
-    SLSIN: wp.array(dtype=float),
-    FLUX0: wp.array(dtype=float),
-    FLUX1: wp.array(dtype=float),
-    FLUX2: wp.array(dtype=float),
-    FLUX3: wp.array(dtype=float),
-):
+def update_cell_kernel(m: HydroMesh):
     i = wp.tid()
-    if i >= CELL:
+    if i >= m.CELL:
         return
+
+    CELL = m.CELL; DT = m.DT; HM1 = m.HM1; HM2 = m.HM2
+    H = m.H; U = m.U; V = m.V; Z = m.Z; W = m.W
+    ZBC = m.ZBC; AREA = m.AREA; FNC = m.FNC; NV = m.NV
+    SIDE = m.SIDE; SLCOS = m.SLCOS; SLSIN = m.SLSIN
+    FLUX0 = m.FLUX0; FLUX1 = m.FLUX1; FLUX2 = m.FLUX2; FLUX3 = m.FLUX3
 
     H1 = H[i]
     U1 = U[i]
@@ -463,11 +464,12 @@ def update_cell_kernel(
 # ---------------------------------------------------------------------------
 # Benchmark interface
 # ---------------------------------------------------------------------------
-def run(days=10, backend="cuda"):
+def run(days=10, backend="cuda", mesh="default"):
     """Set up and return (step_fn, sync_fn, H_array)."""
     wp.init()
 
-    mesh = load_mesh()
+    mesh_data = load_mesh(mesh=mesh)
+    mesh = mesh_data
     CELL = mesh["CELL"]
     DT_val = float(mesh["DT"])
     HM1_val = float(mesh["HM1"])
@@ -475,60 +477,42 @@ def run(days=10, backend="cuda"):
     steps_per_day = mesh["steps_per_day"]
     total_steps = steps_per_day * days
 
-    # Upload cell arrays [CELL] — fp32
-    H_d = wp.array(mesh["H"], dtype=float, device=backend)
-    U_d = wp.array(mesh["U"], dtype=float, device=backend)
-    V_d = wp.array(mesh["V"], dtype=float, device=backend)
-    Z_d = wp.array(mesh["Z"], dtype=float, device=backend)
-    W_d = wp.array(mesh["W"], dtype=float, device=backend)
-    ZBC_d = wp.array(mesh["ZBC"], dtype=float, device=backend)
-    ZB1_d = wp.array(mesh["ZB1"], dtype=float, device=backend)
-    AREA_d = wp.array(mesh["AREA"], dtype=float, device=backend)
-    FNC_d = wp.array(mesh["FNC"], dtype=float, device=backend)
-    NV_d = wp.array(mesh["NV"], dtype=int, device=backend)
-
-    # Upload edge arrays [4*CELL] — fp32
-    NAC_d = wp.array(mesh["NAC"], dtype=int, device=backend)
-    KLAS_d = wp.array(mesh["KLAS"], dtype=float, device=backend)
-    SIDE_d = wp.array(mesh["SIDE"], dtype=float, device=backend)
-    COSF_d = wp.array(mesh["COSF"], dtype=float, device=backend)
-    SINF_d = wp.array(mesh["SINF"], dtype=float, device=backend)
-    SLCOS_d = wp.array(mesh["SLCOS"], dtype=float, device=backend)
-    SLSIN_d = wp.array(mesh["SLSIN"], dtype=float, device=backend)
-
-    # Flux buffers [4*CELL]
-    FLUX0_d = wp.zeros(4 * CELL, dtype=float, device=backend)
-    FLUX1_d = wp.zeros(4 * CELL, dtype=float, device=backend)
-    FLUX2_d = wp.zeros(4 * CELL, dtype=float, device=backend)
-    FLUX3_d = wp.zeros(4 * CELL, dtype=float, device=backend)
+    # Build HydroMesh struct (single argument for both kernels)
+    hm = HydroMesh()
+    hm.CELL = CELL
+    hm.DT = DT_val
+    hm.HM1 = HM1_val
+    hm.HM2 = HM2_val
+    hm.H = wp.array(mesh["H"], dtype=float, device=backend)
+    hm.U = wp.array(mesh["U"], dtype=float, device=backend)
+    hm.V = wp.array(mesh["V"], dtype=float, device=backend)
+    hm.Z = wp.array(mesh["Z"], dtype=float, device=backend)
+    hm.W = wp.array(mesh["W"], dtype=float, device=backend)
+    hm.ZBC = wp.array(mesh["ZBC"], dtype=float, device=backend)
+    hm.ZB1 = wp.array(mesh["ZB1"], dtype=float, device=backend)
+    hm.AREA = wp.array(mesh["AREA"], dtype=float, device=backend)
+    hm.FNC = wp.array(mesh["FNC"], dtype=float, device=backend)
+    hm.NV = wp.array(mesh["NV"], dtype=int, device=backend)
+    hm.NAC = wp.array(mesh["NAC"], dtype=int, device=backend)
+    hm.KLAS = wp.array(mesh["KLAS"], dtype=float, device=backend)
+    hm.SIDE = wp.array(mesh["SIDE"], dtype=float, device=backend)
+    hm.COSF = wp.array(mesh["COSF"], dtype=float, device=backend)
+    hm.SINF = wp.array(mesh["SINF"], dtype=float, device=backend)
+    hm.SLCOS = wp.array(mesh["SLCOS"], dtype=float, device=backend)
+    hm.SLSIN = wp.array(mesh["SLSIN"], dtype=float, device=backend)
+    hm.FLUX0 = wp.zeros(4 * CELL, dtype=float, device=backend)
+    hm.FLUX1 = wp.zeros(4 * CELL, dtype=float, device=backend)
+    hm.FLUX2 = wp.zeros(4 * CELL, dtype=float, device=backend)
+    hm.FLUX3 = wp.zeros(4 * CELL, dtype=float, device=backend)
 
     num_edges = 4 * CELL
 
     def step_fn():
         for _ in range(total_steps):
-            wp.launch(
-                calculate_flux_kernel,
-                dim=num_edges,
-                inputs=[
-                    CELL, HM1_val, HM2_val,
-                    H_d, U_d, V_d, Z_d, ZBC_d, ZB1_d,
-                    NAC_d, KLAS_d, COSF_d, SINF_d,
-                    FLUX0_d, FLUX1_d, FLUX2_d, FLUX3_d,
-                ],
-                device=backend,
-            )
-            wp.launch(
-                update_cell_kernel,
-                dim=CELL,
-                inputs=[
-                    CELL, DT_val, HM1_val, HM2_val,
-                    H_d, U_d, V_d, Z_d, W_d,
-                    ZBC_d, AREA_d, FNC_d, NV_d,
-                    SIDE_d, SLCOS_d, SLSIN_d,
-                    FLUX0_d, FLUX1_d, FLUX2_d, FLUX3_d,
-                ],
-                device=backend,
-            )
+            wp.launch(calculate_flux_kernel, dim=num_edges,
+                      inputs=[hm], device=backend)
+            wp.launch(update_cell_kernel, dim=CELL,
+                      inputs=[hm], device=backend)
 
     def sync_fn():
         wp.synchronize_device(backend)
@@ -538,20 +522,21 @@ def run(days=10, backend="cuda"):
     sync_fn()
 
     # Reset state for benchmark
-    H_d.assign(wp.array(mesh["H"], dtype=float, device=backend))
-    U_d.assign(wp.array(mesh["U"], dtype=float, device=backend))
-    V_d.assign(wp.array(mesh["V"], dtype=float, device=backend))
-    Z_d.assign(wp.array(mesh["Z"], dtype=float, device=backend))
-    W_d.assign(wp.array(mesh["W"], dtype=float, device=backend))
+    hm.H.assign(wp.array(mesh["H"], dtype=float, device=backend))
+    hm.U.assign(wp.array(mesh["U"], dtype=float, device=backend))
+    hm.V.assign(wp.array(mesh["V"], dtype=float, device=backend))
+    hm.Z.assign(wp.array(mesh["Z"], dtype=float, device=backend))
+    hm.W.assign(wp.array(mesh["W"], dtype=float, device=backend))
     sync_fn()
 
-    return step_fn, sync_fn, H_d
+    return step_fn, sync_fn, hm.H
 
 
 if __name__ == "__main__":
     import time
 
-    step_fn, sync_fn, H_arr = run(days=10, backend="cuda")
+    mesh_name = sys.argv[1] if len(sys.argv) > 1 else "default"
+    step_fn, sync_fn, H_arr = run(days=10, backend="cuda", mesh=mesh_name)
 
     # Benchmark
     sync_fn()

@@ -24,9 +24,10 @@ QLUA: ti.f32 = 0.0
 BRDTH: ti.f32 = 100.0
 
 
-def run(days=10, backend="cuda"):
+def run(days=10, backend="cuda", mesh="default"):
     ti.init(arch=ti.cuda if backend == "cuda" else ti.cpu, default_fp=ti.f32)
-    mesh = load_mesh()
+    mesh_data = load_mesh(mesh=mesh)
+    mesh = mesh_data
 
     CELL = mesh["CELL"]
     NE = 4 * CELL

@@ -26,8 +26,8 @@ FRAMEWORKS = {
     "triton_cuda": ("jacobi_triton",  "cuda", "Triton"),
 }
 
-DEFAULT_SIZES = [512, 1024, 2048, 4096]
-DEFAULT_STEPS = 10  # Jacobi iterations per timed call
+DEFAULT_SIZES = [1024, 4096, 8192]
+DEFAULT_STEPS = 100  # Jacobi iterations per timed call
 
 
 def try_import(module_name):

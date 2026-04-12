@@ -11,3 +11,39 @@ benchmark/F1_hydro_shallow_water/gather_experiment_fp32
 benchmark/F1_hydro_shallow_water/__pycache__/
 *.pyc
 benchmark/cpp/kokkos/build-*/
+
+# External benchmark repos (cloned, not tracked)
+benchmark/PERKS/
+benchmark/EBISU/
+benchmark/PolyBenchGPU/
+benchmark/Parboil/
+benchmark/Rodinia/
+benchmark/LULESH-official/
+benchmark/DiffTaichi/
+benchmark/PIConGPU/
+benchmark/GPUSPH/
+benchmark/DEM-Engine/
+benchmark/taichi_mpm/
+benchmark/GPUMPM/
+benchmark/PICSAR/
+
+# Build artifacts
+benchmark/hydro_osher
+benchmark/hydro_f1
+benchmark/lulesh_fusion
+benchmark/cg_fusion
+benchmark/overhead_solutions
+benchmark/overhead_extended
+benchmark/build_*
+benchmark/pk_*
+benchmark/hydro_cuda_osher
+benchmark/DemoOutput_*/
+
+# Binary mesh data (generated, not tracked)
+benchmark/*/data/binary/
+benchmark/*/data_20w/
+
+# Results (regeneratable)
+benchmark/*/results.csv
+results.csv
+nsys_results/

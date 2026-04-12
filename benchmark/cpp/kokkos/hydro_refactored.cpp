@@ -248,7 +248,8 @@ int main(int argc, char* argv[]) {
     {
         int steps = (argc > 1) ? atoi(argv[1]) : 900;
         int repeat = (argc > 2) ? atoi(argv[2]) : 10;
-        std::string bin = "/home/scratch.huanhuanc_gpu/spmd/spmd-dialect/benchmark/F2_hydro_refactored/data/binary/";
+        std::string bin = (argc > 3) ? std::string(argv[3])
+            : "/home/scratch.huanhuanc_gpu/spmd/spmd-dialect/benchmark/F2_hydro_refactored/data/binary/";
 
         // Read params line by line
         std::ifstream pf(bin + "params.txt");

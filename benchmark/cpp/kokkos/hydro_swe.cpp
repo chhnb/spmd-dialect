@@ -21,9 +21,12 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 #include <algorithm>
 #include <numeric>
+#include <string>
+#include <fstream>
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -321,21 +324,102 @@ struct Transfer {
 };
 
 // ---------------------------------------------------------------------------
+// Binary mesh loading helpers
+// ---------------------------------------------------------------------------
+static const char* DEFAULT_DATA_DIR =
+    "/home/scratch.huanhuanc_gpu/spmd/spmd-dialect/benchmark/"
+    "F1_hydro_shallow_water/data/binary/";
+
+/// Read params.txt: CEL NOD HM1_val HM2_val NZ NQ (one per line)
+struct MeshParams {
+    int CEL, NOD, NZ, NQ;
+    double HM1_val, HM2_val;
+};
+
+static MeshParams read_params(const std::string& dir) {
+    std::string path = dir + "/params.txt";
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        fprintf(stderr, "ERROR: cannot open %s\n", path.c_str());
+        std::exit(1);
+    }
+    MeshParams p;
+    f >> p.CEL >> p.NOD >> p.HM1_val >> p.HM2_val >> p.NZ >> p.NQ;
+    return p;
+}
+
+/// Load a flat binary file of `count` doubles into a host View1D mirror
+static void load_fp64(const std::string& path, double* dst, size_t count) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) {
+        fprintf(stderr, "ERROR: cannot open %s\n", path.c_str());
+        std::exit(1);
+    }
+    f.read(reinterpret_cast<char*>(dst), count * sizeof(double));
+}
+
+/// Load a flat binary file of `count` int32s into memory
+static void load_int32(const std::string& path, int32_t* dst, size_t count) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f.is_open()) {
+        fprintf(stderr, "ERROR: cannot open %s\n", path.c_str());
+        std::exit(1);
+    }
+    f.read(reinterpret_cast<char*>(dst), count * sizeof(int32_t));
+}
+
+// ---------------------------------------------------------------------------
 // Main: build dam-break mesh, run benchmark
 // ---------------------------------------------------------------------------
 int main(int argc, char* argv[]) {
     Kokkos::initialize(argc, argv);
     {
-        int N      = (argc > 1) ? atoi(argv[1]) : 128;
-        int steps  = (argc > 2) ? atoi(argv[2]) : 10;
-        int repeat = (argc > 3) ? atoi(argv[3]) : 20;
-        int warmup = 5;
-        int CEL = N * N;
-        double dx = 1.0;
-        double DT = 0.5 * dx / (std::sqrt(G * 2.0) + 1e-6);
+        // ---- Parse command line ----
+        // Synthetic: ./hydro_swe_kokkos [N] [steps] [repeat]
+        // Real mesh: ./hydro_swe_kokkos --real [steps] [repeat] [data_dir]
+        bool real_mode = false;
+        int arg_offset = 1;
+        for (int a = 1; a < argc; ++a) {
+            if (std::strcmp(argv[a], "--real") == 0) {
+                real_mode = true;
+                arg_offset = a + 1;
+                break;
+            }
+        }
 
-        printf("Kokkos SWE Osher: N=%d (%d cells), steps=%d, warmup=%d, repeat=%d\n",
-               N, CEL, steps, warmup, repeat);
+        int steps  = 10;
+        int repeat = 20;
+        int warmup = 5;
+        int CEL = 0;
+        int N = 0;               // only used in synthetic mode
+        double DT = 0.0;
+        std::string data_dir;
+
+        if (real_mode) {
+            steps  = (arg_offset < argc) ? atoi(argv[arg_offset]) : 10;
+            repeat = (arg_offset + 1 < argc) ? atoi(argv[arg_offset + 1]) : 20;
+            data_dir = (arg_offset + 2 < argc) ? argv[arg_offset + 2] : DEFAULT_DATA_DIR;
+        } else {
+            N      = (argc > 1) ? atoi(argv[1]) : 128;
+            steps  = (argc > 2) ? atoi(argv[2]) : 10;
+            repeat = (argc > 3) ? atoi(argv[3]) : 20;
+            CEL = N * N;
+        }
+
+        // ---- Read mesh params for real mode ----
+        if (real_mode) {
+            MeshParams mp = read_params(data_dir);
+            CEL = mp.CEL;
+            // Use a small stable DT for real mesh
+            DT = 0.01;
+            printf("Kokkos SWE Osher [REAL MESH]: CEL=%d, data=%s, steps=%d, warmup=%d, repeat=%d\n",
+                   CEL, data_dir.c_str(), steps, warmup, repeat);
+        } else {
+            double dx = 1.0;
+            DT = 0.5 * dx / (std::sqrt(G * 2.0) + 1e-6);
+            printf("Kokkos SWE Osher: N=%d (%d cells), steps=%d, warmup=%d, repeat=%d\n",
+                   N, CEL, steps, warmup, repeat);
+        }
 
         int stride = CEL + 1;
 
@@ -357,72 +441,145 @@ int main(int argc, char* argv[]) {
         View1D  V_res("V_res", stride), Z_res("Z_res", stride);
         View1D  W_res("W_res", stride);
 
-        // Host mirrors for init
-        auto h_NAC  = Kokkos::create_mirror_view(NAC);
-        auto h_KLAS = Kokkos::create_mirror_view(KLAS);
-        auto h_SIDE = Kokkos::create_mirror_view(SIDE);
-        auto h_COSF = Kokkos::create_mirror_view(COSF);
-        auto h_SINF = Kokkos::create_mirror_view(SINF);
-        auto h_AREA = Kokkos::create_mirror_view(AREA);
-        auto h_ZBC  = Kokkos::create_mirror_view(ZBC);
-        auto h_FNC  = Kokkos::create_mirror_view(FNC);
-        auto h_H    = Kokkos::create_mirror_view(H_pre);
-        auto h_Z    = Kokkos::create_mirror_view(Z_pre);
+        if (real_mode) {
+            // ---- Load binary mesh data ----
+            size_t cell_sz = (size_t)stride;          // CEL+1
+            size_t edge_sz = (size_t)5 * stride;      // 5*(CEL+1)
 
-        double edge_cos[] = {0.0, 0.0, 1.0, 0.0, -1.0};
-        double edge_sin[] = {0.0, -1.0, 0.0, 1.0, 0.0};
+            // Host mirrors
+            auto h_NAC   = Kokkos::create_mirror_view(NAC);
+            auto h_KLAS  = Kokkos::create_mirror_view(KLAS);
+            auto h_SIDE  = Kokkos::create_mirror_view(SIDE);
+            auto h_COSF  = Kokkos::create_mirror_view(COSF);
+            auto h_SINF  = Kokkos::create_mirror_view(SINF);
+            auto h_SLCOS = Kokkos::create_mirror_view(SLCOS);
+            auto h_SLSIN = Kokkos::create_mirror_view(SLSIN);
+            auto h_AREA  = Kokkos::create_mirror_view(AREA);
+            auto h_ZBC   = Kokkos::create_mirror_view(ZBC);
+            auto h_FNC   = Kokkos::create_mirror_view(FNC);
+            auto h_H     = Kokkos::create_mirror_view(H_pre);
+            auto h_U     = Kokkos::create_mirror_view(U_pre);
+            auto h_V     = Kokkos::create_mirror_view(V_pre);
+            auto h_Z     = Kokkos::create_mirror_view(Z_pre);
+            auto h_W     = Kokkos::create_mirror_view(W_pre);
 
-        for (int i = 0; i < N; ++i) {
-            for (int jj = 0; jj < N; ++jj) {
-                int pos = i * N + jj + 1;
-                h_AREA(pos) = dx * dx;
-                h_FNC(pos) = G * MANNING_N * MANNING_N;
-                for (int e = 1; e <= 4; ++e) {
-                    h_SIDE(e, pos) = dx;
-                    h_COSF(e, pos) = edge_cos[e];
-                    h_SINF(e, pos) = edge_sin[e];
+            // Cell arrays (fp64, size CEL+1)
+            load_fp64(data_dir + "/H.bin",    h_H.data(),    cell_sz);
+            load_fp64(data_dir + "/U.bin",    h_U.data(),    cell_sz);
+            load_fp64(data_dir + "/V.bin",    h_V.data(),    cell_sz);
+            load_fp64(data_dir + "/Z.bin",    h_Z.data(),    cell_sz);
+            load_fp64(data_dir + "/W.bin",    h_W.data(),    cell_sz);
+            load_fp64(data_dir + "/ZBC.bin",  h_ZBC.data(),  cell_sz);
+            load_fp64(data_dir + "/FNC.bin",  h_FNC.data(),  cell_sz);
+            load_fp64(data_dir + "/AREA.bin", h_AREA.data(), cell_sz);
+
+            // Edge arrays: binary layout is flat [5][CEL+1] row-major.
+            // Kokkos View2D on CUDA defaults to LayoutLeft (column-major),
+            // so we load into a temp buffer and scatter into the host mirror.
+            {
+                std::vector<double> buf(edge_sz);
+                auto load_edge_fp64 = [&](const std::string& name, auto& h_view) {
+                    load_fp64(data_dir + "/" + name, buf.data(), edge_sz);
+                    for (int e = 0; e < 5; ++e)
+                        for (int p = 0; p < stride; ++p)
+                            h_view(e, p) = buf[e * stride + p];
+                };
+                load_edge_fp64("SIDE.bin",  h_SIDE);
+                load_edge_fp64("COSF.bin",  h_COSF);
+                load_edge_fp64("SINF.bin",  h_SINF);
+                load_edge_fp64("SLCOS.bin", h_SLCOS);
+                load_edge_fp64("SLSIN.bin", h_SLSIN);
+
+                std::vector<int32_t> ibuf(edge_sz);
+                auto load_edge_int32 = [&](const std::string& name, auto& h_view) {
+                    load_int32(data_dir + "/" + name, ibuf.data(), edge_sz);
+                    for (int e = 0; e < 5; ++e)
+                        for (int p = 0; p < stride; ++p)
+                            h_view(e, p) = ibuf[e * stride + p];
+                };
+                load_edge_int32("NAC.bin",  h_NAC);
+                load_edge_int32("KLAS.bin", h_KLAS);
+            }
+
+            // Copy to device
+            Kokkos::deep_copy(NAC,   h_NAC);
+            Kokkos::deep_copy(KLAS,  h_KLAS);
+            Kokkos::deep_copy(SIDE,  h_SIDE);
+            Kokkos::deep_copy(COSF,  h_COSF);
+            Kokkos::deep_copy(SINF,  h_SINF);
+            Kokkos::deep_copy(SLCOS, h_SLCOS);
+            Kokkos::deep_copy(SLSIN, h_SLSIN);
+            Kokkos::deep_copy(AREA,  h_AREA);
+            Kokkos::deep_copy(ZBC,   h_ZBC);
+            Kokkos::deep_copy(FNC,   h_FNC);
+            Kokkos::deep_copy(H_pre, h_H);
+            Kokkos::deep_copy(U_pre, h_U);
+            Kokkos::deep_copy(V_pre, h_V);
+            Kokkos::deep_copy(Z_pre, h_Z);
+            Kokkos::deep_copy(W_pre, h_W);
+            Kokkos::fence();
+        } else {
+            // ---- Synthetic NxN dam-break mesh ----
+            auto h_NAC  = Kokkos::create_mirror_view(NAC);
+            auto h_KLAS = Kokkos::create_mirror_view(KLAS);
+            auto h_SIDE = Kokkos::create_mirror_view(SIDE);
+            auto h_COSF = Kokkos::create_mirror_view(COSF);
+            auto h_SINF = Kokkos::create_mirror_view(SINF);
+            auto h_AREA = Kokkos::create_mirror_view(AREA);
+            auto h_ZBC  = Kokkos::create_mirror_view(ZBC);
+            auto h_FNC  = Kokkos::create_mirror_view(FNC);
+            auto h_H    = Kokkos::create_mirror_view(H_pre);
+            auto h_Z    = Kokkos::create_mirror_view(Z_pre);
+
+            double edge_cos[] = {0.0, 0.0, 1.0, 0.0, -1.0};
+            double edge_sin[] = {0.0, -1.0, 0.0, 1.0, 0.0};
+
+            for (int i = 0; i < N; ++i) {
+                for (int jj = 0; jj < N; ++jj) {
+                    int pos = i * N + jj + 1;
+                    h_AREA(pos) = 1.0;
+                    h_FNC(pos) = G * MANNING_N * MANNING_N;
+                    for (int e = 1; e <= 4; ++e) {
+                        h_SIDE(e, pos) = 1.0;
+                        h_COSF(e, pos) = edge_cos[e];
+                        h_SINF(e, pos) = edge_sin[e];
+                    }
+                    if (i > 0) h_NAC(1, pos) = (i-1)*N + jj + 1;
+                    else       h_KLAS(1, pos) = 4;
+                    if (jj < N-1) h_NAC(2, pos) = i*N + (jj+1) + 1;
+                    else          h_KLAS(2, pos) = 4;
+                    if (i < N-1) h_NAC(3, pos) = (i+1)*N + jj + 1;
+                    else         h_KLAS(3, pos) = 4;
+                    if (jj > 0) h_NAC(4, pos) = i*N + (jj-1) + 1;
+                    else        h_KLAS(4, pos) = 4;
+
+                    h_H(pos) = (jj < N/2) ? 2.0 : 0.5;
+                    h_Z(pos) = h_H(pos);
                 }
-                // South
-                if (i > 0) h_NAC(1, pos) = (i-1)*N + jj + 1;
-                else       h_KLAS(1, pos) = 4;
-                // East
-                if (jj < N-1) h_NAC(2, pos) = i*N + (jj+1) + 1;
-                else          h_KLAS(2, pos) = 4;
-                // North
-                if (i < N-1) h_NAC(3, pos) = (i+1)*N + jj + 1;
-                else         h_KLAS(3, pos) = 4;
-                // West
-                if (jj > 0) h_NAC(4, pos) = i*N + (jj-1) + 1;
-                else        h_KLAS(4, pos) = 4;
-
-                h_H(pos) = (jj < N/2) ? 2.0 : 0.5;
-                h_Z(pos) = h_H(pos);
             }
+
+            auto h_SLCOS = Kokkos::create_mirror_view(SLCOS);
+            auto h_SLSIN = Kokkos::create_mirror_view(SLSIN);
+            for (int e = 1; e <= 4; ++e)
+                for (int p = 1; p <= CEL; ++p) {
+                    h_SLCOS(e, p) = h_SIDE(e, p) * h_COSF(e, p);
+                    h_SLSIN(e, p) = h_SIDE(e, p) * h_SINF(e, p);
+                }
+
+            Kokkos::deep_copy(NAC, h_NAC);
+            Kokkos::deep_copy(KLAS, h_KLAS);
+            Kokkos::deep_copy(SIDE, h_SIDE);
+            Kokkos::deep_copy(COSF, h_COSF);
+            Kokkos::deep_copy(SINF, h_SINF);
+            Kokkos::deep_copy(SLCOS, h_SLCOS);
+            Kokkos::deep_copy(SLSIN, h_SLSIN);
+            Kokkos::deep_copy(AREA, h_AREA);
+            Kokkos::deep_copy(ZBC, h_ZBC);
+            Kokkos::deep_copy(FNC, h_FNC);
+            Kokkos::deep_copy(H_pre, h_H);
+            Kokkos::deep_copy(Z_pre, h_Z);
+            Kokkos::fence();
         }
-
-        // Compute SLCOS, SLSIN
-        auto h_SLCOS = Kokkos::create_mirror_view(SLCOS);
-        auto h_SLSIN = Kokkos::create_mirror_view(SLSIN);
-        for (int e = 1; e <= 4; ++e)
-            for (int p = 1; p <= CEL; ++p) {
-                h_SLCOS(e, p) = h_SIDE(e, p) * h_COSF(e, p);
-                h_SLSIN(e, p) = h_SIDE(e, p) * h_SINF(e, p);
-            }
-
-        // Copy to device
-        Kokkos::deep_copy(NAC, h_NAC);
-        Kokkos::deep_copy(KLAS, h_KLAS);
-        Kokkos::deep_copy(SIDE, h_SIDE);
-        Kokkos::deep_copy(COSF, h_COSF);
-        Kokkos::deep_copy(SINF, h_SINF);
-        Kokkos::deep_copy(SLCOS, h_SLCOS);
-        Kokkos::deep_copy(SLSIN, h_SLSIN);
-        Kokkos::deep_copy(AREA, h_AREA);
-        Kokkos::deep_copy(ZBC, h_ZBC);
-        Kokkos::deep_copy(FNC, h_FNC);
-        Kokkos::deep_copy(H_pre, h_H);
-        Kokkos::deep_copy(Z_pre, h_Z);
-        Kokkos::fence();
 
         SWEStep swe{CEL, DT, NAC, KLAS, SIDE, COSF, SINF, SLCOS, SLSIN,
                      AREA, ZBC, FNC, H_pre, U_pre, V_pre, Z_pre,
@@ -458,7 +615,7 @@ int main(int argc, char* argv[]) {
         printf("  min=%.3fms  median=%.3fms  avg=%.3fms  max=%.3fms\n",
                times.front(), times[times.size()/2], sum/times.size(), times.back());
         printf("CSV: kokkos_hydro_swe,%d,%d,%.3f,%.3f,%.3f,%.3f\n",
-               N, steps, times.front(), times[times.size()/2],
+               CEL, steps, times.front(), times[times.size()/2],
                sum/times.size(), times.back());
     }
     Kokkos::finalize();

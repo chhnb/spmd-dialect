@@ -7,12 +7,19 @@ import math
 import os
 import numpy as np
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+_BASE_DIR = os.path.dirname(__file__)
+DATA_DIR = os.path.join(_BASE_DIR, "data")
+
+# Available mesh datasets
+MESH_DATASETS = {
+    "default": os.path.join(_BASE_DIR, "data"),       # 6,675 cells
+    "20w":     os.path.join(_BASE_DIR, "data_20w"),    # 207,234 cells
+}
 
 
-def _read_lines(filename):
+def _read_lines(filename, data_dir=None):
     """Read non-empty, non-comment lines from a data file."""
-    path = os.path.join(DATA_DIR, filename)
+    path = os.path.join(data_dir or DATA_DIR, filename)
     with open(path, "r") as f:
         lines = []
         for line in f:
@@ -22,8 +29,12 @@ def _read_lines(filename):
         return lines
 
 
-def load_hydro_mesh():
+def load_hydro_mesh(mesh="default"):
     """Load the full hydro-cal 2D mesh and return a dict of arrays.
+
+    Args:
+        mesh: Dataset name ("default" for 6675 cells, "20w" for 207234 cells)
+              or a path to a custom data directory.
 
     Returns dict with keys:
         CEL, NOD, HM1, HM2, NZ, NQ,
@@ -35,24 +46,33 @@ def load_hydro_mesh():
     All cell arrays are 1-indexed (index 0 unused).
     2D arrays are [5][CEL+1] (edge index 1..4).
     """
+    if mesh in MESH_DATASETS:
+        data_dir = MESH_DATASETS[mesh]
+    elif os.path.isdir(mesh):
+        data_dir = mesh
+    else:
+        raise ValueError(f"Unknown mesh '{mesh}'. Available: {list(MESH_DATASETS.keys())}")
+
+    def rd(filename):
+        return _read_lines(filename, data_dir=data_dir)
 
     # ---- GIRD.DAT: NOD, CEL ----
-    lines = _read_lines("GIRD.DAT")
+    lines = rd("GIRD.DAT")
     NOD = int(lines[0].split()[0])
     CEL = int(lines[1].split()[0])
 
     # ---- DEPTH.DAT: HM1, HM2 ----
-    lines = _read_lines("DEPTH.DAT")
+    lines = rd("DEPTH.DAT")
     HM1 = float(lines[0].split()[0])
     HM2 = float(lines[1].split()[0])
 
     # ---- BOUNDARY.DAT ----
-    lines = _read_lines("BOUNDARY.DAT")
+    lines = rd("BOUNDARY.DAT")
     NZ = int(lines[0].split()[0])
     NQ = int(lines[1].split()[0])
 
     # ---- PXY.DAT: node coordinates ----
-    lines = _read_lines("PXY.DAT")
+    lines = rd("PXY.DAT")
     # First line is count
     XP = np.zeros(NOD + 1, dtype=np.float64)
     YP = np.zeros(NOD + 1, dtype=np.float64)
@@ -65,7 +85,7 @@ def load_hydro_mesh():
     YP[1:] -= YP[1:].min()
 
     # ---- PNAP.DAT: cell-to-node ----
-    lines = _read_lines("PNAP.DAT")
+    lines = rd("PNAP.DAT")
     NAP = np.zeros((5, CEL + 1), dtype=np.int32)
     for k in range(1, CEL + 1):
         parts = lines[k].split()
@@ -73,7 +93,7 @@ def load_hydro_mesh():
             NAP[j][k] = int(parts[j])
 
     # ---- PNAC.DAT: cell neighbors ----
-    lines = _read_lines("PNAC.DAT")
+    lines = rd("PNAC.DAT")
     NAC = np.zeros((5, CEL + 1), dtype=np.int32)
     for k in range(1, CEL + 1):
         parts = lines[k].split()
@@ -81,7 +101,7 @@ def load_hydro_mesh():
             NAC[j][k] = int(parts[j])
 
     # ---- PKLAS.DAT: edge types ----
-    lines = _read_lines("PKLAS.DAT")
+    lines = rd("PKLAS.DAT")
     KLAS = np.zeros((5, CEL + 1), dtype=np.int32)
     for k in range(1, CEL + 1):
         parts = lines[k].split()
@@ -89,7 +109,7 @@ def load_hydro_mesh():
             KLAS[j][k] = int(parts[j])
 
     # ---- PZBC.DAT: bed elevation ----
-    lines = _read_lines("PZBC.DAT")
+    lines = rd("PZBC.DAT")
     # First line is header "PZBC" or count — skip non-numeric
     ZBC = np.zeros(CEL + 1, dtype=np.float64)
     idx = 0
@@ -103,7 +123,7 @@ def load_hydro_mesh():
             continue
 
     # ---- MBQ.DAT: Q boundaries ----
-    lines = _read_lines("MBQ.DAT")
+    lines = rd("MBQ.DAT")
     NQ_actual = int(lines[0]) if lines else 0
     MBQ = np.zeros(NQ_actual + 1, dtype=np.int32)
     NNQ = np.zeros(NQ_actual + 1, dtype=np.int32)
@@ -113,7 +133,7 @@ def load_hydro_mesh():
         NNQ[k] = int(parts[2])
 
     # ---- MBZ.DAT: Z boundaries ----
-    lines = _read_lines("MBZ.DAT")
+    lines = rd("MBZ.DAT")
     NZ_actual = int(lines[0]) if lines else 0
     MBZ = np.zeros(max(NZ_actual + 1, 1), dtype=np.int32)
     NNZ = np.zeros(max(NZ_actual + 1, 1), dtype=np.int32)
@@ -124,7 +144,7 @@ def load_hydro_mesh():
 
     # ---- Initial conditions ----
     def _read_cell_values(filename):
-        lines = _read_lines(filename)
+        lines = rd(filename)
         arr = np.zeros(CEL + 1, dtype=np.float64)
         idx = 0
         for line in lines:
@@ -142,9 +162,14 @@ def load_hydro_mesh():
     V_init = _read_cell_values("INITIALV1.DAT")
     CV = _read_cell_values("CV.DAT")  # Manning n
 
-    # ---- CONLINK.TXT: 1D-2D coupling ----
-    lines = _read_lines("CONLINK.TXT")
-    NLINK0 = int(lines[0]) if lines else 0
+    # ---- CONLINK.TXT: 1D-2D coupling (optional) ----
+    conlink_path = os.path.join(data_dir, "CONLINK.TXT")
+    if os.path.exists(conlink_path):
+        lines = rd("CONLINK.TXT")
+        NLINK0 = int(lines[0]) if lines else 0
+    else:
+        lines = []
+        NLINK0 = 0
     # Modify KLAS for coupling boundaries
     for k in range(1, NLINK0 + 1):
         parts = lines[k].split()
@@ -234,7 +259,9 @@ def load_hydro_mesh():
 
 
 if __name__ == "__main__":
-    mesh = load_hydro_mesh()
+    import sys
+    mesh_name = sys.argv[1] if len(sys.argv) > 1 else "default"
+    mesh = load_hydro_mesh(mesh=mesh_name)
     print(f"Loaded mesh: {mesh['CEL']} cells, {mesh['NOD']} nodes")
     print(f"HM1={mesh['HM1']}, HM2={mesh['HM2']}")
     print(f"NZ={mesh['NZ']}, NQ={mesh['NQ']}")

@@ -438,10 +438,10 @@ def run(N, steps=1, backend="cpu"):
     return step, None, mesh["H"]
 
 
-def run_real(steps=1, backend="cpu"):
-    """Run on the real hydro-cal mesh (6675 cells)."""
+def run_real(steps=1, backend="cpu", mesh="default"):
+    """Run on the real hydro-cal mesh."""
     from mesh_loader import load_hydro_mesh
-    mesh = load_hydro_mesh()
+    mesh = load_hydro_mesh(mesh=mesh)
     # compute_step needs dx for DT; estimate from min SIDE
     min_side = mesh["SIDE"][1][1:mesh["CEL"]+1][mesh["SIDE"][1][1:mesh["CEL"]+1] > 0].min()
     mesh["dx"] = min_side
