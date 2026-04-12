@@ -163,6 +163,7 @@ def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_pre
         if not steps_val and configured_steps:
             steps_val = str(configured_steps)
         rows = []
+        seen_strats = set()
         for strat, us in timings:
             if us is not None and compute is not None and us > 0:
                 oh = f"{max(0,(us-compute)/us*100):.1f}"
@@ -174,6 +175,17 @@ def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_pre
                         "problem_size":size_label,"steps":steps_val,
                         "median_us":f"{us:.2f}" if us else "N/A",
                         "min_us":"","max_us":"","overhead_pct":oh})
+            seen_strats.add(strat)
+        # Ensure all 4 expected CUDA strategies have a row (AC-1: no silent skips)
+        if strategy_prefix == "CUDA":
+            for expected in ["Sync", "Async", "Graph", "Persistent"]:
+                # Check if any reported strategy name contains this expected name
+                found = any(expected.lower() in s.lower() for s in seen_strats)
+                if not found:
+                    rows.append({"case":CN[case_id],"strategy":f"CUDA_{expected}",
+                                "gpu":gpu,"problem_size":size_label,"steps":steps_val,
+                                "median_us":"N/A","min_us":"","max_us":"",
+                                "overhead_pct":""})
         return rows
     except Exception as e:
         print(f"    ERROR: {e}"); return []

@@ -27,7 +27,8 @@ def run_jacobi3d(N=32, steps=50):
             u[1:-1, 0:-2, 1:-1] + u[1:-1, 2:, 1:-1] +
             u[1:-1, 1:-1, 0:-2] + u[1:-1, 1:-1, 2:]
         ) / 6.0
-        u, u_new = u_new, u
+        # Taichi copy_back: u[i,j,k] = u_new[i,j,k] for ALL cells
+        u[:] = u_new[:]
 
     return _noop, _noop, u
 
@@ -47,7 +48,8 @@ def run_heat2d(N=64, steps=100):
             u[1:-1, 0:-2] + u[1:-1, 2:] -
             np.float32(4.0) * u[1:-1, 1:-1]
         )
-        u, v = v, u
+        # Taichi copy_back: u[i,j] = v[i,j] for ALL cells
+        u[:] = v[:]
 
     return _noop, _noop, u
 
@@ -82,8 +84,9 @@ def run_grayscott(N=64, steps=100):
         uvv = gu[1:-1, 1:-1] * gv[1:-1, 1:-1] * gv[1:-1, 1:-1]
         gu2[1:-1, 1:-1] = gu[1:-1, 1:-1] + Du * lu - uvv + F * (1.0 - gu[1:-1, 1:-1])
         gv2[1:-1, 1:-1] = gv[1:-1, 1:-1] + Dv * lv + uvv - (F + k) * gv[1:-1, 1:-1]
-        gu, gu2 = gu2, gu
-        gv, gv2 = gv2, gv
+        # Taichi copy_back: gu = gu2, gv = gv2 for ALL cells
+        gu[:] = gu2[:]
+        gv[:] = gv2[:]
 
     return _noop, _noop, gu  # returns gu, matching Taichi
 
@@ -137,8 +140,8 @@ def run_conv3d(N=32, steps=1):
                             for dx in range(-1, 2):
                                 s += A[x + dx, y + dy, z + dz]
                     B[x, y, z] = s / np.float32(27.0)
-        # Propagate B -> A
-        A[1:-1, 1:-1, 1:-1] = B[1:-1, 1:-1, 1:-1]
+        # Taichi copy_B_to_A: A[i,j,k] = B[i,j,k] for ALL cells
+        A[:] = B[:]
 
     return _noop, _noop, B
 
