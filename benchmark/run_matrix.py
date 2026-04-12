@@ -72,6 +72,13 @@ KOKKOS = {
     "C9": ("cpp/kokkos/build-cuda/hydro_refactored_kokkos",[("899 10","24020"),("900 10 "+str(BD/"F2_hydro_refactored/data_20w/binary/"),"207234")]),
 }
 
+# Configured step counts per case (fallback when binary output has no step marker)
+CUDA_STEPS = {
+    "C1":"100","C2":"100","C4":"100","C5":"100","C6":"10","C7":"10",
+    "C8":"10","C9":"899","C11":"100","C12":"100","C13":"500","C14":"100",
+    "C15":"200","C16":"5","C17":"1","C18":"1","C19":"1","C20":"3","C21":"1",
+}
+
 PERKS_2D = {
     "C1": [("PERKS/stencil/2dstencil/build/init/2d5pt/2d5pt_{strat}.exe",
             "--dimx 4096 --dimy 4096 --iter 100 --fp32 --warmup","4096x4096")],
