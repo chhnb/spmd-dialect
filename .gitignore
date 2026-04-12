@@ -47,3 +47,5 @@ benchmark/*/data_20w/
 benchmark/*/results.csv
 results.csv
 nsys_results/
+benchmark/F1_hydro_shallow_water/gather_experiment_v2
+benchmark/results/b200_warp_characterization_full.txt
