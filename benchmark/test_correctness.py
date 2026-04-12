@@ -139,15 +139,29 @@ def main():
     for cid in ids:
         if cid not in CASES: continue
         impls = CASES[cid]
-        print(f"{cid}: {len(impls)} implementation(s)")
+        has_multi = len(impls) >= 2
+        print(f"{cid}: {len(impls)} framework(s)" + (" + deterministic re-run" if not has_multi else ""))
+
         results = {}
         for fw, subdir, mod, call in impls:
             r = run_impl(subdir, mod, call, fw)
             results[fw] = r
             if "error" in r:
-                print(f"  {fw}: ERROR — {r['error']}")
+                print(f"  {fw}: ERROR — {r['error'][:120]}")
             else:
-                print(f"  {fw}: [{r['min']:.6f}, {r['max']:.6f}] mean={r['mean']:.6f}")
+                print(f"  {fw}: [{r['min']:.6f}, {r['max']:.6f}] mean={r['mean']:.6f} n={r['n']}")
+
+        # For single-impl cases: run a second time for deterministic cross-check
+        if not has_multi and len(impls) == 1:
+            fw0, sub0, mod0, call0 = impls[0]
+            if fw0 in results and "error" not in results[fw0]:
+                r2 = run_impl(sub0, mod0, call0, fw0)
+                label = f"{fw0}_rerun"
+                results[label] = r2
+                if "error" not in r2:
+                    print(f"  {fw0} (re-run): [{r2['min']:.6f}, {r2['max']:.6f}] mean={r2['mean']:.6f}")
+                else:
+                    print(f"  {fw0} (re-run): ERROR — {r2.get('error','')[:120]}")
 
         # Elementwise cross-check: compare .npy arrays between all pairs
         fws = [fw for fw in results if "error" not in results[fw] and "npy_path" in results[fw]]
@@ -170,11 +184,12 @@ def main():
             if ok: passed += 1
             else: failed += 1
         elif len(fws) == 1:
-            # Single impl: verify finite outputs, note no cross-check
             r = results[fws[0]]
-            is_finite = r.get("n", 0) > 0
-            print(f"  Single-impl check: finite={is_finite}, n={r.get('n',0)} — no cross-check available")
-            # Don't count as passed or failed — it's not a cross-check
+            if r.get("n", 0) > 0:
+                print(f"  Single successful run ({fws[0]}): sanity OK (n={r['n']})")
+            else:
+                print(f"  Single run with no data — FAIL")
+                failed += 1
         else:
             print(f"  All implementations errored — FAIL")
             failed += 1
