@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Milestone 5: Generate analysis from matrix_results.csv.
+"""Generate analysis from matrix_results.csv.
 
 Writes 4 output files to --output-dir:
 1. overhead_vs_kernels.csv — Overhead% by strategy × case (smallest size)
@@ -9,7 +9,7 @@ Writes 4 output files to --output-dir:
 
 Also prints human-readable tables to stdout.
 """
-import argparse, csv, os, sys
+import argparse, csv, os, re, sys
 from collections import defaultdict
 
 KERN = {"Jacobi2D":2,"Jacobi3D":2,"Heat2D":2,"Wave2D":1,"LBM_D2Q9":1,
@@ -21,6 +21,15 @@ KERN = {"Jacobi2D":2,"Jacobi3D":2,"Heat2D":2,"Wave2D":1,"LBM_D2Q9":1,
 
 def load(path):
     with open(path) as f: return list(csv.DictReader(f))
+
+
+def size_sort_key(s):
+    """Sort size strings numerically: '256' < '4096', '64x64' < '256x256', 'default' < '20w'."""
+    if s in ("default",): return 0
+    if s in ("20w",): return 207234
+    # Extract first number
+    m = re.match(r'(\d+)', s)
+    return int(m.group(1)) if m else 0
 
 
 def write_csv(path, rows, fields):
@@ -40,7 +49,7 @@ def plot1(data, od):
 
     rows = []
     for case in sorted(by.keys(), key=lambda c: KERN.get(c,0)):
-        smallest = min(by[case].keys())
+        smallest = min(by[case].keys(), key=size_sort_key)
         for strat, oh in by[case][smallest].items():
             rows.append({"case":case,"kernels_per_step":KERN.get(case,0),
                         "problem_size":smallest,"strategy":strat,"overhead_pct":f"{oh:.1f}"})
@@ -67,7 +76,7 @@ def plot2(data, od):
 
     rows = []
     for case in sorted(times.keys(), key=lambda c: KERN.get(c,0)):
-        smallest = min(times[case].keys())
+        smallest = min(times[case].keys(), key=size_sort_key)
         st = times[case][smallest]
         sync = next((st[k] for k in st if "Sync" in k and "CUDA" in k), None)
         if not sync: continue
@@ -95,26 +104,40 @@ def plot3(data, od):
         if r["median_us"] and r["median_us"] != "N/A":
             by[r["case"]][r["problem_size"]][r["strategy"]] = float(r["median_us"])
 
+    # Extract GPU compute baselines from overhead_pct: compute = median * (1 - oh/100)
+    gpu_baselines = defaultdict(dict)
+    for r in data:
+        if r.get("overhead_pct") and r["overhead_pct"] and r["median_us"] != "N/A":
+            us = float(r["median_us"])
+            oh = float(r["overhead_pct"])
+            compute = us * (1 - oh / 100)
+            key = (r["case"], r["problem_size"])
+            if key not in gpu_baselines or compute < gpu_baselines[key]:
+                gpu_baselines[key] = compute
+
     rows = []
     print("\n=== DSL Overhead Decomposition ===")
-    print(f"{'Case':15s} {'Size':>8s} {'GPU_min':>10s} {'CUDA_Sync':>10s} {'Taichi':>10s} {'Warp':>10s} {'Triton':>10s}")
+    print(f"{'Case':15s} {'Size':>8s} {'GPU_base':>10s} {'CUDA_Sync':>10s} {'Taichi':>10s} {'Warp':>10s} {'Triton':>10s}")
     for case in sorted(by.keys(), key=lambda c: KERN.get(c,0)):
-        for size in sorted(by[case].keys()):
+        for size in sorted(by[case].keys(), key=size_sort_key):
             s = by[case][size]
-            cuda_vals = [v for k,v in s.items() if "CUDA" in k and v > 0]
-            if not cuda_vals: continue
-            gpu_min = min(cuda_vals)
+            # Use recorded GPU baseline if available, else fastest CUDA
+            gpu_base = gpu_baselines.get((case, size))
+            if gpu_base is None:
+                cuda_vals = [v for k,v in s.items() if "CUDA" in k and v > 0]
+                gpu_base = min(cuda_vals) if cuda_vals else None
+            if gpu_base is None: continue
             sync = next((s[k] for k in s if "Sync" in k and "CUDA" in k), None)
             taichi = s.get("Taichi")
             warp = s.get("Warp")
             triton = s.get("Triton")
-            row = {"case":case,"problem_size":size,"gpu_compute_us":f"{gpu_min:.1f}",
+            row = {"case":case,"problem_size":size,"gpu_compute_us":f"{gpu_base:.1f}",
                    "cuda_sync_us":f"{sync:.1f}" if sync else "",
                    "taichi_us":f"{taichi:.1f}" if taichi else "",
                    "warp_us":f"{warp:.1f}" if warp else "",
                    "triton_us":f"{triton:.1f}" if triton else ""}
             rows.append(row)
-            print(f"{case:15s} {size:>8s} {gpu_min:10.1f} "
+            print(f"{case:15s} {size:>8s} {gpu_base:10.1f} "
                   f"{sync if sync else 0:10.1f} "
                   f"{taichi if taichi else 0:10.1f} "
                   f"{warp if warp else 0:10.1f} "
@@ -137,7 +160,7 @@ def plot4(data, od):
         print(f"\n  {case}:")
         strats = sorted(set(s for sz in by[case].values() for s in sz))
         print(f"    {'Size':>10s}" + "".join(f"{s:>15s}" for s in strats))
-        for size in sorted(by[case].keys()):
+        for size in sorted(by[case].keys(), key=size_sort_key):
             line = f"    {size:>10s}"
             for s in strats:
                 v = by[case][size].get(s)

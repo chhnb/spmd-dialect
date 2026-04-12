@@ -5,6 +5,7 @@ Dispatches: cuda, taichi, warp, triton, kokkos, perks, ebisu
 CSV schema: case,strategy,gpu,problem_size,steps,median_us,min_us,max_us,overhead_pct
 """
 import argparse, csv, os, re, subprocess, sys, time
+from collections import defaultdict
 from pathlib import Path
 
 PYTHON = "/home/scratch.huanhuanc_gpu/spmd/spmd-venv/bin/python"
@@ -28,9 +29,9 @@ CUDA = {
     "C9": ("hydro_osher_a100",[("899 10","24020"),("900 10 "+str(BD/"F2_hydro_refactored/data_20w/binary/"),"207234")]),
     "C11":("fdtd2d_bench",    [("512 100 10","512"),("4096 100 10","4096")]),
     "C12":("maccormack3d_bench",[("64 100 10","64"),("128 100 10","128")]),
-    "C13":("lulesh_fusion_a100",[("500 10","N=64_default"),("500 10","N=64_default")]),
+    "C13":("lulesh_fusion_a100",[("32 500","N=32"),("64 500","N=64")]),
     "C14":("pic1d_bench",     [("4096 256 100 10","4096p"),("16384 1024 100 10","16384p")]),
-    "C15":("cg_fusion_a100",  [("200 10","N=128_default"),("200 10","N=128_default")]),
+    "C15":("cg_fusion_a100",  [("64 200","N=64"),("256 200","N=256")]),
     "C16":("stable_fluids_bench",[("256 5 10","256"),("1024 5 10","1024")]),
     "C17":("conv3d_bench",    [("128 1 10","128"),("256 1 10","256")]),
     "C18":("doitgen_bench",   [("128 1 10","128"),("256 1 10","256")]),
@@ -55,7 +56,7 @@ TAICHI = {
     "C11":(".","fdtd2d_taichi","run(N={sz},steps={st},backend='cuda')",[(512,100),(4096,100)]),
     "C12":("F3_maccormack_3d","maccormack_taichi","run(N={sz},steps={st},backend='cuda')",[(64,100),(128,100)]),
     "C13":(".","lulesh_taichi","run(N={sz},steps={st},backend='cuda')",[(32,10),(64,10)]),
-    "C14":("C2_pic","pic_taichi","run(n_particles={sz},n_grid={sz2},steps={st},backend='cuda')",[(4096,100),(16384,100)]),
+    "C14":("C2_pic","pic_taichi","run(n_particles={sz},n_grid={g},steps={st},backend='cuda')",[(4096,256,100),(16384,1024,100)]),
     "C15":(".","cg_taichi","run(N={sz},steps={st},backend='cuda')",[(128,100),(512,100)]),
     "C16":("D2_stable_fluids","fluid_taichi","run(N={sz},steps={st},backend='cuda')",[(256,5),(1024,5)]),
     "C17":(".","conv3d_taichi","run(N={sz},steps={st},backend='cuda')",[(64,1),(128,1)]),
@@ -117,34 +118,43 @@ def parse_cuda(output):
 def parse_overhead_solutions(output):
     """Parse overhead_solutions table → [(case_id, size, strategy, us, steps)]."""
     rows = []
-    step_map = {"128":100,"256":100,"512":100,"1024":100,"2048":100}
+    # Per overhead_solutions.cu: size-specific step counts
+    heat_steps  = {"128":2000,"256":1000,"512":1000,"1024":500,"2048":200}
+    gs_steps    = {"128":2000,"256":1000,"512":500,"1024":200}
     for line in output.split("\n"):
         m = re.match(r'\s*(Heat2D|GrayScott)\s+(\d+)sq\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.N/A]+)', line)
         if m:
             kernel,sz,sync,asyn,graph,pers = m.groups()
             cid = "C3" if kernel=="Heat2D" else "C10"
-            st = step_map.get(sz, 100)
+            smap = heat_steps if kernel=="Heat2D" else gs_steps
+            st = smap.get(sz, 100)
             for name,val in [("Sync",sync),("Async",asyn),("Graph",graph),("Persistent",pers)]:
                 us = None if val=="N/A" else float(val)
                 rows.append((cid, f"{sz}x{sz}", name, us, st))
     return rows
 
 
-def run_binary(binary, args_str, size_label, case_id, gpu, dry_run):
+def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_prefix="CUDA"):
     path = BD/binary
     if not path.exists(): return []
     cmd = [str(path)] + args_str.split()
     if dry_run: print(f"    {' '.join(cmd)}"); return []
+    # Extract steps from output (look for "steps=N" or "N steps")
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         timings, compute = parse_cuda(r.stdout)
+        # Try to find step count from output
+        steps_val = ""
+        m_steps = re.search(r'(\d+)\s*steps', r.stdout)
+        if m_steps: steps_val = m_steps.group(1)
         rows = []
         for strat, us in timings:
             oh = ""
             if us is not None and compute is not None and us > 0:
                 oh = f"{max(0,(us-compute)/us*100):.1f}"
-            rows.append({"case":CN[case_id],"strategy":f"CUDA_{strat}","gpu":gpu,
-                        "problem_size":size_label,"steps":"","median_us":f"{us:.2f}" if us else "N/A",
+            rows.append({"case":CN[case_id],"strategy":f"{strategy_prefix}_{strat}","gpu":gpu,
+                        "problem_size":size_label,"steps":steps_val,
+                        "median_us":f"{us:.2f}" if us else "N/A",
                         "min_us":"","max_us":"","overhead_pct":oh})
         return rows
     except Exception as e:
@@ -160,10 +170,11 @@ def run_dsl(case_id, framework, gpu, dry_run):
     mod_dir = str(BD/subdir) if subdir != "." else str(BD)
     rows = []
     for size_cfg in sizes:
-        sz, st = size_cfg[0], size_cfg[1]
+        sz, st = size_cfg[0], size_cfg[-1]
         is_mesh = isinstance(sz, str)
         sz2 = sz//2 if isinstance(sz, int) else 256
-        call = call_tpl.format(sz=sz, st=st, sz2=sz2, mesh=sz)
+        g = size_cfg[1] if len(size_cfg) == 3 else sz2
+        call = call_tpl.format(sz=sz, st=st, sz2=sz2, mesh=sz, g=g)
         size_label = str(sz)
 
         # NO ti.init here — the module's run() does it
@@ -201,11 +212,15 @@ print(f"R {{ts[5]:.2f}} {{ts[0]:.2f}} {{ts[9]:.2f}}")
 
 
 def run_warp(case_id, gpu, dry_run):
-    """Run Warp DSL for lower-bound cases C1/C8/C9."""
+    """Run Warp DSL for cases with Warp implementations."""
     WARP_MAP = {
         "C1": ("A1_jacobi_2d","jacobi_warp","run(N={sz},steps={st},backend='cuda')",[(256,100),(4096,100)]),
+        "C4": ("A3_wave_equation","wave_warp","run(N={sz},steps={st},backend='cuda')",[(512,100),(4096,100)]),
+        "C6": ("B1_nbody","nbody_warp","run(N={sz},steps={st},backend='cuda')",[(4096,10),(32768,10)]),
+        "C7": ("B2_sph","sph_warp","run(N={sz},steps={st},backend='cuda')",[(8192,10),(65536,10)]),
         "C8": ("F1_hydro_shallow_water","hydro_warp","run_real(steps={st},backend='cuda',mesh='{mesh}')",[("default",10),("20w",10)]),
         "C9": ("F2_hydro_refactored","hydro_refactored_warp","run(days=1,backend='cuda',mesh='{mesh}')",[("default",1),("20w",1)]),
+        "C16":("D2_stable_fluids","fluid_warp","run(N={sz},steps={st},backend='cuda')",[(256,5),(1024,5)]),
     }
     if case_id not in WARP_MAP: return []
     subdir, mod, call_tpl, sizes = WARP_MAP[case_id]
@@ -245,7 +260,7 @@ print(f"R {{ts[5]:.2f}} {{ts[0]:.2f}} {{ts[9]:.2f}}")
 
 
 def run_triton(case_id, gpu, dry_run):
-    """Run Triton DSL for lower-bound cases C1/C8/C9."""
+    """Run Triton DSL for cases with Triton implementations."""
     TRITON_MAP = {
         "C1": ("A1_jacobi_2d","jacobi_triton","run(N={sz},steps={st},backend='cuda')",[(256,100),(4096,100)]),
         "C8": ("F1_hydro_shallow_water","hydro_triton","run_real(steps={st},backend='cuda',mesh='{mesh}')",[("default",10),("20w",10)]),
@@ -329,6 +344,8 @@ def run_ebisu(case_id, gpu, dry_run):
     EBISU_MAP = {
         "C1": ("EBISU/2dstencil/build/init/2d5pt/2d5pt_ebisu.exe",
                "--dimx 4096 --dimy 4096 --iter 100 --fp32 --warmup", "4096x4096"),
+        "C2": ("EBISU/3dstencil/build/init/3d7pt/3d7pt_ebisu.exe",
+               "256 256 256 100", "256x256x256"),
     }
     if case_id not in EBISU_MAP: return []
     binary, args, size_label = EBISU_MAP[case_id]
@@ -374,12 +391,22 @@ def main():
         binary = BD/"overhead_solutions_a100"
         if binary.exists() and not a.dry_run:
             r = subprocess.run([str(binary)], capture_output=True, text=True, timeout=300)
-            for cid, sz, strat, us, st in parse_overhead_solutions(r.stdout):
-                if cid in ids:
-                    all_rows.append({"case":CN[cid],"strategy":f"CUDA_{strat}","gpu":gpu,
-                                    "problem_size":sz,"steps":str(st),
-                                    "median_us":f"{us:.2f}" if us else "N/A",
-                                    "min_us":"","max_us":"","overhead_pct":""})
+            parsed = parse_overhead_solutions(r.stdout)
+            # Group by (case, size) to find Async as GPU-compute baseline
+            async_baseline = {}
+            for cid, sz, strat, us, st in parsed:
+                if strat == "Async" and us is not None:
+                    async_baseline[(cid, sz)] = us
+            for cid, sz, strat, us, st in parsed:
+                if cid not in ids: continue
+                oh = ""
+                compute = async_baseline.get((cid, sz))
+                if us is not None and compute is not None and us > 0:
+                    oh = f"{max(0,(us-compute)/us*100):.1f}"
+                all_rows.append({"case":CN[cid],"strategy":f"CUDA_{strat}","gpu":gpu,
+                                "problem_size":sz,"steps":str(st),
+                                "median_us":f"{us:.2f}" if us else "N/A",
+                                "min_us":"","max_us":"","overhead_pct":oh})
             print(f"  {len([r for r in all_rows if r['case'] in ('Heat2D','GrayScott')])} entries")
 
     for cid in ids:
@@ -404,15 +431,47 @@ def main():
             rows = run_triton(cid, gpu, a.dry_run)
             all_rows.extend(rows)
             if rows: print(f"  Triton: {len(rows)}")
-        if "kokkos" in a.strategies:
-            if cid in KOKKOS:
-                rows = []
-                for args_str, label in KOKKOS[cid]:
-                    rows.extend(run_binary(KOKKOS[cid][0], args_str, label, cid, gpu, a.dry_run))
-                # Rename strategy
-                for r in rows: r["strategy"] = "Kokkos"
-                all_rows.extend(rows)
-                if rows: print(f"  Kokkos: {len(rows)}")
+        if "kokkos" in a.strategies and cid in KOKKOS:
+            binary_name = KOKKOS[cid][0]
+            rows = []
+            for args_str, label in KOKKOS[cid]:
+                path = BD/binary_name
+                if not path.exists(): continue
+                if a.dry_run: print(f"    Kokkos: {path} {args_str}"); continue
+                try:
+                    cmd = [str(path)] + args_str.split()
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+                    # Parse Kokkos CSV output: "CSV: name,N,steps,min,median,avg,max"
+                    for line in r.stdout.split("\n"):
+                        if line.startswith("CSV:"):
+                            parts = line.split(",")
+                            if len(parts) >= 7:
+                                steps_k = parts[2].strip()
+                                median_ms = float(parts[4].strip())
+                                min_ms = float(parts[3].strip())
+                                max_ms = float(parts[6].strip())
+                                us = median_ms * 1000 / max(1, int(steps_k))
+                                rows.append({"case":CN[cid],"strategy":"Kokkos","gpu":gpu,
+                                            "problem_size":label,"steps":steps_k,
+                                            "median_us":f"{us:.2f}",
+                                            "min_us":f"{min_ms*1000/max(1,int(steps_k)):.2f}",
+                                            "max_us":f"{max_ms*1000/max(1,int(steps_k)):.2f}",
+                                            "overhead_pct":""})
+                    # Fallback: parse median=X.XXXms
+                    if not rows:
+                        m = re.search(r'median=([\d.]+)ms', r.stdout)
+                        if m:
+                            ms = float(m.group(1))
+                            m2 = re.search(r'steps=(\d+)', r.stdout)
+                            st = int(m2.group(1)) if m2 else 100
+                            rows.append({"case":CN[cid],"strategy":"Kokkos","gpu":gpu,
+                                        "problem_size":label,"steps":str(st),
+                                        "median_us":f"{ms*1000/st:.2f}","min_us":"","max_us":"",
+                                        "overhead_pct":""})
+                except Exception as e:
+                    print(f"    Kokkos {cid}: {e}")
+            all_rows.extend(rows)
+            if rows: print(f"  Kokkos: {len(rows)}")
         if "perks" in a.strategies:
             rows = run_perks(cid, gpu, a.dry_run)
             all_rows.extend(rows)
