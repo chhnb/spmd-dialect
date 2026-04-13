@@ -91,27 +91,27 @@ def compare_arrays(path_a, path_b):
 # Case definitions: list of (framework, subdir, module, call)
 CASES = {}
 for cid, subdir, mod, call in [
-    ("C1", "A1_jacobi_2d", "jacobi_taichi", "run(N=64,steps=10,backend='cuda')"),
-    ("C2", ".", "jacobi3d_taichi", "run(N=32,steps=50,backend='cuda')"),
+    ("C1", "A1_jacobi_2d", "jacobi_taichi", "run(N=64,steps=100,backend='cuda')"),
+    ("C2", ".", "jacobi3d_taichi", "run(N=32,steps=100,backend='cuda')"),
     ("C3", ".", "heat2d_taichi", "run(N=64,steps=100,backend='cuda')"),
-    ("C4", "A3_wave_equation", "wave_taichi", "run(N=64,steps=1,backend='cuda')"),
-    ("C5", "A2_lbm_d2q9", "lbm_taichi", "run(64,32,steps=10,backend='cuda')"),
-    ("C6", "B1_nbody", "nbody_taichi", "run(N=256,steps=10,backend='cuda')"),
-    ("C7", "B2_sph", "sph_taichi", "run(N=512,steps=1,backend='cuda')"),
-    ("C8", "F1_hydro_shallow_water", "hydro_taichi", "run_real(steps=10,backend='cuda',mesh='default')"),
+    ("C4", "A3_wave_equation", "wave_taichi", "run(N=64,steps=100,backend='cuda')"),
+    ("C5", "A2_lbm_d2q9", "lbm_taichi", "run(64,32,steps=100,backend='cuda')"),
+    ("C6", "B1_nbody", "nbody_taichi", "run(N=256,steps=100,backend='cuda')"),
+    ("C7", "B2_sph", "sph_taichi", "run(N=512,steps=100,backend='cuda')"),
+    ("C8", "F1_hydro_shallow_water", "hydro_taichi", "run_real(steps=100,backend='cuda',mesh='default')"),
     ("C9", "F2_hydro_refactored", "hydro_refactored_taichi", "run(days=1,backend='cuda',mesh='default')"),
     ("C10", ".", "grayscott_taichi", "run(N=64,steps=100,backend='cuda')"),
-    ("C11", ".", "fdtd2d_taichi", "run(N=64,steps=10,backend='cuda')"),
-    ("C12", "F3_maccormack_3d", "maccormack_taichi", "run(N=32,steps=50,backend='cuda')"),
-    ("C13", ".", "lulesh_taichi", "run(N=16,steps=10,backend='cuda')"),
-    ("C14", "C2_pic", "pic_taichi", "run(n_particles=1024,n_grid=128,steps=1,backend='cuda')"),
-    ("C15", ".", "cg_taichi", "run(N=64,steps=50,backend='cuda')"),
-    ("C16", "D2_stable_fluids", "fluid_taichi", "run(N=64,steps=5,backend='cuda')"),
-    ("C17", ".", "conv3d_taichi", "run(N=32,steps=1,backend='cuda')"),
-    ("C18", ".", "doitgen_taichi", "run(N=32,steps=1,backend='cuda')"),
-    ("C19", ".", "lu_taichi", "run(N=64,steps=1,backend='cuda')"),
-    ("C20", ".", "adi_taichi", "run(N=64,steps=3,backend='cuda')"),
-    ("C21", ".", "gramschmidt_taichi", "run(N=32,steps=1,backend='cuda')"),
+    ("C11", ".", "fdtd2d_taichi", "run(N=64,steps=20,backend='cuda')"),
+    ("C12", "F3_maccormack_3d", "maccormack_taichi", "run(N=32,steps=100,backend='cuda')"),
+    ("C13", ".", "lulesh_taichi", "run(N=16,steps=100,backend='cuda')"),
+    ("C14", "C2_pic", "pic_taichi", "run(n_particles=1024,n_grid=128,steps=100,backend='cuda')"),
+    ("C15", ".", "cg_taichi", "run(N=64,steps=100,backend='cuda')"),
+    ("C16", "D2_stable_fluids", "fluid_taichi", "run(N=64,steps=100,backend='cuda')"),
+    ("C17", ".", "conv3d_taichi", "run(N=32,steps=100,backend='cuda')"),
+    ("C18", ".", "doitgen_taichi", "run(N=32,steps=10,backend='cuda')"),
+    ("C19", ".", "lu_taichi", "run(N=64,steps=100,backend='cuda')"),
+    ("C20", ".", "adi_taichi", "run(N=64,steps=100,backend='cuda')"),
+    ("C21", ".", "gramschmidt_taichi", "run(N=32,steps=100,backend='cuda')"),
 ]:
     CASES[cid] = [("taichi_cuda", subdir, mod, call)]
 
@@ -120,16 +120,17 @@ for cid, subdir, mod, call in [
 # Only include numpy_refs that are verified to match Taichi output
 # (C11 FDTD and C20 ADI pass; others have algorithm mismatches that need deeper fixes)
 NUMPY_REFS = {
-    "C20": (".", "numpy_refs", "run_adi(N=64,steps=3)"),
+    "C21": (".", "numpy_refs", "run_gramschmidt(N=32,steps=100)"),
 }
 for cid, (subdir, mod, call) in NUMPY_REFS.items():
     if cid in CASES:
         CASES[cid].append(("numpy_ref", subdir, mod, call))
 
-# For remaining cases without independent references, add CPU-backend as fallback
+# For cases without enough independent references, add CPU-backend as fallback
 # (different codegen path: GPU kernels vs sequential CPU)
 for cid in list(CASES.keys()):
-    if len(CASES[cid]) < 2:
+    has_cpu = any(fw == "taichi_cpu" for fw, _, _, _ in CASES[cid])
+    if not has_cpu:
         fw, subdir, mod, gpu_call = CASES[cid][0]
         cpu_call = gpu_call.replace("backend='cuda'", "backend='cpu'")
         if cpu_call != gpu_call:
@@ -137,13 +138,13 @@ for cid in list(CASES.keys()):
 
 # Add Warp implementations where available (independent framework)
 WARP_IMPLS = [
-    ("C1", "A1_jacobi_2d", "jacobi_warp", "run(N=64,steps=10,backend='cuda')"),
-    ("C4", "A3_wave_equation", "wave_warp", "run(N=64,steps=1,backend='cuda')"),
-    ("C6", "B1_nbody", "nbody_warp", "run(N=256,steps=10,backend='cuda')"),
-    ("C7", "B2_sph", "sph_warp", "run(N=512,steps=1,backend='cuda')"),
-    ("C8", "F1_hydro_shallow_water", "hydro_warp", "run_real(steps=10,backend='cuda',mesh='default')"),
+    ("C1", "A1_jacobi_2d", "jacobi_warp", "run(N=64,steps=100,backend='cuda')"),
+    ("C4", "A3_wave_equation", "wave_warp", "run(N=64,steps=100,backend='cuda')"),
+    ("C6", "B1_nbody", "nbody_warp", "run(N=256,steps=100,backend='cuda')"),
+    ("C7", "B2_sph", "sph_warp", "run(N=512,steps=100,backend='cuda')"),
+    ("C8", "F1_hydro_shallow_water", "hydro_warp", "run_real(steps=100,backend='cuda',mesh='default')"),
     ("C9", "F2_hydro_refactored", "hydro_refactored_warp", "run(days=1,backend='cuda',mesh='default')"),
-    ("C16", "D2_stable_fluids", "fluid_warp", "run(N=64,steps=5,backend='cuda')"),
+    ("C16", "D2_stable_fluids", "fluid_warp", "run(N=64,steps=100,backend='cuda')"),
 ]
 for cid, subdir, mod, call in WARP_IMPLS:
     mod_path = os.path.join(BD, subdir, mod + ".py") if subdir != "." else os.path.join(BD, mod + ".py")
@@ -152,8 +153,8 @@ for cid, subdir, mod, call in WARP_IMPLS:
 
 # Add Triton implementations where available
 TRITON_IMPLS = [
-    ("C1", "A1_jacobi_2d", "jacobi_triton", "run(N=64,steps=10,backend='cuda')"),
-    ("C8", "F1_hydro_shallow_water", "hydro_triton", "run_real(steps=10,backend='cuda',mesh='default')"),
+    ("C1", "A1_jacobi_2d", "jacobi_triton", "run(N=64,steps=100,backend='cuda')"),
+    ("C8", "F1_hydro_shallow_water", "hydro_triton", "run_real(steps=100,backend='cuda',mesh='default')"),
     ("C9", "F2_hydro_refactored", "hydro_refactored_triton", "run(days=1,backend='cuda',mesh='default')"),
 ]
 for cid, subdir, mod, call in TRITON_IMPLS:
@@ -163,7 +164,7 @@ for cid, subdir, mod, call in TRITON_IMPLS:
 
 # Add TileLang implementations where available
 TILELANG_IMPLS = [
-    ("C1", "A1_jacobi_2d", "jacobi_tilelang", "run(N=64,steps=10,backend='cuda')"),
+    ("C1", "A1_jacobi_2d", "jacobi_tilelang", "run(N=64,steps=100,backend='cuda')"),
     # C8/tilelang: F1 Osher solver JIT compilation causes runtime crash in step_fn
     # C9/tilelang: simplified Osher produces Inf after 900 steps (numerically unstable)
 ]

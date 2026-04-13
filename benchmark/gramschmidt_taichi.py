@@ -21,23 +21,28 @@ def run(N, steps=1, backend="cuda"):
 
     @ti.kernel
     def normalize(k: ti.i32):
-        # Compute norm of column k
+        # Compute norm of column k (serial for cross-platform determinism — AC-6)
         s = ti.cast(0.0, ti.f32)
+        ti.loop_config(serialize=True)
         for i in range(M):
             s += Q[i, k] * Q[i, k]
         nrm = ti.sqrt(s)
         R[k, k] = nrm
         inv_nrm = 1.0 / nrm
+        ti.loop_config(serialize=True)
         for i in range(M):
             Q[i, k] *= inv_nrm
 
     @ti.kernel
     def project(k: ti.i32, j: ti.i32):
         # R[k,j] = dot(Q[:,k], Q[:,j]), then Q[:,j] -= R[k,j]*Q[:,k]
+        # Serial for cross-platform determinism (AC-6)
         dot_val = ti.cast(0.0, ti.f32)
+        ti.loop_config(serialize=True)
         for i in range(M):
             dot_val += Q[i, k] * Q[i, j]
         R[k, j] = dot_val
+        ti.loop_config(serialize=True)
         for i in range(M):
             Q[i, j] -= dot_val * Q[i, k]
 
