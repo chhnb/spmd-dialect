@@ -32,7 +32,7 @@ def run(N, steps=100, backend="cuda"):
     @ti.kernel
     def init_fields():
         for i, j in u:
-            u[i, j] = ti.cast(i * (N - 1 - i) * j * (N - 1 - j), ti.f32) / ti.cast(N * N * N * N, ti.f32)
+            u[i, j] = (ti.cast(i, ti.f32) * ti.cast(N-1-i, ti.f32) * ti.cast(j, ti.f32) * ti.cast(N-1-j, ti.f32)) / ti.cast(N*N, ti.f32) / ti.cast(N*N, ti.f32)
 
     init_fields()
 

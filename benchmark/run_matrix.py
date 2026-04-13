@@ -564,7 +564,8 @@ def main():
         for row in all_rows:
             row["problem_size"] = norm_size(row["problem_size"])
 
-        # Fill overhead_pct for DSL/Kokkos/PERKS rows using CUDA compute baseline
+        # Fill overhead_pct using CUDA compute baseline
+        # Step 1: from CUDA rows with real overhead_pct (compute = median * (1 - oh/100))
         cuda_compute = {}  # (case, size) -> gpu_compute_us
         for row in all_rows:
             if row["strategy"].startswith("CUDA_") and row["overhead_pct"] not in ("", "N/A"):
@@ -577,6 +578,32 @@ def main():
                         cuda_compute[key] = comp
                 except (ValueError, TypeError):
                     pass
+        # Step 2: for cases without measured baseline, use fastest CUDA timing as proxy
+        cuda_fastest = {}
+        for row in all_rows:
+            if row["strategy"].startswith("CUDA_") and row["median_us"] not in ("", "N/A"):
+                try:
+                    us = float(row["median_us"])
+                    key = (row["case"], row["problem_size"])
+                    if key not in cuda_fastest or us < cuda_fastest[key]:
+                        cuda_fastest[key] = us
+                except (ValueError, TypeError):
+                    pass
+        for key in cuda_fastest:
+            if key not in cuda_compute:
+                cuda_compute[key] = cuda_fastest[key]  # proxy: fastest CUDA ≈ compute
+        # Also fill N/A CUDA rows with proxy overhead
+        for row in all_rows:
+            if row["strategy"].startswith("CUDA_") and row["overhead_pct"] == "N/A":
+                key = (row["case"], row["problem_size"])
+                if key in cuda_compute and row["median_us"] not in ("", "N/A"):
+                    try:
+                        us = float(row["median_us"])
+                        comp = cuda_compute[key]
+                        if us > 0:
+                            row["overhead_pct"] = f"{max(0,(us-comp)/us*100):.1f}"
+                    except (ValueError, TypeError):
+                        pass
         for row in all_rows:
             if not row["strategy"].startswith("CUDA_") and row["overhead_pct"] == "":
                 key = (row["case"], row["problem_size"])
