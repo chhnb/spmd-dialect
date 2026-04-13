@@ -108,9 +108,11 @@ def plot3(data, od):
         if r["median_us"] and r["median_us"] != "N/A":
             by[r["case"]][r["problem_size"]][r["strategy"]] = float(r["median_us"])
 
-    # Extract GPU compute baselines from overhead_pct: compute = median * (1 - oh/100)
+    # Extract GPU compute baselines from CUDA rows ONLY (not DSL)
     gpu_baselines = defaultdict(dict)
     for r in data:
+        if not r.get("strategy", "").startswith("CUDA_"):
+            continue  # Only use CUDA rows for GPU compute baseline
         oh_str = r.get("overhead_pct", "")
         if oh_str and oh_str != "N/A" and r.get("median_us") and r["median_us"] != "N/A":
             try:

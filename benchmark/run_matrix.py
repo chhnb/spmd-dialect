@@ -57,12 +57,12 @@ TAICHI = {
     "C12":("F3_maccormack_3d","maccormack_taichi","run(N={sz},steps={st},backend='cuda')",[(64,100),(128,100)]),
     "C13":(".","lulesh_taichi","run(N={sz},steps={st},backend='cuda')",[(32,10),(64,10)]),
     "C14":("C2_pic","pic_taichi","run(n_particles={sz},n_grid={g},steps={st},backend='cuda')",[(4096,256,100),(16384,1024,100)]),
-    "C15":(".","cg_taichi","run(N={sz},steps={st},backend='cuda')",[(128,100),(512,100)]),
+    "C15":(".","cg_taichi","run(N={sz},steps={st},backend='cuda')",[(64,100),(256,100)]),
     "C16":("D2_stable_fluids","fluid_taichi","run(N={sz},steps={st},backend='cuda')",[(256,5),(1024,5)]),
-    "C17":(".","conv3d_taichi","run(N={sz},steps={st},backend='cuda')",[(64,1),(128,1)]),
-    "C18":(".","doitgen_taichi","run(N={sz},steps={st},backend='cuda')",[(64,1),(128,1)]),
-    "C19":(".","lu_taichi","run(N={sz},steps={st},backend='cuda')",[(256,1),(512,1)]),
-    "C20":(".","adi_taichi","run(N={sz},steps={st},backend='cuda')",[(128,3),(256,3)]),
+    "C17":(".","conv3d_taichi","run(N={sz},steps={st},backend='cuda')",[(128,1),(256,1)]),
+    "C18":(".","doitgen_taichi","run(N={sz},steps={st},backend='cuda')",[(128,1),(256,1)]),
+    "C19":(".","lu_taichi","run(N={sz},steps={st},backend='cuda')",[(512,1),(1024,1)]),
+    "C20":(".","adi_taichi","run(N={sz},steps={st},backend='cuda')",[(256,3),(512,3)]),
     "C21":(".","gramschmidt_taichi","run(N={sz},steps={st},backend='cuda')",[(128,1),(256,1)]),
 }
 
