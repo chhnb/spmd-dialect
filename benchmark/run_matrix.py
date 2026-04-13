@@ -224,7 +224,9 @@ def run_dsl(case_id, framework, gpu, dry_run):
         sz2 = sz//2 if isinstance(sz, int) else 256
         g = size_cfg[1] if len(size_cfg) == 3 else sz2
         call = call_tpl.format(sz=sz, st=st, sz2=sz2, mesh=sz, g=g)
-        size_label = str(sz)
+        # Normalize size labels to match CUDA (e.g., "default"→"6675", "20w"→"207234")
+        SIZE_LABEL_MAP = {"default": {"C8":"6675","C9":"24020"}, "20w": {"C8":"207234","C9":"207234"}}
+        size_label = SIZE_LABEL_MAP.get(str(sz), {}).get(case_id, str(sz))
 
         # NO ti.init here — the module's run() does it
         code = f"""
@@ -299,8 +301,10 @@ print(f"R {{ts[5]:.2f}} {{ts[0]:.2f}} {{ts[9]:.2f}}")
             r = subprocess.run([PYTHON,"-c",code], capture_output=True, text=True, timeout=300, cwd=str(BD))
             m = re.search(r'R ([\d.]+) ([\d.]+) ([\d.]+)', r.stdout)
             if m:
+                slm = {"default":{"C8":"6675","C9":"24020"},"20w":{"C8":"207234","C9":"207234"}}
+                plabel = slm.get(str(sz),{}).get(case_id, str(sz))
                 rows.append({"case":CN[case_id],"strategy":"Warp","gpu":gpu,
-                            "problem_size":str(sz),"steps":str(st),
+                            "problem_size":plabel,"steps":str(st),
                             "median_us":m.group(1),"min_us":m.group(2),"max_us":m.group(3),
                             "overhead_pct":""})
         except Exception as e:
@@ -341,8 +345,10 @@ print(f"R {{ts[5]:.2f}} {{ts[0]:.2f}} {{ts[9]:.2f}}")
             r = subprocess.run([PYTHON,"-c",code], capture_output=True, text=True, timeout=300, cwd=str(BD))
             m = re.search(r'R ([\d.]+) ([\d.]+) ([\d.]+)', r.stdout)
             if m:
+                slm = {"default":{"C8":"6675","C9":"24020"},"20w":{"C8":"207234","C9":"207234"}}
+                plabel = slm.get(str(sz),{}).get(case_id, str(sz))
                 rows.append({"case":CN[case_id],"strategy":"Triton","gpu":gpu,
-                            "problem_size":str(sz),"steps":str(st),
+                            "problem_size":plabel,"steps":str(st),
                             "median_us":m.group(1),"min_us":m.group(2),"max_us":m.group(3),
                             "overhead_pct":""})
         except Exception as e:
@@ -459,9 +465,10 @@ def main():
             print(f"  {len([r for r in all_rows if r['case'] in ('Heat2D','GrayScott')])} entries")
 
     for cid in ids:
-        if cid in ("C3","C10"): continue
+        if cid in ("C3","C10") and a.strategies == ["cuda"]:
+            continue  # C3/C10 CUDA handled via overhead_solutions above
         print(f"\n=== {cid}: {CN[cid]} ===")
-        if "cuda" in a.strategies:
+        if "cuda" in a.strategies and cid not in ("C3","C10"):
             rows = []
             if cid in CUDA:
                 binary_name, size_configs = CUDA[cid]

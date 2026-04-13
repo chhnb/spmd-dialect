@@ -176,11 +176,11 @@ def plot4(data, od):
             line = f"    {size:>10s}"
             for s in strats:
                 v = by[case][size].get(s)
-                line += f"{v:14.1f}%" if v else f"{'—':>15s}"
+                line += f"{v:14.1f}%" if v is not None else f"{'—':>15s}"
             print(line)
             for s in strats:
                 v = by[case][size].get(s)
-                if v:
+                if v is not None:
                     rows.append({"case":case,"problem_size":size,"strategy":s,"overhead_pct":f"{v:.1f}"})
     write_csv(os.path.join(od,"size_scaling.csv"), rows,
               ["case","problem_size","strategy","overhead_pct"])
