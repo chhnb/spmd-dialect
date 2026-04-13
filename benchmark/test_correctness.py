@@ -83,8 +83,14 @@ def compare_arrays(path_a, path_b):
     if np.any(~np.isfinite(a)) or np.any(~np.isfinite(b)):
         return float('inf')
     diff = np.abs(a - b)
+    # Skip near-zero elements where relative error is meaningless.
+    # Use 1e-4 * max_magnitude as the floor (matches AC-6 "wet cells" concept)
+    max_mag = max(np.abs(a).max(), np.abs(b).max(), 1e-12)
+    abs_floor = max_mag * 1e-4
+    near_zero = (np.abs(a) < abs_floor) & (np.abs(b) < abs_floor)
     denom = np.maximum(np.abs(a), np.abs(b)) + 1e-12
     rel = diff / denom
+    rel[near_zero] = 0.0  # near-zero elements always match
     return float(rel.max())
 
 
