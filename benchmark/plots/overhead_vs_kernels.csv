@@ -35,6 +35,7 @@ Jacobi2D,2,256,Taichi,90.0
 Jacobi2D,2,256,Warp,78.8
 Jacobi2D,2,256,Triton,78.1
 Jacobi2D,2,256,Kokkos,46.1
+Jacobi2D,2,256,TileLang,66.9
 Jacobi3D,2,64,CUDA_Sync,55.2
 Jacobi3D,2,64,CUDA_Async,24.9
 Jacobi3D,2,64,CUDA_Graph,0.0

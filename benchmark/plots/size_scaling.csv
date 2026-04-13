@@ -78,6 +78,7 @@ Jacobi2D,256,CUDA_Persistent,0.0
 Jacobi2D,256,CUDA_Sync,46.0
 Jacobi2D,256,Kokkos,46.1
 Jacobi2D,256,Taichi,90.0
+Jacobi2D,256,TileLang,66.9
 Jacobi2D,256,Triton,78.1
 Jacobi2D,256,Warp,78.8
 Jacobi2D,4096,CUDA_Async,0.1
@@ -89,6 +90,7 @@ Jacobi2D,4096,PERKS_baseline,0.0
 Jacobi2D,4096,PERKS_gen,0.0
 Jacobi2D,4096,PERKS_genwr,0.0
 Jacobi2D,4096,Taichi,0.0
+Jacobi2D,4096,TileLang,0.0
 Jacobi2D,4096,Triton,0.0
 Jacobi2D,4096,Warp,0.0
 Jacobi3D,64,CUDA_Async,24.9

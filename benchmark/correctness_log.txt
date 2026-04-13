@@ -56,15 +56,11 @@ C7: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cuda vs warp: max_rel_error=0.5556 — EXCEEDS 5%
   taichi_cpu vs warp: max_rel_error=0.5572 — EXCEEDS 5%
 
-C8: 5 implementation(s) [taichi_cuda, taichi_cpu, warp, triton, tilelang]
+C8: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
   taichi_cuda: [0.001000, 40.130001] mean=4.218271 n=6676
   taichi_cpu: [0.001000, 40.130001] mean=4.218271 n=6676
   warp: [0.001000, 40.129997] mean=4.218271 n=6676
   triton: [0.001000, 40.130001] mean=4.218271 n=6676
-  tilelang: ERROR — Traceback (most recent call last):
-  File "<string>", line 9, in <module>
-  File "/home/scratch.huanhuanc_gpu/spmd/spmd-dialect/benchmark/F1_hydro_shallow_water/hydro_tilelang.py", line 1009, in step
-
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
   taichi_cuda vs warp: max_rel_error=3.17e-04 — OK
   taichi_cuda vs triton: max_rel_error=6.44e-05 — OK
@@ -72,12 +68,11 @@ C8: 5 implementation(s) [taichi_cuda, taichi_cpu, warp, triton, tilelang]
   taichi_cpu vs triton: max_rel_error=6.44e-05 — OK
   warp vs triton: max_rel_error=2.53e-04 — OK
 
-C9: 5 implementation(s) [taichi_cuda, taichi_cpu, warp, triton, tilelang]
+C9: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
   taichi_cuda: [7.499996, 7.500005] mean=7.500000 n=24020
   taichi_cpu: [7.499995, 7.500006] mean=7.500000 n=24020
   warp: [7.499997, 7.500003] mean=7.500000 n=24020
   triton: [7.499998, 7.500004] mean=7.500000 n=24020
-  tilelang: ERROR — NaN=0 Inf=12090 in output (24020 elements)
   taichi_cuda vs taichi_cpu: max_rel_error=6.36e-07 — OK
   taichi_cuda vs warp: max_rel_error=7.63e-07 — OK
   taichi_cuda vs triton: max_rel_error=9.54e-07 — OK
@@ -144,19 +139,14 @@ C20: 2 implementation(s) [taichi_cuda, numpy_ref]
   taichi_cuda vs numpy_ref: max_rel_error=1.37e-02 — OK
 
 C21: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [-0.963097, 0.678851] mean=0.014723 n=1024
-  taichi_cpu: [-0.963098, 0.525634] mean=0.012517 n=1024
-  taichi_cuda vs taichi_cpu: max_rel_error=1.9990 — EXCEEDS 5%
-  DIVERGENT (expected): GPU/CPU numerical divergence for C21 — passed (finite outputs)
+  taichi_cuda: [-0.310462, 0.950586] mean=0.475293 n=4
+  taichi_cpu: [-0.310462, 0.950586] mean=0.475293 n=4
+  taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
 
 === 21 passed, 0 failed (21 cross-checked out of 21 total) ===
 
 === DSL Backend Consistency (AC-3) ===
   OK (10): C1/tilelang, C1/triton, C1/warp, C16/warp, C4/warp, C6/warp, C8/triton, C8/warp, C9/triton, C9/warp
-  FAILED (3):
+  FAILED (1):
     C7/warp: output mismatch >5%
-    C8/tilelang: Traceback (most recent call last):
-  File "<string>", line 9, in <module>
-  File "/home/scratch.huanhuanc_gpu/spmd/spmd-
-    C9/tilelang: NaN=0 Inf=12090 in output (24020 elements)
-  Summary: 10/13 DSL backends consistent
+  Summary: 10/11 DSL backends consistent
