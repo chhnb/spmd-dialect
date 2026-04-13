@@ -80,12 +80,24 @@ def plot2(data, od):
 
     rows = []
     for case in sorted(times.keys(), key=lambda c: KERN.get(c,0)):
-        smallest = min(times[case].keys(), key=size_sort_key)
-        st = times[case][smallest]
+        # Pick smallest size that has CUDA_Sync (prefer one with DSL data too)
+        sizes_sorted = sorted(times[case].keys(), key=size_sort_key)
+        best_size = None
+        for sz in sizes_sorted:
+            has_sync = any("Sync" in k and "CUDA" in k for k in times[case][sz])
+            has_dsl = any(k in ("Taichi","Warp","Triton","Kokkos") for k in times[case][sz])
+            if has_sync and has_dsl:
+                best_size = sz; break
+        if best_size is None:
+            for sz in sizes_sorted:
+                if any("Sync" in k and "CUDA" in k for k in times[case][sz]):
+                    best_size = sz; break
+        if best_size is None: continue
+        st = times[case][best_size]
         sync = next((st[k] for k in st if "Sync" in k and "CUDA" in k), None)
         if not sync: continue
         for strat, us in st.items():
-            rows.append({"case":case,"problem_size":smallest,"strategy":strat,
+            rows.append({"case":case,"problem_size":best_size,"strategy":strat,
                         "median_us":f"{us:.2f}","speedup_vs_sync":f"{sync/us:.2f}"})
     write_csv(os.path.join(od,"speedup_heatmap.csv"), rows,
               ["case","problem_size","strategy","median_us","speedup_vs_sync"])

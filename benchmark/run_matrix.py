@@ -26,7 +26,7 @@ CUDA = {
     "C6": ("nbody_bench",     [("4096 10 10","4096"),("32768 10 10","32768")]),
     "C7": ("sph_bench",       [("8192 10 10","8192"),("65536 10 10","65536")]),
     "C8": ("hydro_f1_a100",   [("10 10","6675"),("10 10 "+str(BD/"F1_hydro_shallow_water/data_20w/binary/"),"207234")]),
-    "C9": ("hydro_osher_a100",[("899 10","24020"),("900 10 "+str(BD/"F2_hydro_refactored/data_20w/binary/"),"207234")]),
+    "C9": ("hydro_osher_a100",[("899 10","24020"),("900 3 "+str(BD/"F2_hydro_refactored/data_20w/binary/"),"207234")]),
     "C11":("fdtd2d_bench",    [("512 100 10","512"),("4096 100 10","4096")]),
     "C12":("maccormack3d_bench",[("64 100 10","64"),("128 100 10","128")]),
     "C13":("lulesh_fusion_a100",[("32 500","N=32"),("64 500","N=64")]),
@@ -168,7 +168,7 @@ def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_pre
     cmd = [str(path)] + args_str.split()
     if dry_run: print(f"    {' '.join(cmd)}"); return []
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         timings, compute = parse_cuda(r.stdout)
         # Try to find step count from output (various formats)
         steps_val = ""
