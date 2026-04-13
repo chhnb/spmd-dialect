@@ -44,8 +44,12 @@ def plot1(data, od):
     """Overhead% vs kernels/step, smallest size per case."""
     by = defaultdict(lambda: defaultdict(dict))
     for r in data:
-        if r.get("overhead_pct") and r["overhead_pct"]:
-            by[r["case"]][r["problem_size"]][r["strategy"]] = float(r["overhead_pct"])
+        oh = r.get("overhead_pct", "")
+        if oh and oh != "N/A":
+            try:
+                by[r["case"]][r["problem_size"]][r["strategy"]] = float(oh)
+            except ValueError:
+                pass
 
     rows = []
     for case in sorted(by.keys(), key=lambda c: KERN.get(c,0)):
@@ -107,9 +111,13 @@ def plot3(data, od):
     # Extract GPU compute baselines from overhead_pct: compute = median * (1 - oh/100)
     gpu_baselines = defaultdict(dict)
     for r in data:
-        if r.get("overhead_pct") and r["overhead_pct"] and r["median_us"] != "N/A":
-            us = float(r["median_us"])
-            oh = float(r["overhead_pct"])
+        oh_str = r.get("overhead_pct", "")
+        if oh_str and oh_str != "N/A" and r.get("median_us") and r["median_us"] != "N/A":
+            try:
+                us = float(r["median_us"])
+                oh = float(oh_str)
+            except ValueError:
+                continue
             compute = us * (1 - oh / 100)
             key = (r["case"], r["problem_size"])
             if key not in gpu_baselines or compute < gpu_baselines[key]:
@@ -150,8 +158,12 @@ def plot4(data, od):
     """Size scaling: overhead% across sizes."""
     by = defaultdict(lambda: defaultdict(dict))
     for r in data:
-        if r.get("overhead_pct") and r["overhead_pct"]:
-            by[r["case"]][r["problem_size"]][r["strategy"]] = float(r["overhead_pct"])
+        oh = r.get("overhead_pct", "")
+        if oh and oh != "N/A":
+            try:
+                by[r["case"]][r["problem_size"]][r["strategy"]] = float(oh)
+            except ValueError:
+                pass
 
     rows = []
     print("\n=== Size Scaling ===")

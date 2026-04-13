@@ -1,0 +1,34 @@
+case,problem_size,strategy,overhead_pct
+HydroF1,6675,CUDA_Async Loop,2.4
+HydroF1,6675,CUDA_CUDA Graph,1.3
+HydroF1,6675,CUDA_Sync Loop,21.4
+HydroF1,207234,CUDA_Async Loop,2.8
+HydroF1,207234,CUDA_CUDA Graph,3.1
+HydroF1,207234,CUDA_Persistent,6.6
+HydroF1,207234,CUDA_Sync Loop,7.0
+Heat2D,128x128,CUDA_Sync,50.0
+Heat2D,256x256,CUDA_Sync,46.1
+Heat2D,512x512,CUDA_Sync,32.9
+Heat2D,1024x1024,CUDA_Sync,16.8
+Heat2D,2048x2048,CUDA_Sync,5.6
+GrayScott,128x128,CUDA_Sync,38.0
+GrayScott,256x256,CUDA_Sync,34.0
+GrayScott,512x512,CUDA_Sync,20.9
+GrayScott,1024x1024,CUDA_Sync,9.3
+Jacobi2D,256,CUDA_Async Loop,1.1
+Jacobi2D,256,CUDA_Sync Loop,46.4
+Jacobi2D,4096,CUDA_Sync Loop,1.7
+FDTD2D,512,CUDA_Async Loop,0.3
+FDTD2D,512,CUDA_Sync Loop,21.4
+FDTD2D,4096,CUDA_Async Loop,0.9
+FDTD2D,4096,CUDA_CUDA Graph,3.0
+FDTD2D,4096,CUDA_Sync Loop,3.8
+MacCormack3D,64,CUDA_Async Loop,0.3
+MacCormack3D,64,CUDA_Sync Loop,17.0
+MacCormack3D,128,CUDA_Sync Loop,3.5
+PIC1D,4096p,CUDA_Async Loop,1.6
+PIC1D,4096p,CUDA_Persistent,13.4
+PIC1D,4096p,CUDA_Sync Loop,25.8
+PIC1D,16384p,CUDA_Async Loop,1.5
+PIC1D,16384p,CUDA_Persistent,49.0
+PIC1D,16384p,CUDA_Sync Loop,17.8
