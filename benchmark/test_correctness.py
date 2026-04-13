@@ -168,8 +168,8 @@ for cid, subdir, mod, call in TRITON_IMPLS:
 # Add TileLang implementations where available
 TILELANG_IMPLS = [
     ("C1", "A1_jacobi_2d", "jacobi_tilelang", "run(N=64,steps=100,backend='cuda')"),
-    # C8/tilelang: F1 Osher solver JIT compilation causes runtime crash in step_fn
-    # C9/tilelang: simplified Osher produces Inf after 900 steps (numerically unstable)
+    ("C8", "F1_hydro_shallow_water", "hydro_tilelang", "run_real(steps=100,backend='cuda',mesh='default')"),
+    ("C9", "F2_hydro_refactored", "hydro_refactored_tilelang", "run(steps=100,backend='cuda',mesh='default')"),
 ]
 for cid, subdir, mod, call in TILELANG_IMPLS:
     mod_path = os.path.join(BD, subdir, mod + ".py") if subdir != "." else os.path.join(BD, mod + ".py")

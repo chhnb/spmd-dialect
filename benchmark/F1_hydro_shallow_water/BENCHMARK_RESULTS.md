@@ -84,8 +84,8 @@ However, the full Osher Riemann solver generates enormous TileLang IR that cause
 TVM JIT compilation to exceed practical time limits (>10 min per kernel). The F2
 refactored version with separate flux/update kernels compiles successfully.
 
-- **Correctness**: Verified — init state matches Taichi (max_rel_error=0.00e+00)
-- **Timing**: Not available for F1 (JIT too slow); F2 timing in matrix_results.csv
+- **Correctness**: TileLang JIT runtime crash during step_fn execution. F1 Osher solver generates TVM IR too complex for the JIT backend. Registered in correctness test (fails with runtime error).
+- **Timing**: N/A row in matrix_results.csv (TileLang JIT crash)
 
 ### Not Benchmarked
 
