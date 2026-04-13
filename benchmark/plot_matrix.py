@@ -156,14 +156,15 @@ def plot2(data, od):
         import numpy as np
         cases_sorted = sorted(set(r["case"] for r in rows), key=lambda c: KERN.get(c,0))
         strats_list = sorted(set(r["strategy"] for r in rows))
-        matrix = np.zeros((len(strats_list), len(cases_sorted)))
+        matrix = np.full((len(strats_list), len(cases_sorted)), np.nan)
         for r in rows:
             si = strats_list.index(r["strategy"]) if r["strategy"] in strats_list else -1
             ci = cases_sorted.index(r["case"]) if r["case"] in cases_sorted else -1
             if si >= 0 and ci >= 0:
                 matrix[si, ci] = float(r["speedup_vs_sync"])
         fig, ax = plt.subplots(figsize=(16, 8))
-        im = ax.imshow(matrix, aspect='auto', cmap='RdYlGn', vmin=0, vmax=max(3, matrix.max()))
+        masked = np.ma.masked_invalid(matrix)
+        im = ax.imshow(masked, aspect='auto', cmap='RdYlGn', vmin=0, vmax=max(3, np.nanmax(matrix)))
         ax.set_xticks(range(len(cases_sorted)))
         ax.set_xticklabels(cases_sorted, rotation=45, ha='right', fontsize=7)
         ax.set_yticks(range(len(strats_list)))
@@ -239,17 +240,20 @@ def plot3(data, od):
 
     plt, has_mpl = try_matplotlib()
     if has_mpl and rows:
+        import numpy as np
         cases = sorted(set(r["case"] for r in rows), key=lambda c: KERN.get(c,0))
-        fig, ax = plt.subplots(figsize=(12, 6))
-        x = range(len(cases))
-        for col, label in [("gpu_compute_us","GPU compute"),("cuda_sync_us","CUDA Sync"),("taichi_us","Taichi"),("warp_us","Warp")]:
+        fig, ax = plt.subplots(figsize=(14, 6))
+        x = np.arange(len(cases))
+        cols = [("gpu_compute_us","GPU compute"),("cuda_sync_us","CUDA Sync"),("taichi_us","Taichi"),("warp_us","Warp")]
+        width = 0.8 / len(cols)
+        for i, (col, label) in enumerate(cols):
             vals = [float(next((r[col] for r in rows if r["case"]==c and r[col]), 0)) for c in cases]
-            ax.bar(x, vals, label=label, alpha=0.7)
+            ax.bar(x + i*width, vals, width, label=label, alpha=0.8)
         ax.set_ylabel("Time (us/step)")
         ax.set_title("DSL Overhead Decomposition")
-        ax.set_xticks(x)
+        ax.set_xticks(x + width*len(cols)/2)
         ax.set_xticklabels(cases, rotation=45, ha='right', fontsize=7)
-        ax.legend()
+        ax.legend(fontsize=7)
         plt.tight_layout()
         png = os.path.join(od, "dsl_decomposition.png")
         plt.savefig(png, dpi=150); plt.close()
