@@ -78,14 +78,10 @@ FLR += QF(HS, US, QL[2]) * 1.0    # 1.0 is Python f64 → promotes entire expr t
 
 ## 7. TileLang
 
-TileLang 0.1.8 now works with `CUDA_HOME` set to the local CUDA toolkit path.
-`run_real()` loads mesh data correctly and produces initial state matching Taichi exactly.
-However, the full Osher Riemann solver generates enormous TileLang IR that causes
-TVM JIT compilation to exceed practical time limits (>10 min per kernel). The F2
-refactored version with separate flux/update kernels compiles successfully.
+TileLang 0.1.8 works with `CUDA_HOME` set to the local CUDA toolkit path.
 
-- **C8 (HydroF1)**: N/A — JIT kernel input count mismatch in transfer kernel. Registered in correctness test and runner; emits N/A rows for both default (6675) and 20w (207234) meshes.
-- **C9 (HydroF2)**: Timing works: 62.76 μs/step (default), 61.45 μs/step (20w). Correctness: produces Inf at 100 steps (simplified Osher solver numerically unstable for long time integration).
+- **C8 (HydroF1)**: N/A — `ValueError: Kernel expected 5 inputs, but 10 are provided` during `step_fn` execution. The JIT-compiled transfer kernel receives the wrong number of arguments. Registered in correctness test (`correctness_log.txt:64`) and runner; emits N/A rows for both default (6675) and 20w (207234) meshes (`matrix_results.csv:268-269`).
+- **C9 (HydroF2)**: Timing works: 63.34 μs/step (default), 66.31 μs/step (20w) (`matrix_results.csv:270-271`). Correctness: produces Inf at 100 steps (`correctness_log.txt:80`).
 
 ### Not Benchmarked
 
