@@ -45,7 +45,7 @@ elif hasattr(o, 'numpy'):
     a = o.numpy()
 else:
     a = np.array(o)
-a = a.flatten().astype(np.float32)
+a = a.flatten().astype(np.float64)  # preserve fp64 precision for C14/C21
 # Reject NaN/inf as incorrect per AC-6
 n_nan = int(np.isnan(a).sum())
 n_inf = int(np.isinf(a).sum())

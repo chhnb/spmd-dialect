@@ -10,21 +10,18 @@
 #include <cooperative_groups.h>
 #define CHECK(call) do{auto e=call;if(e){fprintf(stderr,"err %d L%d\n",e,__LINE__);exit(1);}}while(0)
 
-__global__ void gs_normalize(int M, float* Q, float* R, int k) {
-    // R[k*M+k] = norm(Q[:,k]), Q[:,k] /= R[k*M+k]
+__global__ void gs_normalize(int M, double* Q, double* R, int k) {
     if(threadIdx.x==0&&blockIdx.x==0){
-        float sum=0; for(int i=0;i<M;i++){float v=Q[i*M+k]; sum+=v*v;}
-        R[k*M+k]=sqrtf(sum);
-        float inv=1.0f/R[k*M+k];
+        double sum=0; for(int i=0;i<M;i++){double v=Q[i*M+k]; sum+=v*v;}
+        R[k*M+k]=sqrt(sum);
+        double inv=1.0/R[k*M+k];
         for(int i=0;i<M;i++) Q[i*M+k]*=inv;
     }
 }
-__global__ void gs_project(int M, float* Q, float* R, int k, int j) {
-    // R[k*M+j] = dot(Q[:,k], Q[:,j]), Q[:,j] -= R[k*M+j]*Q[:,k]
+__global__ void gs_project(int M, double* Q, double* R, int k, int j) {
     int i=blockIdx.x*blockDim.x+threadIdx.x;
-    // Simple: single thread for dot product (small M)
     if(i==0){
-        float dot=0; for(int ii=0;ii<M;ii++) dot+=Q[ii*M+k]*Q[ii*M+j];
+        double dot=0; for(int ii=0;ii<M;ii++) dot+=Q[ii*M+k]*Q[ii*M+j];
         R[k*M+j]=dot;
         for(int ii=0;ii<M;ii++) Q[ii*M+j]-=dot*Q[ii*M+k];
     }
@@ -41,8 +38,8 @@ int main(int argc,char**argv){
     CHECK(cudaMalloc(&Q,M*M*8)); CHECK(cudaMalloc(&R,M*M*8));
     // Init Q: identity + sin perturbation (full rank, fp64 for determinism)
     std::vector<double>hQ(M*M); for(int i=0;i<M;i++) for(int j=0;j<M;j++) { double base=(i==j)?1.0:0.0; hQ[i*M+j]=base+sin((double)(i*M+j+1)*0.1)*0.3; }
-    CHECK(cudaMemcpy(Q,hQ.data(),M*M*4,cudaMemcpyHostToDevice));
-    CHECK(cudaMemset(R,0,M*M*4));
+    CHECK(cudaMemcpy(Q,hQ.data(),M*M*8,cudaMemcpyHostToDevice));
+    CHECK(cudaMemset(R,0,M*M*8));
 
     cudaEvent_t t0,t1; CHECK(cudaEventCreate(&t0)); CHECK(cudaEventCreate(&t1));
 
@@ -59,8 +56,8 @@ int main(int argc,char**argv){
 
     auto bench=[&](auto fn,const char*nm){
         // Reset Q each time
-        std::vector<float>ts; for(int r=0;r<REP;r++){
-            CHECK(cudaMemcpy(Q,hQ.data(),M*M*4,cudaMemcpyHostToDevice));
+        std::vector<float>ts; for(int r_=0;r_<REP;r_++){
+            CHECK(cudaMemcpy(Q,hQ.data(),M*M*8,cudaMemcpyHostToDevice));
             cudaDeviceSynchronize();
             cudaEventRecord(t0); fn(); cudaEventRecord(t1); cudaEventSynchronize(t1);
             float ms; cudaEventElapsedTime(&ms,t0,t1); ts.push_back(ms);

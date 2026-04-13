@@ -7,20 +7,17 @@
   steps=  10: GPU_vs_CPU=0.000000 [OK]
   steps=  20: GPU_vs_CPU=0.000000 [OK]
   steps=  50: GPU_vs_CPU=0.000000 [OK]
-  steps= 100: GPU_NaN= True  CPU_NaN= True
-  → Both produce NaN at step 100.
-  SUMMARY: First NaN at step 100
+  steps= 100: GPU_vs_CPU=0.000000 [OK]
 
 === C14: First-divergence diagnostic (steps 1-100) ===
-  steps=   1: GPU_vs_CPU=0.000002 [OK]
-  steps=   2: GPU_vs_CPU=0.000001 [OK]
-  steps=   3: GPU_vs_CPU=0.000001 [OK]
-  steps=   5: GPU_vs_CPU=0.000003 [OK]
-  steps=  10: GPU_vs_CPU=0.000004 [OK]
-  steps=  20: GPU_vs_CPU=0.000029 [OK]
-  steps=  50: GPU_vs_CPU=0.008536 [OK]
-  steps= 100: GPU_vs_CPU=0.998233 [DIVERGED]
-  SUMMARY: First divergence >5% at step 100
+  steps=   1: GPU_vs_CPU=0.000000 [OK]
+  steps=   2: GPU_vs_CPU=0.000000 [OK]
+  steps=   3: GPU_vs_CPU=0.000000 [OK]
+  steps=   5: GPU_vs_CPU=0.000000 [OK]
+  steps=  10: GPU_vs_CPU=0.000000 [OK]
+  steps=  20: GPU_vs_CPU=0.000000 [OK]
+  steps=  50: GPU_vs_CPU=0.000000 [OK]
+  steps= 100: GPU_vs_CPU=0.000000 [OK]
 
 === C18: First-divergence diagnostic (steps 1-100) ===
   steps=   1: GPU_vs_CPU=0.009484 [OK]
@@ -28,22 +25,18 @@
   steps=   3: GPU_vs_CPU=0.001890 [OK]
   steps=   5: GPU_vs_CPU=0.001889 [OK]
   steps=  10: GPU_vs_CPU=0.001889 [OK]
-  steps=  20: GPU_vs_CPU=0.001889 [OK]
-  steps=  50: GPU_NaN= True  CPU_NaN= True
-  → Both produce NaN at step 50.
-  steps= 100: GPU_NaN= True  CPU_NaN= True
-  → Both produce NaN at step 100.
-  SUMMARY: First NaN at step 50
+  steps=  20: GPU_vs_CPU=0.001870 [OK]
+  steps=  50: GPU_vs_CPU=0.000000 [OK]
+  steps= 100: GPU_vs_CPU=0.000000 [OK]
 
 === C21: First-divergence diagnostic (steps 1-100) ===
-  steps=   1: GPU_vs_CPU=1.991607 [DIVERGED]  GPU_vs_NumPy=1.995613  CPU_vs_NumPy=1.985792
-  steps=   2: GPU_vs_CPU=1.997387 [DIVERGED]  GPU_vs_NumPy=1.985442  CPU_vs_NumPy=1.980286
-  steps=   3: GPU_vs_CPU=1.997387 [DIVERGED]  GPU_vs_NumPy=1.980259  CPU_vs_NumPy=1.980288
-  steps=   5: GPU_vs_CPU=1.997387 [DIVERGED]  GPU_vs_NumPy=1.996727  CPU_vs_NumPy=1.980287
-  steps=  10: GPU_vs_CPU=1.997387 [DIVERGED]  GPU_vs_NumPy=1.980259  CPU_vs_NumPy=1.993451
-  steps=  20: GPU_vs_CPU=1.997387 [DIVERGED]  GPU_vs_NumPy=1.980259  CPU_vs_NumPy=1.996337
-  steps=  50: GPU_vs_CPU=1.997387 [DIVERGED]  GPU_vs_NumPy=1.980259  CPU_vs_NumPy=1.986648
-  steps= 100: GPU_vs_CPU=1.997387 [DIVERGED]  GPU_vs_NumPy=1.998899  CPU_vs_NumPy=1.980288
-  SUMMARY: First divergence >5% at step 1
+  steps=   1: GPU_vs_CPU=0.000000 [OK]  GPU_vs_NumPy=0.000000  CPU_vs_NumPy=0.000000
+  steps=   2: GPU_vs_CPU=0.000000 [OK]  GPU_vs_NumPy=0.000000  CPU_vs_NumPy=0.000000
+  steps=   3: GPU_vs_CPU=0.000000 [OK]  GPU_vs_NumPy=0.000000  CPU_vs_NumPy=0.000000
+  steps=   5: GPU_vs_CPU=0.000000 [OK]  GPU_vs_NumPy=0.000000  CPU_vs_NumPy=0.000000
+  steps=  10: GPU_vs_CPU=0.000000 [OK]  GPU_vs_NumPy=0.000000  CPU_vs_NumPy=0.000000
+  steps=  20: GPU_vs_CPU=0.000000 [OK]  GPU_vs_NumPy=0.000000  CPU_vs_NumPy=0.000000
+  steps=  50: GPU_vs_CPU=0.000000 [OK]  GPU_vs_NumPy=0.000000  CPU_vs_NumPy=0.000000
+  steps= 100: GPU_vs_CPU=0.000000 [OK]  GPU_vs_NumPy=0.000000  CPU_vs_NumPy=0.000000
 
 === Done ===

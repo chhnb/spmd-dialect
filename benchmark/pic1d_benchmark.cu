@@ -16,23 +16,23 @@ namespace cg = cooperative_groups;
 
 #define CHECK(call) do { auto e = call; if(e) { fprintf(stderr,"CUDA error %d at %s:%d\n",e,__FILE__,__LINE__); exit(1); }} while(0)
 
-static constexpr double QM = -1.0f;   // charge/mass ratio (electron)
-static constexpr double DT = 0.1f;
-static constexpr double DX = 1.0f;
+static constexpr double QM = -1.0;   // charge/mass ratio (electron)
+static constexpr double DT = 0.1;
+static constexpr double DX = 1.0;
 
 // --- Kernels ---
 
 // 1. Deposit: scatter particle charges to grid via atomicAdd (CIC)
-__global__ void deposit(int Np, int Ng, const float* __restrict__ x,
-                        float* __restrict__ rho) {
+__global__ void deposit(int Np, int Ng, const double* __restrict__ x,
+                        double* __restrict__ rho) {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p < Np) {
-        float xp = x[p];
-        int ic = (int)floorf(xp / DX);
+        double xp = x[p];
+        int ic = (int)floor(xp / DX);
         if (ic < 0) ic = 0;
         if (ic >= Ng - 1) ic = Ng - 2;
-        float frac = xp / DX - ic;
-        atomicAdd(&rho[ic], (1.0f - frac));
+        double frac = xp / DX - ic;
+        atomicAdd(&rho[ic], (1.0 - frac));
         atomicAdd(&rho[ic + 1], frac);
     }
 }
@@ -40,12 +40,12 @@ __global__ void deposit(int Np, int Ng, const float* __restrict__ x,
 // 2. Field solve: simple Gauss's law E(i) = -cumsum(rho - n0) * DX
 //    Using a simple Jacobi-style relaxation for Poisson: phi''=-rho/eps0
 //    For benchmark speed, do direct scan (serial on GPU, fine for small grids)
-__global__ void field_solve(int Ng, const float* __restrict__ rho,
-                            float* __restrict__ E, float n0) {
+__global__ void field_solve(int Ng, const double* __restrict__ rho,
+                            double* __restrict__ E, double n0) {
     // Single-thread scan — grid is small (256 or 1024)
     if (threadIdx.x == 0 && blockIdx.x == 0) {
         // Integrate rho to get E via Gauss's law
-        float cumsum = 0.0f;
+        double cumsum = 0.0;
         for (int i = 0; i < Ng; i++) {
             cumsum += (rho[i] - n0) * DX;
             E[i] = -cumsum;
@@ -54,68 +54,68 @@ __global__ void field_solve(int Ng, const float* __restrict__ rho,
 }
 
 // 3. Gather: interpolate E-field to particle positions (CIC)
-__global__ void gather_field(int Np, int Ng, const float* __restrict__ x,
-                             const float* __restrict__ E,
-                             float* __restrict__ Ep) {
+__global__ void gather_field(int Np, int Ng, const double* __restrict__ x,
+                             const double* __restrict__ E,
+                             double* __restrict__ Ep) {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p < Np) {
-        float xp = x[p];
-        int ic = (int)floorf(xp / DX);
+        double xp = x[p];
+        int ic = (int)floor(xp / DX);
         if (ic < 0) ic = 0;
         if (ic >= Ng - 1) ic = Ng - 2;
-        float frac = xp / DX - ic;
-        Ep[p] = (1.0f - frac) * E[ic] + frac * E[ic + 1];
+        double frac = xp / DX - ic;
+        Ep[p] = (1.0 - frac) * E[ic] + frac * E[ic + 1];
     }
 }
 
 // 4. Push: leapfrog velocity + position update
-__global__ void push(int Np, float Ng_len,
-                     float* __restrict__ x, float* __restrict__ v,
-                     const float* __restrict__ Ep) {
+__global__ void push(int Np, double Ng_len,
+                     double* __restrict__ x, double* __restrict__ v,
+                     const double* __restrict__ Ep) {
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     if (p < Np) {
         v[p] += QM * Ep[p] * DT;
         x[p] += v[p] * DT;
         // Periodic BC
-        float L = Ng_len;
-        if (x[p] < 0.0f) x[p] += L;
+        double L = Ng_len;
+        if (x[p] < 0.0) x[p] += L;
         if (x[p] >= L) x[p] -= L;
     }
 }
 
 // Zero rho array
-__global__ void zero_rho(int Ng, float* __restrict__ rho) {
+__global__ void zero_rho(int Ng, double* __restrict__ rho) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < Ng) rho[i] = 0.0f;
+    if (i < Ng) rho[i] = 0.0;
 }
 
 // --- Persistent fused kernel ---
-__global__ void pic1d_persistent(int Np, int Ng, float* x, float* v,
-                                 float* rho, float* E, float* Ep,
-                                 float n0, float Ng_len, int STEPS) {
+__global__ void pic1d_persistent(int Np, int Ng, double* x, double* v,
+                                 double* rho, double* E, double* Ep,
+                                 double n0, double Ng_len, int STEPS) {
     auto grid = cg::this_grid();
 
     for (int s = 0; s < STEPS; s++) {
         // Phase 0: zero rho
         for (int i = grid.thread_rank(); i < Ng; i += grid.size())
-            rho[i] = 0.0f;
+            rho[i] = 0.0;
         grid.sync();
 
         // Phase 1: deposit
         for (int p = grid.thread_rank(); p < Np; p += grid.size()) {
-            float xp = x[p];
-            int ic = (int)floorf(xp / DX);
+            double xp = x[p];
+            int ic = (int)floor(xp / DX);
             if (ic < 0) ic = 0;
             if (ic >= Ng - 1) ic = Ng - 2;
-            float frac = xp / DX - ic;
-            atomicAdd(&rho[ic], (1.0f - frac));
+            double frac = xp / DX - ic;
+            atomicAdd(&rho[ic], (1.0 - frac));
             atomicAdd(&rho[ic + 1], frac);
         }
         grid.sync();
 
         // Phase 2: field solve (single thread serial scan)
         if (grid.thread_rank() == 0) {
-            float cumsum = 0.0f;
+            double cumsum = 0.0;
             for (int i = 0; i < Ng; i++) {
                 cumsum += (rho[i] - n0) * DX;
                 E[i] = -cumsum;
@@ -125,12 +125,12 @@ __global__ void pic1d_persistent(int Np, int Ng, float* x, float* v,
 
         // Phase 3: gather
         for (int p = grid.thread_rank(); p < Np; p += grid.size()) {
-            float xp = x[p];
-            int ic = (int)floorf(xp / DX);
+            double xp = x[p];
+            int ic = (int)floor(xp / DX);
             if (ic < 0) ic = 0;
             if (ic >= Ng - 1) ic = Ng - 2;
-            float frac = xp / DX - ic;
-            Ep[p] = (1.0f - frac) * E[ic] + frac * E[ic + 1];
+            double frac = xp / DX - ic;
+            Ep[p] = (1.0 - frac) * E[ic] + frac * E[ic + 1];
         }
         grid.sync();
 
@@ -138,8 +138,8 @@ __global__ void pic1d_persistent(int Np, int Ng, float* x, float* v,
         for (int p = grid.thread_rank(); p < Np; p += grid.size()) {
             v[p] += QM * Ep[p] * DT;
             x[p] += v[p] * DT;
-            float L = Ng_len;
-            if (x[p] < 0.0f) x[p] += L;
+            double L = Ng_len;
+            if (x[p] < 0.0) x[p] += L;
             if (x[p] >= L) x[p] -= L;
         }
         grid.sync();
@@ -151,8 +151,8 @@ int main(int argc, char* argv[]) {
     int Ng = (argc > 2) ? atoi(argv[2]) : 256;
     int STEPS = (argc > 3) ? atoi(argv[3]) : 100;
     int REPEAT = (argc > 4) ? atoi(argv[4]) : 10;
-    float Ng_len = Ng * DX;
-    float n0 = (float)Np / (float)Ng;  // background density
+    double Ng_len = Ng * DX;
+    double n0 = (float)Np / (float)Ng;  // background density
 
     cudaDeviceProp prop;
     CHECK(cudaGetDeviceProperties(&prop, 0));
@@ -160,29 +160,29 @@ int main(int argc, char* argv[]) {
     printf("GPU: %s, SMs=%d\n", prop.name, prop.multiProcessorCount);
     printf("Np=%d, Ng=%d, steps=%d, repeat=%d\n", Np, Ng, STEPS, REPEAT);
 
-    float *d_x, *d_v, *d_rho, *d_E, *d_Ep;
-    CHECK(cudaMalloc(&d_x, Np * sizeof(float)));
-    CHECK(cudaMalloc(&d_v, Np * sizeof(float)));
-    CHECK(cudaMalloc(&d_rho, Ng * sizeof(float)));
-    CHECK(cudaMalloc(&d_E, Ng * sizeof(float)));
-    CHECK(cudaMalloc(&d_Ep, Np * sizeof(float)));
+    double *d_x, *d_v, *d_rho, *d_E, *d_Ep;
+    CHECK(cudaMalloc(&d_x, Np * sizeof(double)));
+    CHECK(cudaMalloc(&d_v, Np * sizeof(double)));
+    CHECK(cudaMalloc(&d_rho, Ng * sizeof(double)));
+    CHECK(cudaMalloc(&d_E, Ng * sizeof(double)));
+    CHECK(cudaMalloc(&d_Ep, Np * sizeof(double)));
 
     // Init: uniform positions + small sinusoidal perturbation, thermal velocity
-    std::vector<float> h_x(Np), h_v(Np);
+    std::vector<double> h_x(Np), h_v(Np);
     for (int p = 0; p < Np; p++) {
-        float base = (p + 0.5f) * Ng_len / Np;
-        h_x[p] = base + 0.5f * sinf(2.0f * M_PI * base / Ng_len);
-        if (h_x[p] < 0.0f) h_x[p] += Ng_len;
+        double base = (p + 0.5) * Ng_len / Np;
+        h_x[p] = base + 0.5 * sin(2.0f * M_PI * base / Ng_len);
+        if (h_x[p] < 0.0) h_x[p] += Ng_len;
         if (h_x[p] >= Ng_len) h_x[p] -= Ng_len;
-        h_v[p] = 0.1f * sinf(2.0f * M_PI * p / Np);  // small thermal spread
+        h_v[p] = 0.1 * sin(2.0f * M_PI * p / Np);  // small thermal spread
     }
 
     auto reset = [&]() {
-        CHECK(cudaMemcpy(d_x, h_x.data(), Np * sizeof(float), cudaMemcpyHostToDevice));
-        CHECK(cudaMemcpy(d_v, h_v.data(), Np * sizeof(float), cudaMemcpyHostToDevice));
-        CHECK(cudaMemset(d_rho, 0, Ng * sizeof(float)));
-        CHECK(cudaMemset(d_E, 0, Ng * sizeof(float)));
-        CHECK(cudaMemset(d_Ep, 0, Np * sizeof(float)));
+        CHECK(cudaMemcpy(d_x, h_x.data(), Np * sizeof(double), cudaMemcpyHostToDevice));
+        CHECK(cudaMemcpy(d_v, h_v.data(), Np * sizeof(double), cudaMemcpyHostToDevice));
+        CHECK(cudaMemset(d_rho, 0, Ng * sizeof(double)));
+        CHECK(cudaMemset(d_E, 0, Ng * sizeof(double)));
+        CHECK(cudaMemset(d_Ep, 0, Np * sizeof(double)));
     };
     reset();
 
@@ -204,7 +204,7 @@ int main(int argc, char* argv[]) {
     cudaDeviceSynchronize();
 
     auto run_timed = [&](auto fn, const char* name) {
-        std::vector<float> times;
+        std::vector<double> times;
         for (int r = 0; r < REPEAT; r++) {
             reset();
             cudaDeviceSynchronize();
@@ -219,7 +219,7 @@ int main(int argc, char* argv[]) {
         std::sort(times.begin(), times.end());
         float median = times[REPEAT / 2];
         printf("[%s] %d steps: median=%.3f ms, %.2f us/step\n",
-               name, STEPS, median, median * 1000.0f / STEPS);
+               name, STEPS, median, median * 1000.0 / STEPS);
     };
 
     // Strategy 1: Sync Loop
@@ -318,7 +318,7 @@ int main(int argc, char* argv[]) {
         cudaEventRecord(t1);
         cudaEventSynchronize(t1);
         cudaEventElapsedTime(&ms, t0, t1);
-        printf("GPU compute (5 kernels): %.2f us/step\n", ms * 10.0f);
+        printf("GPU compute (5 kernels): %.2f us/step\n", ms * 10.0);
     }
 
     printf("\n=== CSV: pic1d,%d,%d,%d,", Np, Ng, STEPS);
