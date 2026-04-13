@@ -165,8 +165,7 @@ def run_doitgen(N=32, steps=1):
         for j in range(NR):
             idx = float(i * NR + j)
             C4[i, j] = np.float32(np.cos(idx * 0.002))
-    # Scale C4 by 1/NR to make it a contraction (spectral radius < 1)
-    C4 /= NR
+    # C4 used as-is (matches CUDA doitgen_benchmark.cu)
 
     for _ in range(steps):
         for r in range(NR):
@@ -237,29 +236,27 @@ def run_adi(N=64, steps=3):
 # Matches gramschmidt_taichi.py: Q[i,j] = ((i*N+j)%97)/97.0+0.01, column-major ops
 def run_gramschmidt(N=64, steps=1):
     M = N
-    Q = np.zeros((M, N), dtype=np.float64)
-    R = np.zeros((N, N), dtype=np.float64)
+    Q = np.zeros((M, N), dtype=np.float32)
+    R = np.zeros((N, N), dtype=np.float32)
 
-    # Full-rank init: identity + deterministic perturbation (matches Taichi)
+    # Init Q — matches CUDA gramschmidt_benchmark.cu and Taichi
     for i in range(M):
         for j in range(N):
-            base = 1.0 if i == j else 0.0
-            perturb = np.sin(float(i * N + j + 1) * 0.1) * 0.3
-            Q[i, j] = base + perturb
+            Q[i, j] = ((i * N + j) % 97) / 97.0 + 0.01
 
     for _ in range(steps):
         for k in range(N):
             # Normalize column k
-            nrm = np.float64(0.0)
+            nrm = np.float32(0.0)
             for i in range(M):
                 nrm += Q[i, k] * Q[i, k]
             nrm = np.sqrt(nrm)
             R[k, k] = nrm
-            inv_nrm = np.float64(1.0) / nrm
+            inv_nrm = np.float32(1.0) / nrm
             Q[:, k] *= inv_nrm
             # Project: for j > k
             for j in range(k + 1, N):
-                dot_val = np.float64(0.0)
+                dot_val = np.float32(0.0)
                 for i in range(M):
                     dot_val += Q[i, k] * Q[i, j]
                 R[k, j] = dot_val

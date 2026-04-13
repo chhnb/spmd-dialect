@@ -1,7 +1,5 @@
 """C21: Gram-Schmidt orthogonalization — Taichi implementation.
 N normalize kernels + N*(N-1)/2 project kernels = N + N*(N-1)/2 total launches.
-Uses fp64 for cross-platform determinism (fp32 diverges at step 1 due to
-accumulated rounding in dot products / orthogonal projections).
 """
 
 import taichi as ti
@@ -10,17 +8,17 @@ import numpy as np
 
 def run(N, steps=1, backend="cuda"):
     if backend == "cuda":
-        ti.init(arch=ti.cuda, default_fp=ti.f64)
+        ti.init(arch=ti.cuda, default_fp=ti.f32)
     else:
-        ti.init(arch=ti.cpu, default_fp=ti.f64)
+        ti.init(arch=ti.cpu, default_fp=ti.f32)
 
     M = N  # M rows x N columns
-    Q = ti.field(dtype=ti.f64, shape=(M, N))
-    R = ti.field(dtype=ti.f64, shape=(N, N))
+    Q = ti.field(dtype=ti.f32, shape=(M, N))
+    R = ti.field(dtype=ti.f32, shape=(N, N))
 
     @ti.kernel
     def normalize(k: ti.i32):
-        s = ti.cast(0.0, ti.f64)
+        s = ti.cast(0.0, ti.f32)
         ti.loop_config(serialize=True)
         for i in range(M):
             s += Q[i, k] * Q[i, k]
@@ -33,7 +31,7 @@ def run(N, steps=1, backend="cuda"):
 
     @ti.kernel
     def project(k: ti.i32, j: ti.i32):
-        dot_val = ti.cast(0.0, ti.f64)
+        dot_val = ti.cast(0.0, ti.f32)
         ti.loop_config(serialize=True)
         for i in range(M):
             dot_val += Q[i, k] * Q[i, j]
@@ -44,13 +42,8 @@ def run(N, steps=1, backend="cuda"):
 
     @ti.kernel
     def init_data():
-        # Full-rank init: identity + deterministic perturbation.
-        # Old init ((i*N+j)%97)/97 was rank-deficient (rank 12/32),
-        # causing catastrophic GS orthogonality loss.
         for i, j in Q:
-            base = 1.0 if i == j else 0.0
-            perturb = ti.sin(ti.cast(i * N + j + 1, ti.f64) * 0.1) * 0.3
-            Q[i, j] = base + perturb
+            Q[i, j] = ti.cast((i * N + j) % 97, ti.f32) / 97.0 + 0.01
 
     init_data()
 

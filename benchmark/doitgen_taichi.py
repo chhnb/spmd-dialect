@@ -37,17 +37,7 @@ def run(N, steps=1, backend="cuda"):
             idx = ti.cast(i * NR + j, ti.f32)
             C4[i, j] = ti.cos(idx * 0.002)
 
-    @ti.kernel
-    def normalize_c4():
-        # Scale C4 so its operator norm (and spectral radius) is < 1.
-        # For an NR×NR matrix with entries ~1, operator norm ≈ NR.
-        # Dividing by NR makes it a contraction, preventing divergence.
-        scale = ti.cast(1.0, ti.f32) / ti.cast(NR, ti.f32)
-        for i, j in C4:
-            C4[i, j] *= scale
-
     init_data()
-    normalize_c4()
 
     @ti.kernel
     def copy_out_to_in():
@@ -69,7 +59,6 @@ def run(N, steps=1, backend="cuda"):
 
     # Re-initialize state after warmup so correctness harness sees fresh data
     init_data()
-    normalize_c4()
     A_out.fill(0.0)
     ti.sync()
 

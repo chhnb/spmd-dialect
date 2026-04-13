@@ -42,7 +42,7 @@ def run(N, steps=100, backend="cuda"):
     def init_fields():
         for i, j in hz:
             hz[i, j] = 0.0
-        hz[Nx // 2, Ny // 2] = 0.01  # small amplitude to prevent NaN at 100 steps
+        hz[Nx // 2, Ny // 2] = 1.0
 
     init_fields()
 
