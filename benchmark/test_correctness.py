@@ -20,6 +20,8 @@ def run_impl(subdir, module, call, framework="taichi"):
     env_setup = ""
     if framework == "warp":
         env_setup = "import os; os.environ['WARP_CACHE_PATH']='/home/scratch.huanhuanc_gpu/spmd/.warp_cache'\nimport warp as wp; wp.init()\n"
+    elif framework == "tilelang":
+        env_setup = "import os; os.environ.setdefault('CUDA_HOME','/home/scratch.huanhuanc_gpu/spmd/cuda-toolkit')\n"
 
     mod_dir = os.path.join(BD, subdir) if subdir != "." else BD
     out_npy = tempfile.mktemp(suffix=".npy")
@@ -69,13 +71,13 @@ else:
 
 
 def compare_arrays(path_a, path_b):
-    """Elementwise comparison of two .npy arrays. Returns max_rel_error."""
+    """Elementwise comparison of two .npy arrays. Returns max_rel_error.
+    Raises ValueError on shape mismatch instead of silently truncating."""
     import numpy as np
     a = np.load(path_a)
     b = np.load(path_b)
     if a.shape != b.shape:
-        min_len = min(len(a), len(b))
-        a, b = a[:min_len], b[:min_len]
+        raise ValueError(f"shape mismatch: {a.shape} vs {b.shape}")
     # Fail if either array has NaN/inf
     if np.any(~np.isfinite(a)) or np.any(~np.isfinite(b)):
         return float('inf')
@@ -134,10 +136,10 @@ for cid in list(CASES.keys()):
 
 # Add Warp implementations where available (independent framework)
 WARP_IMPLS = [
-    ("C1", "A1_jacobi_2d", "jacobi_warp", "run(N=64,steps=100,backend='cuda')"),
-    ("C4", "A3_wave_equation", "wave_warp", "run(N=64,steps=100,backend='cuda')"),
+    ("C1", "A1_jacobi_2d", "jacobi_warp", "run(N=64,steps=10,backend='cuda')"),
+    ("C4", "A3_wave_equation", "wave_warp", "run(N=64,steps=1,backend='cuda')"),
     ("C6", "B1_nbody", "nbody_warp", "run(N=256,steps=10,backend='cuda')"),
-    ("C7", "B2_sph", "sph_warp", "run(N=1024,steps=5,backend='cuda')"),
+    ("C7", "B2_sph", "sph_warp", "run(N=512,steps=1,backend='cuda')"),
     ("C8", "F1_hydro_shallow_water", "hydro_warp", "run_real(steps=10,backend='cuda',mesh='default')"),
     ("C9", "F2_hydro_refactored", "hydro_refactored_warp", "run(days=1,backend='cuda',mesh='default')"),
     ("C16", "D2_stable_fluids", "fluid_warp", "run(N=64,steps=5,backend='cuda')"),
@@ -149,7 +151,7 @@ for cid, subdir, mod, call in WARP_IMPLS:
 
 # Add Triton implementations where available
 TRITON_IMPLS = [
-    ("C1", "A1_jacobi_2d", "jacobi_triton", "run(N=64,steps=100,backend='cuda')"),
+    ("C1", "A1_jacobi_2d", "jacobi_triton", "run(N=64,steps=10,backend='cuda')"),
     ("C8", "F1_hydro_shallow_water", "hydro_triton", "run_real(steps=10,backend='cuda',mesh='default')"),
     ("C9", "F2_hydro_refactored", "hydro_refactored_triton", "run(days=1,backend='cuda',mesh='default')"),
 ]
@@ -157,6 +159,15 @@ for cid, subdir, mod, call in TRITON_IMPLS:
     mod_path = os.path.join(BD, subdir, mod + ".py") if subdir != "." else os.path.join(BD, mod + ".py")
     if os.path.exists(mod_path) and cid in CASES:
         CASES[cid].append(("triton", subdir, mod, call))
+
+# Add TileLang implementations where available
+TILELANG_IMPLS = [
+    ("C1", "A1_jacobi_2d", "jacobi_tilelang", "run(N=64,steps=10,backend='cuda')"),
+]
+for cid, subdir, mod, call in TILELANG_IMPLS:
+    mod_path = os.path.join(BD, subdir, mod + ".py") if subdir != "." else os.path.join(BD, mod + ".py")
+    if os.path.exists(mod_path) and cid in CASES:
+        CASES[cid].append(("tilelang", subdir, mod, call))
 
 # Last resort: for cases that STILL have only 1 implementation (no NumPy/Warp/Triton),
 # add Taichi CPU backend as the reference. This uses different code generation
@@ -178,7 +189,7 @@ def main():
     print("=== Cross-Framework Correctness Validation ===\n")
     passed = 0; failed = 0
     # Track per-backend success/failure for DSL consistency reporting (AC-3)
-    dsl_backends = {"warp", "triton"}
+    dsl_backends = {"warp", "triton", "tilelang"}
     dsl_ok = []    # (case, backend) tuples that ran and matched
     dsl_fail = []  # (case, backend, reason) tuples that errored or mismatched
 

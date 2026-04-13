@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Unified N×M benchmark matrix runner.
 
-Dispatches: cuda, taichi, warp, triton, kokkos, perks, ebisu
+Dispatches: cuda, taichi, warp, triton, tilelang, kokkos, perks, ebisu
 CSV schema: case,strategy,gpu,problem_size,steps,median_us,min_us,max_us,overhead_pct
 """
 import argparse, csv, os, re, subprocess, sys, time
@@ -376,6 +376,47 @@ print(f"R {{ts[5]:.2f}} {{ts[0]:.2f}} {{ts[9]:.2f}}")
     return rows
 
 
+def run_tilelang(case_id, gpu, dry_run):
+    """Run TileLang DSL for cases with TileLang implementations."""
+    TILELANG_MAP = {
+        "C1": ("A1_jacobi_2d","jacobi_tilelang","run(N={sz},steps={st},backend='cuda')",[(64,100),(256,100),(4096,100)]),
+    }
+    if case_id not in TILELANG_MAP: return []
+    subdir, mod, call_tpl, sizes = TILELANG_MAP[case_id]
+    mod_dir = str(BD/subdir)
+    rows = []
+    for sz, st in sizes:
+        call = call_tpl.format(sz=sz, st=st)
+        code = f"""
+import sys,time,os
+os.environ.setdefault('CUDA_HOME','/home/scratch.huanhuanc_gpu/spmd/cuda-toolkit')
+sys.path.insert(0,'{mod_dir}')
+sys.path.insert(0,'{BD}')
+from {mod} import *
+import torch
+s,y,o={call}
+y();s();y()
+ts=[]
+for _ in range(10):
+    y();t0=time.perf_counter();s();y()
+    ts.append((time.perf_counter()-t0)*1e6/{st})
+ts.sort()
+print(f"R {{ts[5]:.2f}} {{ts[0]:.2f}} {{ts[9]:.2f}}")
+"""
+        if dry_run: print(f"    tilelang {case_id} [{sz}]"); continue
+        try:
+            r = subprocess.run([PYTHON,"-c",code], capture_output=True, text=True, timeout=300, cwd=str(BD))
+            m = re.search(r'R ([\d.]+) ([\d.]+) ([\d.]+)', r.stdout)
+            if m:
+                rows.append({"case":CN[case_id],"strategy":"TileLang","gpu":gpu,
+                            "problem_size":str(sz),"steps":str(st),
+                            "median_us":m.group(1),"min_us":m.group(2),"max_us":m.group(3),
+                            "overhead_pct":""})
+        except Exception as e:
+            print(f"    tilelang {case_id}: {e}")
+    return rows
+
+
 def run_perks(case_id, gpu, dry_run):
     """Run PERKS baseline/gen/genwr for stencil cases."""
     configs = {**PERKS_2D, **PERKS_3D}
@@ -450,7 +491,7 @@ def run_ebisu(case_id, gpu, dry_run):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--cases", nargs="+", default=None)
-    p.add_argument("--strategies", nargs="+", default=["cuda","taichi","warp","triton","kokkos","perks","ebisu"])
+    p.add_argument("--strategies", nargs="+", default=["cuda","taichi","warp","triton","tilelang","kokkos","perks","ebisu"])
     p.add_argument("--output", default="matrix_results.csv")
     p.add_argument("--dry-run", action="store_true")
     a = p.parse_args()
@@ -512,6 +553,10 @@ def main():
             rows = run_triton(cid, gpu, a.dry_run)
             all_rows.extend(rows)
             if rows: print(f"  Triton: {len(rows)}")
+        if "tilelang" in a.strategies:
+            rows = run_tilelang(cid, gpu, a.dry_run)
+            all_rows.extend(rows)
+            if rows: print(f"  TileLang: {len(rows)}")
         if "kokkos" in a.strategies and cid in KOKKOS:
             binary_name = KOKKOS[cid][0]
             kokkos_rows = []

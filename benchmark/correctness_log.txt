@@ -1,16 +1,21 @@
 === Cross-Framework Correctness Validation ===
 
-C1: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
+C1: 5 implementation(s) [taichi_cuda, taichi_cpu, warp, triton, tilelang]
   taichi_cuda: [0.000000, 1.000000] mean=0.015625 n=4096
   taichi_cpu: [0.000000, 1.000000] mean=0.015625 n=4096
   warp: [0.000000, 1.000000] mean=0.015625 n=4096
   triton: [0.000000, 1.000000] mean=0.015625 n=4096
+  tilelang: [0.000000, 1.000000] mean=0.015625 n=4096
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
   taichi_cuda vs warp: max_rel_error=0.00e+00 — OK
   taichi_cuda vs triton: max_rel_error=0.00e+00 — OK
+  taichi_cuda vs tilelang: max_rel_error=0.00e+00 — OK
   taichi_cpu vs warp: max_rel_error=0.00e+00 — OK
   taichi_cpu vs triton: max_rel_error=0.00e+00 — OK
+  taichi_cpu vs tilelang: max_rel_error=0.00e+00 — OK
   warp vs triton: max_rel_error=0.00e+00 — OK
+  warp vs tilelang: max_rel_error=0.00e+00 — OK
+  triton vs tilelang: max_rel_error=0.00e+00 — OK
 
 C2: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.004834] mean=0.000591 n=32768
@@ -46,7 +51,7 @@ C6: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
 C7: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cuda: [0.000000, 0.000000] mean=0.000000 n=512
   taichi_cpu: [0.000000, 0.000000] mean=0.000000 n=512
-  warp: [0.000000, 0.000000] mean=0.000000 n=1024
+  warp: [0.000000, 0.000000] mean=0.000000 n=512
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
   taichi_cuda vs warp: max_rel_error=0.00e+00 — OK
   taichi_cpu vs warp: max_rel_error=0.00e+00 — OK
@@ -141,5 +146,5 @@ C21: 2 implementation(s) [taichi_cuda, taichi_cpu]
 === 21 passed, 0 failed (21 cross-checked out of 21 total) ===
 
 === DSL Backend Consistency (AC-3) ===
-  OK (10): C1/triton, C1/warp, C16/warp, C4/warp, C6/warp, C7/warp, C8/triton, C8/warp, C9/triton, C9/warp
-  Summary: 10/10 DSL backends consistent
+  OK (11): C1/tilelang, C1/triton, C1/warp, C16/warp, C4/warp, C6/warp, C7/warp, C8/triton, C8/warp, C9/triton, C9/warp
+  Summary: 11/11 DSL backends consistent
