@@ -69,16 +69,16 @@ C8: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
   warp vs triton: max_rel_error=1.17e-03 — OK
 
 C9: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
-  taichi_cuda: [7.499996, 7.500005] mean=7.500000 n=24020
-  taichi_cpu: [7.499995, 7.500006] mean=7.500000 n=24020
-  warp: [7.499997, 7.500003] mean=7.500000 n=24020
-  triton: [7.499998, 7.500004] mean=7.500000 n=24020
-  taichi_cuda vs taichi_cpu: max_rel_error=6.36e-07 — OK
-  taichi_cuda vs warp: max_rel_error=7.63e-07 — OK
-  taichi_cuda vs triton: max_rel_error=9.54e-07 — OK
-  taichi_cpu vs warp: max_rel_error=8.27e-07 — OK
-  taichi_cpu vs triton: max_rel_error=7.63e-07 — OK
-  warp vs triton: max_rel_error=5.09e-07 — OK
+  taichi_cuda: [7.499997, 7.500003] mean=7.500000 n=24020
+  taichi_cpu: [7.499997, 7.500002] mean=7.500000 n=24020
+  warp: [7.499998, 7.500002] mean=7.500000 n=24020
+  triton: [7.499997, 7.500002] mean=7.500000 n=24020
+  taichi_cuda vs taichi_cpu: max_rel_error=4.45e-07 — OK
+  taichi_cuda vs warp: max_rel_error=4.45e-07 — OK
+  taichi_cuda vs triton: max_rel_error=5.72e-07 — OK
+  taichi_cpu vs warp: max_rel_error=4.45e-07 — OK
+  taichi_cpu vs triton: max_rel_error=5.72e-07 — OK
+  warp vs triton: max_rel_error=3.81e-07 — OK
 
 C10: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.999651] mean=0.807298 n=4096
@@ -101,7 +101,7 @@ C13: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
 
 C14: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [0.237564, 127.950386] mean=64.350006 n=1024
+  taichi_cuda: [0.237564, 127.950386] mean=64.350014 n=1024
   taichi_cpu: [0.219823, 127.659866] mean=64.290741 n=1024
   taichi_cuda vs taichi_cpu: max_rel_error=0.9982 — EXCEEDS 5%
   FAIL: no pair within 5% threshold

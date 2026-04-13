@@ -580,7 +580,7 @@ def update_cell_kernel(
 # ---------------------------------------------------------------------------
 # run() — matching Taichi/Warp interface
 # ---------------------------------------------------------------------------
-def run(days=10, backend="cuda", mesh="default"):
+def run(days=10, backend="cuda", mesh="default", steps=None):
     assert backend == "cuda", "Triton only supports CUDA backend"
     device = torch.device("cuda")
 
@@ -592,7 +592,7 @@ def run(days=10, backend="cuda", mesh="default"):
     HM2 = float(mesh_data["HM2"])
     DT = float(mesh_data["DT"])
     steps_per_day = mesh_data["steps_per_day"]
-    total_steps = steps_per_day * days
+    total_steps = steps if steps is not None else steps_per_day * days
 
     # Load cell arrays to GPU
     H = torch.from_numpy(mesh_data["H"]).to(device=device, dtype=torch.float32)

@@ -99,7 +99,7 @@ for cid, subdir, mod, call in [
     ("C6", "B1_nbody", "nbody_taichi", "run(N=256,steps=100,backend='cuda')"),
     ("C7", "B2_sph", "sph_taichi", "run(N=512,steps=100,backend='cuda')"),
     ("C8", "F1_hydro_shallow_water", "hydro_taichi", "run_real(steps=100,backend='cuda',mesh='default')"),
-    ("C9", "F2_hydro_refactored", "hydro_refactored_taichi", "run(days=1,backend='cuda',mesh='default')"),
+    ("C9", "F2_hydro_refactored", "hydro_refactored_taichi", "run(steps=100,backend='cuda',mesh='default')"),
     ("C10", ".", "grayscott_taichi", "run(N=64,steps=100,backend='cuda')"),
     ("C11", ".", "fdtd2d_taichi", "run(N=64,steps=100,backend='cuda')"),
     ("C12", "F3_maccormack_3d", "maccormack_taichi", "run(N=32,steps=100,backend='cuda')"),
@@ -143,7 +143,7 @@ WARP_IMPLS = [
     ("C6", "B1_nbody", "nbody_warp", "run(N=256,steps=100,backend='cuda')"),
     ("C7", "B2_sph", "sph_warp", "run(N=512,steps=100,backend='cuda')"),
     ("C8", "F1_hydro_shallow_water", "hydro_warp", "run_real(steps=100,backend='cuda',mesh='default')"),
-    ("C9", "F2_hydro_refactored", "hydro_refactored_warp", "run(days=1,backend='cuda',mesh='default')"),
+    ("C9", "F2_hydro_refactored", "hydro_refactored_warp", "run(steps=100,backend='cuda',mesh='default')"),
     ("C16", "D2_stable_fluids", "fluid_warp", "run(N=64,steps=100,backend='cuda')"),
 ]
 for cid, subdir, mod, call in WARP_IMPLS:
@@ -155,7 +155,7 @@ for cid, subdir, mod, call in WARP_IMPLS:
 TRITON_IMPLS = [
     ("C1", "A1_jacobi_2d", "jacobi_triton", "run(N=64,steps=100,backend='cuda')"),
     ("C8", "F1_hydro_shallow_water", "hydro_triton", "run_real(steps=100,backend='cuda',mesh='default')"),
-    ("C9", "F2_hydro_refactored", "hydro_refactored_triton", "run(days=1,backend='cuda',mesh='default')"),
+    ("C9", "F2_hydro_refactored", "hydro_refactored_triton", "run(steps=100,backend='cuda',mesh='default')"),
 ]
 for cid, subdir, mod, call in TRITON_IMPLS:
     mod_path = os.path.join(BD, subdir, mod + ".py") if subdir != "." else os.path.join(BD, mod + ".py")

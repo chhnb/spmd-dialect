@@ -464,7 +464,7 @@ def update_cell_kernel(m: HydroMesh):
 # ---------------------------------------------------------------------------
 # Benchmark interface
 # ---------------------------------------------------------------------------
-def run(days=10, backend="cuda", mesh="default"):
+def run(days=10, backend="cuda", mesh="default", steps=None):
     """Set up and return (step_fn, sync_fn, H_array)."""
     wp.init()
 
@@ -475,7 +475,7 @@ def run(days=10, backend="cuda", mesh="default"):
     HM1_val = float(mesh["HM1"])
     HM2_val = float(mesh["HM2"])
     steps_per_day = mesh["steps_per_day"]
-    total_steps = steps_per_day * days
+    total_steps = steps if steps is not None else steps_per_day * days
 
     # Build HydroMesh struct (single argument for both kernels)
     hm = HydroMesh()
