@@ -59,8 +59,11 @@ def run(N, steps=1, backend="cuda"):
     def sync_fn():
         ti.sync()
 
-    # warmup
+    # warmup (for JIT compilation)
     step_fn()
+    sync_fn()
+    # Re-init Q to deterministic state after warmup
+    init_data()
     sync_fn()
 
     return step_fn, sync_fn, Q

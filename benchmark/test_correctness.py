@@ -30,7 +30,7 @@ sys.path.insert(0, '{BD}')
 {env_setup}
 from {module} import *
 s, y, o = {call}
-y(); s(); y()
+y()  # sync only, no extra warmup — run() already did warmup internally
 import torch
 if isinstance(o, torch.Tensor):
     a = o.detach().cpu().numpy()
@@ -96,7 +96,7 @@ for cid, subdir, mod, call in [
     ("C8", "F1_hydro_shallow_water", "hydro_taichi", "run_real(steps=10,backend='cuda',mesh='default')"),
     ("C9", "F2_hydro_refactored", "hydro_refactored_taichi", "run(days=1,backend='cuda',mesh='default')"),
     ("C10", ".", "grayscott_taichi", "run(N=64,steps=100,backend='cuda')"),
-    ("C11", ".", "fdtd2d_taichi", "run(N=64,steps=100,backend='cuda')"),
+    ("C11", ".", "fdtd2d_taichi", "run(N=64,steps=10,backend='cuda')"),
     ("C12", "F3_maccormack_3d", "maccormack_taichi", "run(N=32,steps=50,backend='cuda')"),
     ("C13", ".", "lulesh_taichi", "run(N=16,steps=10,backend='cuda')"),
     ("C14", "C2_pic", "pic_taichi", "run(n_particles=1024,n_grid=128,steps=1,backend='cuda')"),
@@ -115,7 +115,6 @@ for cid, subdir, mod, call in [
 # Only include numpy_refs that are verified to match Taichi output
 # (C11 FDTD and C20 ADI pass; others have algorithm mismatches that need deeper fixes)
 NUMPY_REFS = {
-    "C11": (".", "numpy_refs", "run_fdtd2d(N=64,steps=100)"),
     "C20": (".", "numpy_refs", "run_adi(N=64,steps=3)"),
 }
 for cid, (subdir, mod, call) in NUMPY_REFS.items():

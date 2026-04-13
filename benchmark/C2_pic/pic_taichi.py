@@ -18,7 +18,9 @@ def run(n_particles=16384, n_grid=512, steps=1, backend="cuda"):
     @ti.kernel
     def init():
         for p in xp:
-            x = ti.random()
+            # Deterministic init: golden-ratio quasi-random sequence
+            g = 1.618033988749895
+            x = (ti.cast(p, ti.f32) * g) % 1.0
             xp[p] = x
             vp[p] = 0.2 if x < 0.5 else -0.2
 
