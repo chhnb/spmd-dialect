@@ -57,26 +57,20 @@ def run(N=64, steps=200, backend="cuda"):
 
     init()
 
-    def step():
-        predict()
-        correct()
-        copy_back()
+    def step_fn():
+        for _ in range(steps):
+            predict()
+            correct()
+            copy_back()
+
+    def sync_fn():
+        ti.sync()
 
     # Warmup
-    for _ in range(10):
-        step()
-    ti.sync()
+    step_fn()
+    sync_fn()
 
-    # Benchmark
-    ti.sync()
-    t0 = time.perf_counter()
-    for _ in range(steps):
-        step()
-    ti.sync()
-    elapsed = time.perf_counter() - t0
-    us_step = elapsed * 1e6 / steps
-
-    return us_step
+    return step_fn, sync_fn, u
 
 
 if __name__ == "__main__":

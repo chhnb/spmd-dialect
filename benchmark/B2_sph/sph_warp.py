@@ -15,14 +15,23 @@ def poly6(r: float, h: float) -> float:
         result = POLY6_COEFF * x * x * x
     return result
 
+
+@wp.struct
+class SPHMesh:
+    grid: wp.uint64
+    pos: wp.array(dtype=wp.vec3)
+    rho: wp.array(dtype=float)
+    h: float
+    N: int
+
+
 @wp.kernel
-def compute_density_kernel(
-    grid: wp.uint64,
-    pos: wp.array(dtype=wp.vec3),
-    rho: wp.array(dtype=float),
-    h: float,
-    N: int,
-):
+def compute_density_kernel(m: SPHMesh):
+    grid = m.grid
+    pos = m.pos
+    rho = m.rho
+    h = m.h
+    N = m.N
     tid = wp.tid()
     i = wp.hash_grid_point_id(grid, tid)
     if i >= N:
@@ -49,11 +58,18 @@ def run(N, steps=1, backend="cuda"):
 
     grid = wp.HashGrid(dim_x=128, dim_y=128, dim_z=1, device=backend)
 
+    mesh = SPHMesh()
+    mesh.pos = pos
+    mesh.rho = rho
+    mesh.h = h
+    mesh.N = N
+
     def step_fn():
         for _ in range(steps):
             grid.build(pos, h)
+            mesh.grid = grid.id
             wp.launch(compute_density_kernel, dim=N,
-                      inputs=[grid.id, pos, rho, h, N], device=backend)
+                      inputs=[mesh], device=backend)
 
     def sync():
         wp.synchronize_device(backend)

@@ -7,8 +7,21 @@ import warp as wp
 G = 1.0
 SOFTENING = 1e-5
 
+
+@wp.struct
+class NBodyMesh:
+    pos: wp.array(dtype=wp.vec3)
+    vel: wp.array(dtype=wp.vec3)
+    force: wp.array(dtype=wp.vec3)
+    dt: float
+    N: int
+
+
 @wp.kernel
-def compute_force_kernel(pos: wp.array(dtype=wp.vec3), force: wp.array(dtype=wp.vec3), N: int):
+def compute_force_kernel(m: NBodyMesh):
+    pos = m.pos
+    force = m.force
+    N = m.N
     i = wp.tid()
     if i >= N:
         return
@@ -22,8 +35,12 @@ def compute_force_kernel(pos: wp.array(dtype=wp.vec3), force: wp.array(dtype=wp.
     force[i] = f
 
 @wp.kernel
-def integrate_kernel(pos: wp.array(dtype=wp.vec3), vel: wp.array(dtype=wp.vec3),
-                     force: wp.array(dtype=wp.vec3), dt: float, N: int):
+def integrate_kernel(m: NBodyMesh):
+    pos = m.pos
+    vel = m.vel
+    force = m.force
+    dt = m.dt
+    N = m.N
     i = wp.tid()
     if i >= N:
         return
@@ -33,16 +50,20 @@ def integrate_kernel(pos: wp.array(dtype=wp.vec3), vel: wp.array(dtype=wp.vec3),
 def run(N, steps=1, backend="cuda"):
     dt = 0.001
     pos_np = (np.random.randn(N, 3) * 0.5).astype(np.float32)
-    pos = wp.array(pos_np, dtype=wp.vec3, device=backend)
-    vel = wp.zeros(N, dtype=wp.vec3, device=backend)
-    force = wp.zeros(N, dtype=wp.vec3, device=backend)
+
+    mesh = NBodyMesh()
+    mesh.pos = wp.array(pos_np, dtype=wp.vec3, device=backend)
+    mesh.vel = wp.zeros(N, dtype=wp.vec3, device=backend)
+    mesh.force = wp.zeros(N, dtype=wp.vec3, device=backend)
+    mesh.dt = dt
+    mesh.N = N
 
     def step_fn():
         for _ in range(steps):
-            wp.launch(compute_force_kernel, dim=N, inputs=[pos, force, N], device=backend)
-            wp.launch(integrate_kernel, dim=N, inputs=[pos, vel, force, dt, N], device=backend)
+            wp.launch(compute_force_kernel, dim=N, inputs=[mesh], device=backend)
+            wp.launch(integrate_kernel, dim=N, inputs=[mesh], device=backend)
 
     def sync():
         wp.synchronize_device(backend)
 
-    return step_fn, sync, pos
+    return step_fn, sync, mesh.pos
