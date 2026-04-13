@@ -37,10 +37,10 @@ int main(int argc,char**argv){
     cudaDeviceProp p; CHECK(cudaGetDeviceProperties(&p,0));
     printf("=== C21: Gram-Schmidt ===\nGPU: %s, N=%d, ~%d total launches\n",p.name,N,launches);
 
-    float *Q,*R; int M=N;
-    CHECK(cudaMalloc(&Q,M*M*4)); CHECK(cudaMalloc(&R,M*M*4));
-    // Init Q as random-ish
-    std::vector<float>hQ(M*M); for(int i=0;i<M*M;i++) hQ[i]=(float)(i%97)/97.0f+0.01f;
+    double *Q,*R; int M=N;
+    CHECK(cudaMalloc(&Q,M*M*8)); CHECK(cudaMalloc(&R,M*M*8));
+    // Init Q: identity + sin perturbation (full rank, fp64 for determinism)
+    std::vector<double>hQ(M*M); for(int i=0;i<M;i++) for(int j=0;j<M;j++) { double base=(i==j)?1.0:0.0; hQ[i*M+j]=base+sin((double)(i*M+j+1)*0.1)*0.3; }
     CHECK(cudaMemcpy(Q,hQ.data(),M*M*4,cudaMemcpyHostToDevice));
     CHECK(cudaMemset(R,0,M*M*4));
 

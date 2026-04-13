@@ -5,31 +5,31 @@ import taichi as ti
 
 
 def run(n_particles=16384, n_grid=512, steps=1, backend="cuda"):
-    ti.init(arch=ti.cuda if backend == "cuda" else ti.cpu, default_fp=ti.f32)
+    ti.init(arch=ti.cuda if backend == "cuda" else ti.cpu, default_fp=ti.f64)
     Np = n_particles
     Ng = n_grid
     DT = 0.1
     DX = 1.0
     QM = -1.0  # charge/mass ratio
 
-    xp = ti.field(dtype=ti.f32, shape=Np)
-    vp = ti.field(dtype=ti.f32, shape=Np)
-    rho = ti.field(dtype=ti.f32, shape=Ng)
-    E = ti.field(dtype=ti.f32, shape=Ng)
-    Ep = ti.field(dtype=ti.f32, shape=Np)  # E at particle positions
+    xp = ti.field(dtype=ti.f64, shape=Np)
+    vp = ti.field(dtype=ti.f64, shape=Np)
+    rho = ti.field(dtype=ti.f64, shape=Ng)
+    E = ti.field(dtype=ti.f64, shape=Ng)
+    Ep = ti.field(dtype=ti.f64, shape=Np)  # E at particle positions
 
     @ti.kernel
     def init():
         # Match CUDA: uniform + sinusoidal perturbation, thermal velocity
-        Ng_len = ti.cast(Ng, ti.f32) * DX
+        Ng_len = ti.cast(Ng, ti.f64) * DX
         PI2 = 6.283185307
         for p in xp:
-            base = (ti.cast(p, ti.f32) + 0.5) * Ng_len / ti.cast(Np, ti.f32)
+            base = (ti.cast(p, ti.f64) + 0.5) * Ng_len / ti.cast(Np, ti.f64)
             x = base + 0.5 * ti.sin(PI2 * base / Ng_len)
             if x < 0.0: x += Ng_len
             if x >= Ng_len: x -= Ng_len
             xp[p] = x
-            vp[p] = 0.1 * ti.sin(PI2 * ti.cast(p, ti.f32) / ti.cast(Np, ti.f32))
+            vp[p] = 0.1 * ti.sin(PI2 * ti.cast(p, ti.f64) / ti.cast(Np, ti.f64))
 
     @ti.kernel
     def deposit():
@@ -42,15 +42,15 @@ def run(n_particles=16384, n_grid=512, steps=1, backend="cuda"):
             ic = ti.cast(ti.floor(xpos / DX), ti.i32)
             if ic < 0: ic = 0
             if ic >= Ng - 1: ic = Ng - 2
-            frac = xpos / DX - ti.cast(ic, ti.f32)
+            frac = xpos / DX - ti.cast(ic, ti.f64)
             ti.atomic_add(rho[ic], (1.0 - frac) / DX)
             ti.atomic_add(rho[ic + 1], frac / DX)
 
     @ti.kernel
     def field_solve():
         # Gauss's law scan matching CUDA
-        n0 = ti.cast(Np, ti.f32) / (ti.cast(Ng, ti.f32) * DX)
-        cumsum = ti.cast(0.0, ti.f32)
+        n0 = ti.cast(Np, ti.f64) / (ti.cast(Ng, ti.f64) * DX)
+        cumsum = ti.cast(0.0, ti.f64)
         ti.loop_config(serialize=True)
         for i in range(Ng):
             cumsum += (rho[i] - n0) * DX
@@ -64,7 +64,7 @@ def run(n_particles=16384, n_grid=512, steps=1, backend="cuda"):
             ic = ti.cast(ti.floor(xpos / DX), ti.i32)
             if ic < 0: ic = 0
             if ic >= Ng - 1: ic = Ng - 2
-            frac = xpos / DX - ti.cast(ic, ti.f32)
+            frac = xpos / DX - ti.cast(ic, ti.f64)
             Ep[p] = (1.0 - frac) * E[ic] + frac * E[ic + 1]
 
     @ti.kernel
@@ -74,7 +74,7 @@ def run(n_particles=16384, n_grid=512, steps=1, backend="cuda"):
             vp[p] += QM * Ep[p] * DT
             xnew = xp[p] + vp[p] * DT
             # Periodic boundary
-            L = ti.cast(Ng, ti.f32) * DX
+            L = ti.cast(Ng, ti.f64) * DX
             if xnew < 0.0:
                 xnew += L
             if xnew >= L:

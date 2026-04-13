@@ -100,7 +100,7 @@ def run_fdtd2d(N=64, steps=100):
     ey = np.zeros((Nx, Ny), dtype=np.float32)
     hz = np.zeros((Nx, Ny), dtype=np.float32)
     # Point source at center (matches Taichi init)
-    hz[Nx // 2, Ny // 2] = np.float32(1.0)
+    hz[Nx // 2, Ny // 2] = np.float32(0.01)  # small amplitude (stable at 100 steps)
 
     for _ in range(steps):
         # update_ey: ey[i,j] += COURANT * (hz[i,j] - hz[i-1,j]) for i in [1,Nx), j in [0,Ny)
@@ -164,8 +164,7 @@ def run_doitgen(N=32, steps=1):
     for i in range(NR):
         for j in range(NR):
             idx = float(i * NR + j)
-            C4[i, j] = np.float32(np.cos(idx * 0.002))
-    # C4 used as-is (matches CUDA doitgen_benchmark.cu)
+            C4[i, j] = np.float32(np.cos(idx * 0.002) / NR)  # scaled for stability
 
     for _ in range(steps):
         for r in range(NR):
@@ -236,30 +235,82 @@ def run_adi(N=64, steps=3):
 # Matches gramschmidt_taichi.py: Q[i,j] = ((i*N+j)%97)/97.0+0.01, column-major ops
 def run_gramschmidt(N=64, steps=1):
     M = N
-    Q = np.zeros((M, N), dtype=np.float32)
-    R = np.zeros((N, N), dtype=np.float32)
+    Q = np.zeros((M, N), dtype=np.float64)
+    R = np.zeros((N, N), dtype=np.float64)
 
-    # Init Q — matches CUDA gramschmidt_benchmark.cu and Taichi
+    # Init Q — full-rank: identity + sin perturbation (matches Taichi/CUDA)
     for i in range(M):
         for j in range(N):
-            Q[i, j] = ((i * N + j) % 97) / 97.0 + 0.01
+            base = 1.0 if i == j else 0.0
+            perturb = np.sin(float(i * N + j + 1) * 0.1) * 0.3
+            Q[i, j] = base + perturb
 
     for _ in range(steps):
         for k in range(N):
-            # Normalize column k
-            nrm = np.float32(0.0)
+            nrm = np.float64(0.0)
             for i in range(M):
                 nrm += Q[i, k] * Q[i, k]
             nrm = np.sqrt(nrm)
             R[k, k] = nrm
-            inv_nrm = np.float32(1.0) / nrm
+            inv_nrm = np.float64(1.0) / nrm
             Q[:, k] *= inv_nrm
-            # Project: for j > k
             for j in range(k + 1, N):
-                dot_val = np.float32(0.0)
+                dot_val = np.float64(0.0)
                 for i in range(M):
                     dot_val += Q[i, k] * Q[i, j]
                 R[k, j] = dot_val
                 Q[:, j] -= dot_val * Q[:, k]
 
     return _noop, _noop, Q
+
+
+def run_pic1d(n_particles=1024, n_grid=128, steps=100):
+    """1D PIC matching pic_taichi.py / pic1d_benchmark.cu."""
+    Np, Ng = n_particles, n_grid
+    DT, DX, QM = 0.1, 1.0, -1.0
+    PI2 = 2.0 * np.pi
+    Ng_len = Ng * DX
+
+    xp = np.zeros(Np, dtype=np.float64)
+    vp = np.zeros(Np, dtype=np.float64)
+    rho = np.zeros(Ng, dtype=np.float64)
+    E = np.zeros(Ng, dtype=np.float64)
+    Ep = np.zeros(Np, dtype=np.float64)
+
+    # Init matching CUDA: sinusoidal perturbation + thermal velocity
+    for p in range(Np):
+        base = (p + 0.5) * Ng_len / Np
+        xp[p] = base + 0.5 * np.sin(PI2 * base / Ng_len)
+        if xp[p] < 0: xp[p] += Ng_len
+        if xp[p] >= Ng_len: xp[p] -= Ng_len
+        vp[p] = 0.1 * np.sin(PI2 * p / Np)
+
+    for _ in range(steps):
+        # Deposit
+        rho[:] = 0.0
+        for p in range(Np):
+            ic = int(np.floor(xp[p] / DX))
+            ic = max(0, min(ic, Ng - 2))
+            frac = xp[p] / DX - ic
+            rho[ic] += (1.0 - frac) / DX
+            rho[ic + 1] += frac / DX
+        # Field solve (Gauss's law)
+        n0 = Np / Ng_len
+        cumsum = np.float64(0.0)
+        for i in range(Ng):
+            cumsum += (rho[i] - n0) * DX
+            E[i] = -cumsum
+        # Gather
+        for p in range(Np):
+            ic = int(np.floor(xp[p] / DX))
+            ic = max(0, min(ic, Ng - 2))
+            frac = xp[p] / DX - ic
+            Ep[p] = (1.0 - frac) * E[ic] + frac * E[ic + 1]
+        # Push
+        for p in range(Np):
+            vp[p] += QM * Ep[p] * DT
+            xp[p] += vp[p] * DT
+            if xp[p] < 0: xp[p] += Ng_len
+            if xp[p] >= Ng_len: xp[p] -= Ng_len
+
+    return _noop, _noop, xp

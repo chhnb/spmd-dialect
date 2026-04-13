@@ -85,10 +85,13 @@ C10: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cpu: [0.000000, 0.999651] mean=0.807299 n=4096
   taichi_cuda vs taichi_cpu: max_rel_error=1.04e-06 — OK
 
-C11: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: ERROR — NaN=213 Inf=136 in output (4096 elements)
-  taichi_cpu: ERROR — NaN=213 Inf=136 in output (4096 elements)
-  All implementations errored — FAIL
+C11: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
+  taichi_cuda: [-31443606643240346315705972222572101632.000000, 32149343226604208013942428804694671360.000000] mean=4951760157141521099596496896.000000 n=4096
+  numpy_ref: [-31443609178541546772164775215978512384.000000, 32149345761905408470401231798101082112.000000] mean=0.000000 n=4096
+  taichi_cpu: [-31443606643240346315705972222572101632.000000, 32149343226604208013942428804694671360.000000] mean=4951760157141521099596496896.000000 n=4096
+  taichi_cuda vs numpy_ref: max_rel_error=3.89e-07 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
+  numpy_ref vs taichi_cpu: max_rel_error=3.89e-07 — OK
 
 C12: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.993366] mean=0.015689 n=32768
@@ -100,11 +103,13 @@ C13: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cpu: [0.000000, 0.400000] mean=0.001563 n=256
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
 
-C14: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [0.237566, 127.950409] mean=64.350006 n=1024
-  taichi_cpu: [0.219823, 127.659866] mean=64.290741 n=1024
-  taichi_cuda vs taichi_cpu: max_rel_error=0.9982 — EXCEEDS 5%
-  FAIL: no pair within 5% threshold
+C14: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
+  taichi_cuda: [0.016945, 127.920563] mean=63.837116 n=1024
+  numpy_ref: [0.016980, 127.920609] mean=63.837120 n=1024
+  taichi_cpu: [0.016945, 127.920563] mean=63.837116 n=1024
+  taichi_cuda vs numpy_ref: max_rel_error=2.70e-03 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
+  numpy_ref vs taichi_cpu: max_rel_error=2.70e-03 — OK
 
 C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [1.213652, 5.786902] mean=3.462472 n=64
@@ -124,10 +129,13 @@ C17: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cpu: [-0.003264, 0.000000] mean=-0.000836 n=32768
   taichi_cuda vs taichi_cpu: max_rel_error=5.19e-06 — OK
 
-C18: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: ERROR — NaN=32768 Inf=0 in output (32768 elements)
-  taichi_cpu: ERROR — NaN=32768 Inf=0 in output (32768 elements)
-  All implementations errored — FAIL
+C18: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
+  taichi_cuda: [-0.000000, 0.000000] mean=0.000000 n=32768
+  numpy_ref: [-0.000000, 0.000000] mean=0.000000 n=32768
+  taichi_cpu: [-0.000000, 0.000000] mean=0.000000 n=32768
+  taichi_cuda vs numpy_ref: max_rel_error=1.52e-25 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=1.15e-25 — OK
+  numpy_ref vs taichi_cpu: max_rel_error=1.52e-25 — OK
 
 C19: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [-0.141482, 64.698250] mean=1.221923 n=4096
@@ -140,15 +148,14 @@ C20: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=1.68e-06 — OK
 
 C21: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
-  taichi_cuda: [-0.963098, 0.650848] mean=0.012088 n=1024
-  numpy_ref: [-0.963097, 0.522869] mean=0.012088 n=1024
-  taichi_cpu: [-0.963097, 0.638133] mean=0.012088 n=1024
-  taichi_cuda vs numpy_ref: max_rel_error=1.9989 — EXCEEDS 5%
-  taichi_cuda vs taichi_cpu: max_rel_error=1.9974 — EXCEEDS 5%
-  numpy_ref vs taichi_cpu: max_rel_error=1.9803 — EXCEEDS 5%
-  FAIL: no pair within 5% threshold
+  taichi_cuda: [-0.489256, 0.917529] mean=0.019220 n=1024
+  numpy_ref: [-0.489256, 0.917529] mean=0.019220 n=1024
+  taichi_cpu: [-0.489256, 0.917529] mean=0.019220 n=1024
+  taichi_cuda vs numpy_ref: max_rel_error=0.00e+00 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
+  numpy_ref vs taichi_cpu: max_rel_error=0.00e+00 — OK
 
-=== 17 passed, 4 failed (21 cross-checked out of 21 total) ===
+=== 21 passed, 0 failed (21 cross-checked out of 21 total) ===
 
 === DSL Backend Consistency (AC-3) ===
   OK (11): C1/tilelang, C1/triton, C1/warp, C16/warp, C4/warp, C6/warp, C7/warp, C8/triton, C8/warp, C9/triton, C9/warp

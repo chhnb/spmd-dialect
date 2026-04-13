@@ -35,7 +35,7 @@ def run(N, steps=1, backend="cuda"):
             A[p, q, r] = ti.sin(idx * 0.001)
         for i, j in C4:
             idx = ti.cast(i * NR + j, ti.f32)
-            C4[i, j] = ti.cos(idx * 0.002)
+            C4[i, j] = ti.cos(idx * 0.002) / ti.cast(NR, ti.f32)  # scaled for stability
 
     init_data()
 

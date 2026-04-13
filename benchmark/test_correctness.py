@@ -120,6 +120,9 @@ for cid, subdir, mod, call in [
 # Only include numpy_refs that are verified to match Taichi output
 # (C11 FDTD and C20 ADI pass; others have algorithm mismatches that need deeper fixes)
 NUMPY_REFS = {
+    "C11": (".", "numpy_refs", "run_fdtd2d(N=64,steps=100)"),
+    "C14": (".", "numpy_refs", "run_pic1d(n_particles=1024,n_grid=128,steps=100)"),
+    "C18": (".", "numpy_refs", "run_doitgen(N=32,steps=100)"),
     "C21": (".", "numpy_refs", "run_gramschmidt(N=32,steps=100)"),
 }
 for cid, (subdir, mod, call) in NUMPY_REFS.items():

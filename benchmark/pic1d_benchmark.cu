@@ -16,9 +16,9 @@ namespace cg = cooperative_groups;
 
 #define CHECK(call) do { auto e = call; if(e) { fprintf(stderr,"CUDA error %d at %s:%d\n",e,__FILE__,__LINE__); exit(1); }} while(0)
 
-static constexpr float QM = -1.0f;   // charge/mass ratio (electron)
-static constexpr float DT = 0.1f;
-static constexpr float DX = 1.0f;
+static constexpr double QM = -1.0f;   // charge/mass ratio (electron)
+static constexpr double DT = 0.1f;
+static constexpr double DX = 1.0f;
 
 // --- Kernels ---
 

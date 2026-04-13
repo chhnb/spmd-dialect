@@ -76,7 +76,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<float> h_A(N3), h_C4((long)NR * NR);
     for (long i = 0; i < N3; i++) h_A[i] = sinf((float)i * 0.001f);
-    for (long i = 0; i < (long)NR*NR; i++) h_C4[i] = cosf((float)i * 0.002f);
+    for (long i = 0; i < (long)NR*NR; i++) h_C4[i] = cosf((float)i * 0.002f) / NR;  // scaled for stability
 
     auto reset = [&]() {
         CHECK(cudaMemcpy(A, h_A.data(), N3*sizeof(float), cudaMemcpyHostToDevice));

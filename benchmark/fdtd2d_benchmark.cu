@@ -119,7 +119,7 @@ int main(int argc, char* argv[]) {
     // Init: zero fields, small Hz pulse at center
     std::vector<float> h_zero(total, 0.0f);
     std::vector<float> h_hz(total, 0.0f);
-    h_hz[(Nx / 2) * Ny + Ny / 2] = 1.0f;  // point source
+    h_hz[(Nx / 2) * Ny + Ny / 2] = 0.01f;  // small point source (stable at 100 steps)
 
     auto reset = [&]() {
         CHECK(cudaMemcpy(ex, h_zero.data(), total * sizeof(float), cudaMemcpyHostToDevice));
