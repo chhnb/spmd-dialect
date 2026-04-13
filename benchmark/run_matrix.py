@@ -379,7 +379,7 @@ print(f"R {{ts[5]:.2f}} {{ts[0]:.2f}} {{ts[9]:.2f}}")
 def run_tilelang(case_id, gpu, dry_run):
     """Run TileLang DSL for cases with TileLang implementations."""
     TILELANG_MAP = {
-        "C1": ("A1_jacobi_2d","jacobi_tilelang","run(N={sz},steps={st},backend='cuda')",[(64,100),(256,100),(4096,100)]),
+        "C1": ("A1_jacobi_2d","jacobi_tilelang","run(N={sz},steps={st},backend='cuda')",[(256,100),(4096,100)]),
     }
     if case_id not in TILELANG_MAP: return []
     subdir, mod, call_tpl, sizes = TILELANG_MAP[case_id]

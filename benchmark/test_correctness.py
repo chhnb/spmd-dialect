@@ -245,17 +245,28 @@ def main():
                 print(f"  FAIL: no pair within 5% threshold")
                 failed += 1
 
-            # Track DSL backend consistency: did each DSL backend match at least one reference?
+            # Track DSL backend consistency: compare each DSL backend against taichi_cuda
             for fw in fws:
                 if fw in dsl_backends:
+                    # Find comparison against taichi_cuda specifically
                     matched = any(
                         ok for (a, b, _, ok) in all_comparisons
-                        if (a == fw or b == fw)
+                        if (a == fw and b == "taichi_cuda") or (a == "taichi_cuda" and b == fw)
                     )
                     if matched:
                         dsl_ok.append((cid, fw))
+                    elif "taichi_cuda" not in fws:
+                        # No taichi_cuda available; fall back to any pair
+                        matched_any = any(ok for (a, b, _, ok) in all_comparisons if (a == fw or b == fw))
+                        if matched_any:
+                            dsl_ok.append((cid, fw))
+                        else:
+                            dsl_fail.append((cid, fw, "output mismatch >5%"))
                     else:
-                        dsl_fail.append((cid, fw, "output mismatch >5%"))
+                        # Find the actual error vs taichi_cuda
+                        err = next((e for (a, b, e, _) in all_comparisons
+                                    if (a == fw and b == "taichi_cuda") or (a == "taichi_cuda" and b == fw)), None)
+                        dsl_fail.append((cid, fw, f"vs taichi_cuda: {err:.4f}" if err else "output mismatch >5%"))
         elif len(fws) == 1:
             r = results[fws[0]]
             if r.get("n", 0) > 0:

@@ -158,5 +158,7 @@ C21: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
 === 21 passed, 0 failed (21 cross-checked out of 21 total) ===
 
 === DSL Backend Consistency (AC-3) ===
-  OK (11): C1/tilelang, C1/triton, C1/warp, C16/warp, C4/warp, C6/warp, C7/warp, C8/triton, C8/warp, C9/triton, C9/warp
-  Summary: 11/11 DSL backends consistent
+  OK (10): C1/tilelang, C1/triton, C1/warp, C4/warp, C6/warp, C7/warp, C8/triton, C8/warp, C9/triton, C9/warp
+  FAILED (1):
+    C16/warp: vs taichi_cuda: 0.0783
+  Summary: 10/11 DSL backends consistent
