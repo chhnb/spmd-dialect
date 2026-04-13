@@ -996,6 +996,7 @@ def run_real(steps=1, backend="cuda", mesh="default"):
     FLUX1 = torch.zeros(NE, dtype=torch.float32, device=dev)
     FLUX2 = torch.zeros(NE, dtype=torch.float32, device=dev)
     FLUX3 = torch.zeros(NE, dtype=torch.float32, device=dev)
+    H_out = H_pre.clone()  # persistent output handle
 
     def step():
         nonlocal H_pre, U_pre, V_pre, Z_pre, W_pre
@@ -1008,8 +1009,9 @@ def run_real(steps=1, backend="cuda", mesh="default"):
             H_pre, U_pre, V_pre, Z_pre, W_pre = xfer_mod(
                 H_pre, U_pre, V_pre, Z_pre, W_pre,
                 H_res, U_res, V_res, Z_res, W_res)
+        H_out.copy_(H_pre)  # update persistent handle
 
     def sync():
         torch.cuda.synchronize()
 
-    return step, sync, H_pre
+    return step, sync, H_out

@@ -60,14 +60,16 @@ def run(N=64, steps=1, backend="cuda"):
     u_np = np.zeros((N * N,), dtype=np.float32)
     u_np[:N] = 1.0
     u = torch.tensor(u_np, device="cuda", dtype=torch.float32)
+    u_out = u  # persistent output handle
 
     def step_fn():
         nonlocal u
         for _ in range(steps):
             u_new = step_mod(u)
             u = copy_mod(u_new)
+        u_out.copy_(u)  # update persistent handle
 
     def sync_fn():
         torch.cuda.synchronize()
 
-    return step_fn, sync_fn, u
+    return step_fn, sync_fn, u_out

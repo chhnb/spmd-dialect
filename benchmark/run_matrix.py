@@ -51,7 +51,7 @@ TAICHI = {
     "C6": ("B1_nbody","nbody_taichi","run(N={sz},steps={st},backend='cuda')",[(4096,10),(32768,10)]),
     "C7": ("B2_sph","sph_taichi","run(N={sz},steps={st},backend='cuda')",[(8192,10),(65536,10)]),
     "C8": ("F1_hydro_shallow_water","hydro_taichi","run_real(steps={st},backend='cuda',mesh='{mesh}')",[("default",10),("20w",10)]),
-    "C9": ("F2_hydro_refactored","hydro_refactored_taichi","run(days=1,backend='cuda',mesh='{mesh}')",[("default",1),("20w",1)]),
+    "C9": ("F2_hydro_refactored","hydro_refactored_taichi","run(days=1,backend='cuda',mesh='{mesh}')",[("default",900),("20w",7200)]),
     "C10":(".","grayscott_taichi","run(N={sz},steps={st},backend='cuda')",[(128,100),(512,100)]),
     "C11":(".","fdtd2d_taichi","run(N={sz},steps={st},backend='cuda')",[(512,100),(4096,100)]),
     "C12":("F3_maccormack_3d","maccormack_taichi","run(N={sz},steps={st},backend='cuda')",[(64,100),(128,100)]),
@@ -290,7 +290,7 @@ def run_warp(case_id, gpu, dry_run):
         "C6": ("B1_nbody","nbody_warp","run(N={sz},steps={st},backend='cuda')",[(4096,10),(32768,10)]),
         "C7": ("B2_sph","sph_warp","run(N={sz},steps={st},backend='cuda')",[(8192,10),(65536,10)]),
         "C8": ("F1_hydro_shallow_water","hydro_warp","run_real(steps={st},backend='cuda',mesh='{mesh}')",[("default",10),("20w",10)]),
-        "C9": ("F2_hydro_refactored","hydro_refactored_warp","run(days=1,backend='cuda',mesh='{mesh}')",[("default",1),("20w",1)]),
+        "C9": ("F2_hydro_refactored","hydro_refactored_warp","run(days=1,backend='cuda',mesh='{mesh}')",[("default",900),("20w",7200)]),
         "C16":("D2_stable_fluids","fluid_warp","run(N={sz},steps={st},backend='cuda')",[(256,5),(1024,5)]),
     }
     if case_id not in WARP_MAP: return []
@@ -337,7 +337,7 @@ def run_triton(case_id, gpu, dry_run):
     TRITON_MAP = {
         "C1": ("A1_jacobi_2d","jacobi_triton","run(N={sz},steps={st},backend='cuda')",[(256,100),(4096,100)]),
         "C8": ("F1_hydro_shallow_water","hydro_triton","run_real(steps={st},backend='cuda',mesh='{mesh}')",[("default",10),("20w",10)]),
-        "C9": ("F2_hydro_refactored","hydro_refactored_triton","run(days=1,backend='cuda',mesh='{mesh}')",[("default",1),("20w",1)]),
+        "C9": ("F2_hydro_refactored","hydro_refactored_triton","run(days=1,backend='cuda',mesh='{mesh}')",[("default",900),("20w",7200)]),
     }
     if case_id not in TRITON_MAP: return []
     subdir, mod, call_tpl, sizes = TRITON_MAP[case_id]
@@ -383,7 +383,7 @@ def run_tilelang(case_id, gpu, dry_run):
         # C8 TileLang: run_real() loads mesh correctly but JIT compilation of F1 Osher solver
         # is too slow (>10 min per kernel). Correctness validated via test_correctness.py.
         # C9 TileLang: F2 refactored 2-kernel pattern compiles and runs successfully.
-        "C9": ("F2_hydro_refactored","hydro_refactored_tilelang","run(days=1,backend='cuda',mesh='{mesh}')",[("default",1)]),
+        "C9": ("F2_hydro_refactored","hydro_refactored_tilelang","run(days=1,backend='cuda',mesh='{mesh}')",[("default",900)]),
     }
     if case_id not in TILELANG_MAP: return []
     subdir, mod, call_tpl, sizes = TILELANG_MAP[case_id]

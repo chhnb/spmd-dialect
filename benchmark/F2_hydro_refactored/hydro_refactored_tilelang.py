@@ -267,6 +267,7 @@ def run(days=10, backend="cuda", mesh="default"):
     FNC_t = torch.from_numpy(m["FNC"].astype(np.float32)).to(dev)
 
     flux_mod, update_mod = build_kernels(CELL, NE, DT, HM1, HM2)
+    H_out = H.clone()  # persistent output handle
 
     def step_fn():
         nonlocal H, U, V, Z, W
@@ -275,8 +276,9 @@ def run(days=10, backend="cuda", mesh="default"):
                                        H, U, V, Z, ZBC_t)
             H, U, V, Z, W = update_mod(SIDE_t, SLCOS_t, SLSIN_t, AREA_t,
                                         ZBC_t, FNC_t, F0, F1, F2, F3)
+        H_out.copy_(H)  # update persistent handle
 
     def sync_fn():
         torch.cuda.synchronize()
 
-    return step_fn, sync_fn, H
+    return step_fn, sync_fn, H_out

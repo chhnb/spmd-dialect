@@ -37,6 +37,7 @@ def run(N, steps=1, backend="cuda"):
         for _ in range(steps):
             jacobi_step()
             copy_back()
+            init_bc()  # re-apply Dirichlet BC after copy
 
     sync = ti.sync
 
