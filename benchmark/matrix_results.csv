@@ -10,15 +10,15 @@ Heat2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,256,1000,5.73,,,0.0
 Heat2D,CUDA_Sync,NVIDIA A100 80GB PCIe,512,1000,19.64,,,32.3
 Heat2D,CUDA_Async,NVIDIA A100 80GB PCIe,512,1000,13.29,,,0.0
 Heat2D,CUDA_Graph,NVIDIA A100 80GB PCIe,512,1000,10.72,,,0.0
-Heat2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,512,1000,N/A (grid exceeds cooperative launch limit),,,
+Heat2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,512,1000,N/A (grid exceeds cooperative launch limit),,,N/A
 Heat2D,CUDA_Sync,NVIDIA A100 80GB PCIe,1024,500,39.23,,,16.2
 Heat2D,CUDA_Async,NVIDIA A100 80GB PCIe,1024,500,32.87,,,0.0
 Heat2D,CUDA_Graph,NVIDIA A100 80GB PCIe,1024,500,30.39,,,0.0
-Heat2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,1024,500,N/A (grid exceeds cooperative launch limit),,,
+Heat2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,1024,500,N/A (grid exceeds cooperative launch limit),,,N/A
 Heat2D,CUDA_Sync,NVIDIA A100 80GB PCIe,2048,200,122.77,,,5.4
 Heat2D,CUDA_Async,NVIDIA A100 80GB PCIe,2048,200,116.14,,,0.0
 Heat2D,CUDA_Graph,NVIDIA A100 80GB PCIe,2048,200,113.18,,,0.0
-Heat2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,2048,200,N/A (grid exceeds cooperative launch limit),,,
+Heat2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,2048,200,N/A (grid exceeds cooperative launch limit),,,N/A
 GrayScott,CUDA_Sync,NVIDIA A100 80GB PCIe,128,2000,16.00,,,37.3
 GrayScott,CUDA_Async,NVIDIA A100 80GB PCIe,128,2000,10.04,,,0.0
 GrayScott,CUDA_Graph,NVIDIA A100 80GB PCIe,128,2000,5.69,,,0.0
@@ -30,11 +30,11 @@ GrayScott,CUDA_Persistent,NVIDIA A100 80GB PCIe,256,1000,8.78,,,0.0
 GrayScott,CUDA_Sync,NVIDIA A100 80GB PCIe,512,500,31.53,,,20.3
 GrayScott,CUDA_Async,NVIDIA A100 80GB PCIe,512,500,25.14,,,0.0
 GrayScott,CUDA_Graph,NVIDIA A100 80GB PCIe,512,500,20.58,,,0.0
-GrayScott,CUDA_Persistent,NVIDIA A100 80GB PCIe,512,500,N/A (grid exceeds cooperative launch limit),,,
+GrayScott,CUDA_Persistent,NVIDIA A100 80GB PCIe,512,500,N/A (grid exceeds cooperative launch limit),,,N/A
 GrayScott,CUDA_Sync,NVIDIA A100 80GB PCIe,1024,200,72.09,,,9.1
 GrayScott,CUDA_Async,NVIDIA A100 80GB PCIe,1024,200,65.55,,,0.0
 GrayScott,CUDA_Graph,NVIDIA A100 80GB PCIe,1024,200,61.84,,,0.0
-GrayScott,CUDA_Persistent,NVIDIA A100 80GB PCIe,1024,200,N/A (grid exceeds cooperative launch limit),,,
+GrayScott,CUDA_Persistent,NVIDIA A100 80GB PCIe,1024,200,N/A (grid exceeds cooperative launch limit),,,N/A
 Jacobi2D,CUDA_Sync,NVIDIA A100 80GB PCIe,256,100,13.95,,,46.0
 Jacobi2D,CUDA_Async,NVIDIA A100 80GB PCIe,256,100,7.58,,,0.7
 Jacobi2D,CUDA_Graph,NVIDIA A100 80GB PCIe,256,100,4.76,,,0.0
@@ -42,7 +42,7 @@ Jacobi2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,256,100,5.60,,,0.0
 Jacobi2D,CUDA_Sync,NVIDIA A100 80GB PCIe,4096,100,396.90,,,1.6
 Jacobi2D,CUDA_Async,NVIDIA A100 80GB PCIe,4096,100,390.71,,,0.1
 Jacobi2D,CUDA_Graph,NVIDIA A100 80GB PCIe,4096,100,387.54,,,0.0
-Jacobi2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,4096,100,"N/A (Persistent: N/A (need 65536 blocks, max 648))",,,
+Jacobi2D,CUDA_Persistent,NVIDIA A100 80GB PCIe,4096,100,"N/A (Persistent: N/A (need 65536 blocks, max 648))",,,N/A
 Jacobi2D,Taichi,NVIDIA A100 80GB PCIe,256,100,47.74,45.23,162.57,90.0
 Jacobi2D,Taichi,NVIDIA A100 80GB PCIe,4096,100,216.98,216.71,218.03,0.0
 Jacobi2D,Warp,NVIDIA A100 80GB PCIe,256,100,22.44,22.23,22.65,78.8
@@ -192,12 +192,12 @@ PIC1D,CUDA_Persistent,NVIDIA A100 80GB PCIe,16384,100,65.34,,,48.9
 PIC1D,Taichi,NVIDIA A100 80GB PCIe,4096,100,98.64,96.55,211.28,78.2
 PIC1D,Taichi,NVIDIA A100 80GB PCIe,16384,100,141.40,139.98,237.93,76.0
 CG_Solver,CUDA_Sync,NVIDIA A100 80GB PCIe,64,200,67.40,,,77.4
-CG_Solver,CUDA_Async,NVIDIA A100 80GB PCIe,64,200,N/A (CG requires host readback of dot products each iteration — cannot defer synchronization),,,
-CG_Solver,CUDA_Graph,NVIDIA A100 80GB PCIe,64,200,N/A (CG requires host readback for alpha/beta — data-dependent control flow incompatible with static Graph capture),,,
+CG_Solver,CUDA_Async,NVIDIA A100 80GB PCIe,64,200,N/A (CG requires host readback of dot products each iteration — cannot defer synchronization),,,N/A
+CG_Solver,CUDA_Graph,NVIDIA A100 80GB PCIe,64,200,N/A (CG requires host readback for alpha/beta — data-dependent control flow incompatible with static Graph capture),,,N/A
 CG_Solver,CUDA_Persistent,NVIDIA A100 80GB PCIe,64,200,15.20,,,0.0
 CG_Solver,CUDA_Sync,NVIDIA A100 80GB PCIe,256,200,70.50,,,75.5
-CG_Solver,CUDA_Async,NVIDIA A100 80GB PCIe,256,200,N/A (CG requires host readback of dot products each iteration — cannot defer synchronization),,,
-CG_Solver,CUDA_Graph,NVIDIA A100 80GB PCIe,256,200,N/A (CG requires host readback for alpha/beta — data-dependent control flow incompatible with static Graph capture),,,
+CG_Solver,CUDA_Async,NVIDIA A100 80GB PCIe,256,200,N/A (CG requires host readback of dot products each iteration — cannot defer synchronization),,,N/A
+CG_Solver,CUDA_Graph,NVIDIA A100 80GB PCIe,256,200,N/A (CG requires host readback for alpha/beta — data-dependent control flow incompatible with static Graph capture),,,N/A
 CG_Solver,CUDA_Persistent,NVIDIA A100 80GB PCIe,256,200,17.30,,,0.0
 CG_Solver,Taichi,NVIDIA A100 80GB PCIe,64,100,335.50,322.64,347.43,95.5
 CG_Solver,Taichi,NVIDIA A100 80GB PCIe,256,100,342.77,320.63,352.76,95.0
@@ -208,7 +208,7 @@ StableFluids,CUDA_Persistent,NVIDIA A100 80GB PCIe,256,5,311.09,,,13.6
 StableFluids,CUDA_Sync,NVIDIA A100 80GB PCIe,1024,5,2462.72,,,32.7
 StableFluids,CUDA_Async,NVIDIA A100 80GB PCIe,1024,5,1780.12,,,6.9
 StableFluids,CUDA_Graph,NVIDIA A100 80GB PCIe,1024,5,1656.83,,,0.0
-StableFluids,CUDA_Persistent,NVIDIA A100 80GB PCIe,1024,5,"N/A (Persistent: N/A (need 4096 blocks, max 432))",,,
+StableFluids,CUDA_Persistent,NVIDIA A100 80GB PCIe,1024,5,"N/A (Persistent: N/A (need 4096 blocks, max 432))",,,N/A
 StableFluids,Taichi,NVIDIA A100 80GB PCIe,256,5,2394.87,2374.39,4696.37,88.8
 StableFluids,Taichi,NVIDIA A100 80GB PCIe,1024,5,2390.98,2347.22,4639.99,30.7
 StableFluids,Warp,NVIDIA A100 80GB PCIe,256,5,1184.65,1177.46,1190.04,77.3
@@ -236,31 +236,31 @@ DOITGEN,Taichi,NVIDIA A100 80GB PCIe,256,1,35812.67,35788.55,35905.82,0.0
 LU,CUDA_Sync,NVIDIA A100 80GB PCIe,512,10,10172.94,,,73.5
 LU,CUDA_Async,NVIDIA A100 80GB PCIe,512,10,6949.75,,,61.1
 LU,CUDA_Graph,NVIDIA A100 80GB PCIe,512,10,2700.71,,,0.0
-LU,CUDA_Persistent,NVIDIA A100 80GB PCIe,512,10,"N/A (Persistent: N/A (need 1024 blocks, max 648) — grid too large for cooperative lau)",,,
+LU,CUDA_Persistent,NVIDIA A100 80GB PCIe,512,10,"N/A (Persistent: N/A (need 1024 blocks, max 648) — grid too large for cooperative lau)",,,N/A
 LU,CUDA_Sync,NVIDIA A100 80GB PCIe,1024,10,24480.57,,,51.9
 LU,CUDA_Async,NVIDIA A100 80GB PCIe,1024,10,17916.39,,,34.3
 LU,CUDA_Graph,NVIDIA A100 80GB PCIe,1024,10,11762.92,,,0.0
-LU,CUDA_Persistent,NVIDIA A100 80GB PCIe,1024,10,"N/A (Persistent: N/A (need 4096 blocks, max 648) — grid too large for cooperative lau)",,,
+LU,CUDA_Persistent,NVIDIA A100 80GB PCIe,1024,10,"N/A (Persistent: N/A (need 4096 blocks, max 648) — grid too large for cooperative lau)",,,N/A
 LU,Taichi,NVIDIA A100 80GB PCIe,512,1,40837.11,40106.88,41015.49,93.4
 LU,Taichi,NVIDIA A100 80GB PCIe,1024,1,82661.68,78296.44,86743.79,85.8
 ADI,CUDA_Sync,NVIDIA A100 80GB PCIe,256,3,1553.41,,,46.0
 ADI,CUDA_Async,NVIDIA A100 80GB PCIe,256,3,1491.29,,,43.8
 ADI,CUDA_Graph,NVIDIA A100 80GB PCIe,256,3,838.66,,,0.0
-ADI,CUDA_Persistent,NVIDIA A100 80GB PCIe,256,3,N/A (variable row/col per launch),,,
+ADI,CUDA_Persistent,NVIDIA A100 80GB PCIe,256,3,N/A (variable row/col per launch),,,N/A
 ADI,CUDA_Sync,NVIDIA A100 80GB PCIe,512,3,3127.30,,,45.3
 ADI,CUDA_Async,NVIDIA A100 80GB PCIe,512,3,3007.49,,,43.1
 ADI,CUDA_Graph,NVIDIA A100 80GB PCIe,512,3,1710.08,,,0.0
-ADI,CUDA_Persistent,NVIDIA A100 80GB PCIe,512,3,N/A (variable row/col per launch),,,
+ADI,CUDA_Persistent,NVIDIA A100 80GB PCIe,512,3,N/A (variable row/col per launch),,,N/A
 ADI,Taichi,NVIDIA A100 80GB PCIe,256,3,18166.00,17027.05,18480.62,95.4
 ADI,Taichi,NVIDIA A100 80GB PCIe,512,3,34730.74,34537.60,34932.50,95.1
 GramSchmidt,CUDA_Sync,NVIDIA A100 80GB PCIe,128,1,10.87,,,10.8
-GramSchmidt,CUDA_Async,NVIDIA A100 80GB PCIe,128,1,N/A (serial data dependency: each projection depends on prior normalization; launches on default stream are implicitly serialized),,,
+GramSchmidt,CUDA_Async,NVIDIA A100 80GB PCIe,128,1,N/A (serial data dependency: each projection depends on prior normalization; launches on default stream are implicitly serialized),,,N/A
 GramSchmidt,CUDA_Graph,NVIDIA A100 80GB PCIe,128,1,9.70,,,0.0
-GramSchmidt,CUDA_Persistent,NVIDIA A100 80GB PCIe,128,1,"N/A (serial dependency chain, variable grid per launch)",,,
+GramSchmidt,CUDA_Persistent,NVIDIA A100 80GB PCIe,128,1,"N/A (serial dependency chain, variable grid per launch)",,,N/A
 GramSchmidt,CUDA_Sync,NVIDIA A100 80GB PCIe,256,1,19.35,,,5.6
-GramSchmidt,CUDA_Async,NVIDIA A100 80GB PCIe,256,1,N/A (serial data dependency: each projection depends on prior normalization; launches on default stream are implicitly serialized),,,
+GramSchmidt,CUDA_Async,NVIDIA A100 80GB PCIe,256,1,N/A (serial data dependency: each projection depends on prior normalization; launches on default stream are implicitly serialized),,,N/A
 GramSchmidt,CUDA_Graph,NVIDIA A100 80GB PCIe,256,1,18.26,,,0.0
-GramSchmidt,CUDA_Persistent,NVIDIA A100 80GB PCIe,256,1,"N/A (serial dependency chain, variable grid per launch)",,,
+GramSchmidt,CUDA_Persistent,NVIDIA A100 80GB PCIe,256,1,"N/A (serial dependency chain, variable grid per launch)",,,N/A
 GramSchmidt,Taichi,NVIDIA A100 80GB PCIe,128,1,295200.38,293064.43,297250.17,100.0
 GramSchmidt,Taichi,NVIDIA A100 80GB PCIe,256,1,1216539.21,1209514.29,1239794.63,100.0
 Jacobi2D,TileLang,NVIDIA A100 80GB PCIe,256,100,22.87,22.64,24.26,66.9
