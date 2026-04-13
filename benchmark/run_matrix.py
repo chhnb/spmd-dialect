@@ -380,13 +380,17 @@ def run_tilelang(case_id, gpu, dry_run):
     """Run TileLang DSL for cases with TileLang implementations."""
     TILELANG_MAP = {
         "C1": ("A1_jacobi_2d","jacobi_tilelang","run(N={sz},steps={st},backend='cuda')",[(64,100),(256,100),(4096,100)]),
+        # C8 TileLang: run_real() loads mesh correctly but JIT compilation of F1 Osher solver
+        # is too slow (>10 min per kernel). Correctness validated via test_correctness.py.
+        # C9 TileLang: F2 refactored 2-kernel pattern compiles and runs successfully.
+        "C9": ("F2_hydro_refactored","hydro_refactored_tilelang","run(days=1,backend='cuda',mesh='{mesh}')",[("default",1)]),
     }
     if case_id not in TILELANG_MAP: return []
     subdir, mod, call_tpl, sizes = TILELANG_MAP[case_id]
     mod_dir = str(BD/subdir)
     rows = []
     for sz, st in sizes:
-        call = call_tpl.format(sz=sz, st=st)
+        call = call_tpl.format(sz=sz, st=st, mesh=sz)
         code = f"""
 import sys,time,os
 os.environ.setdefault('CUDA_HOME','/home/scratch.huanhuanc_gpu/spmd/cuda-toolkit')
@@ -405,11 +409,13 @@ print(f"R {{ts[5]:.2f}} {{ts[0]:.2f}} {{ts[9]:.2f}}")
 """
         if dry_run: print(f"    tilelang {case_id} [{sz}]"); continue
         try:
-            r = subprocess.run([PYTHON,"-c",code], capture_output=True, text=True, timeout=300, cwd=str(BD))
+            r = subprocess.run([PYTHON,"-c",code], capture_output=True, text=True, timeout=600, cwd=str(BD))
             m = re.search(r'R ([\d.]+) ([\d.]+) ([\d.]+)', r.stdout)
             if m:
+                slm = {"default":{"C8":"6675","C9":"24020"},"20w":{"C8":"207234","C9":"207234"}}
+                plabel = slm.get(str(sz),{}).get(case_id, str(sz))
                 rows.append({"case":CN[case_id],"strategy":"TileLang","gpu":gpu,
-                            "problem_size":str(sz),"steps":str(st),
+                            "problem_size":plabel,"steps":str(st),
                             "median_us":m.group(1),"min_us":m.group(2),"max_us":m.group(3),
                             "overhead_pct":""})
         except Exception as e:

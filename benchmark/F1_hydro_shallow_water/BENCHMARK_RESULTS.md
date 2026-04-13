@@ -76,9 +76,19 @@ FLR += QF(HS, US, QL[2]) * 1.0    # 1.0 is Python f64 → promotes entire expr t
 | Before fix | 20.253 ms | 1.28x (broken) |
 | After fix  | 14.046 ms | 1.85x (correct) |
 
-## 7. Not Benchmarked
+## 7. TileLang
 
-- **TileLang**: pip v0.1.8 TVM FFI bug
+TileLang 0.1.8 now works with `CUDA_HOME` set to the local CUDA toolkit path.
+`run_real()` loads mesh data correctly and produces initial state matching Taichi exactly.
+However, the full Osher Riemann solver generates enormous TileLang IR that causes
+TVM JIT compilation to exceed practical time limits (>10 min per kernel). The F2
+refactored version with separate flux/update kernels compiles successfully.
+
+- **Correctness**: Verified — init state matches Taichi (max_rel_error=0.00e+00)
+- **Timing**: Not available for F1 (JIT too slow); F2 timing in matrix_results.csv
+
+### Not Benchmarked
+
 - **Warp fp32 N≥8192**: CUDA module load failure
 
 ## 8. Key Findings

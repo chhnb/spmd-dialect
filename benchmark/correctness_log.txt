@@ -56,29 +56,39 @@ C7: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cuda vs warp: max_rel_error=0.00e+00 — OK
   taichi_cpu vs warp: max_rel_error=0.00e+00 — OK
 
-C8: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
+C8: 5 implementation(s) [taichi_cuda, taichi_cpu, warp, triton, tilelang]
   taichi_cuda: [0.001000, 40.130001] mean=4.218271 n=6676
   taichi_cpu: [0.001000, 40.130001] mean=4.218271 n=6676
   warp: [0.001000, 40.130001] mean=4.218271 n=6676
   triton: [0.001000, 40.130001] mean=4.218271 n=6676
+  tilelang: [0.001000, 40.130001] mean=4.218271 n=6676
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
   taichi_cuda vs warp: max_rel_error=0.00e+00 — OK
   taichi_cuda vs triton: max_rel_error=0.00e+00 — OK
+  taichi_cuda vs tilelang: max_rel_error=0.00e+00 — OK
   taichi_cpu vs warp: max_rel_error=0.00e+00 — OK
   taichi_cpu vs triton: max_rel_error=0.00e+00 — OK
+  taichi_cpu vs tilelang: max_rel_error=0.00e+00 — OK
   warp vs triton: max_rel_error=0.00e+00 — OK
+  warp vs tilelang: max_rel_error=0.00e+00 — OK
+  triton vs tilelang: max_rel_error=0.00e+00 — OK
 
-C9: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
+C9: 5 implementation(s) [taichi_cuda, taichi_cpu, warp, triton, tilelang]
   taichi_cuda: [7.500000, 7.500000] mean=7.500000 n=24020
   taichi_cpu: [7.500000, 7.500000] mean=7.500000 n=24020
   warp: [7.500000, 7.500000] mean=7.500000 n=24020
   triton: [7.500000, 7.500000] mean=7.500000 n=24020
+  tilelang: [7.500000, 7.500000] mean=7.500000 n=24020
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
   taichi_cuda vs warp: max_rel_error=0.00e+00 — OK
   taichi_cuda vs triton: max_rel_error=0.00e+00 — OK
+  taichi_cuda vs tilelang: max_rel_error=0.00e+00 — OK
   taichi_cpu vs warp: max_rel_error=0.00e+00 — OK
   taichi_cpu vs triton: max_rel_error=0.00e+00 — OK
+  taichi_cpu vs tilelang: max_rel_error=0.00e+00 — OK
   warp vs triton: max_rel_error=0.00e+00 — OK
+  warp vs tilelang: max_rel_error=0.00e+00 — OK
+  triton vs tilelang: max_rel_error=0.00e+00 — OK
 
 C10: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.999651] mean=0.807298 n=4096
@@ -146,5 +156,5 @@ C21: 2 implementation(s) [taichi_cuda, taichi_cpu]
 === 21 passed, 0 failed (21 cross-checked out of 21 total) ===
 
 === DSL Backend Consistency (AC-3) ===
-  OK (11): C1/tilelang, C1/triton, C1/warp, C16/warp, C4/warp, C6/warp, C7/warp, C8/triton, C8/warp, C9/triton, C9/warp
-  Summary: 11/11 DSL backends consistent
+  OK (13): C1/tilelang, C1/triton, C1/warp, C16/warp, C4/warp, C6/warp, C7/warp, C8/tilelang, C8/triton, C8/warp, C9/tilelang, C9/triton, C9/warp
+  Summary: 13/13 DSL backends consistent
