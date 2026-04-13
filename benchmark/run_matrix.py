@@ -97,6 +97,25 @@ def gpu_name():
     except: return "unknown"
 
 
+def normalize_strategy(name):
+    """Map parsed CUDA strategy names to canonical form."""
+    n = name.lower().strip()
+    if 'sync' in n and 'async' not in n:
+        return 'Sync'
+    if 'async' in n:
+        return 'Async'
+    if 'graph' in n:
+        return 'Graph'
+    if 'persistent' in n or 'fused' in n:
+        return 'Persistent'
+    # Numbered strategies from CG/LULESH: [1]=Sync, [2]=Async, [3]=Graph, [4]=Persistent
+    if n in ('1',): return 'Sync'
+    if n in ('2',): return 'Async'
+    if n in ('3',): return 'Graph'
+    if n in ('4',): return 'Persistent'
+    return name  # keep as-is if unrecognized
+
+
 def parse_cuda(output):
     """Parse CUDA benchmark output → [(strategy, us_per_step)] + gpu_compute."""
     results = []; compute = None
@@ -119,6 +138,8 @@ def parse_cuda(output):
         m = re.search(r'GPU.*?([\d.]+)\s*us/step', line)
         if m and ('compute' in line.lower() or 'total' in line.lower()):
             compute = float(m.group(1))
+    # Normalize strategy names to canonical form
+    results = [(normalize_strategy(name), us) for name, us in results]
     return results, compute
 
 
@@ -179,9 +200,7 @@ def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_pre
         # Ensure all 4 expected CUDA strategies have a row (AC-1: no silent skips)
         if strategy_prefix == "CUDA":
             for expected in ["Sync", "Async", "Graph", "Persistent"]:
-                # Check if any reported strategy name contains this expected name
-                found = any(expected.lower() in s.lower() for s in seen_strats)
-                if not found:
+                if expected not in seen_strats:
                     rows.append({"case":CN[case_id],"strategy":f"CUDA_{expected}",
                                 "gpu":gpu,"problem_size":size_label,"steps":steps_val,
                                 "median_us":"N/A","min_us":"","max_us":"",
