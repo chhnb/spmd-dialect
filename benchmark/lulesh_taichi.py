@@ -124,4 +124,8 @@ def run(N, steps=100, backend="cuda"):
     step_fn()
     sync_fn()
 
+    # Re-initialize state after warmup so correctness harness sees fresh data
+    init_mesh()
+    ti.sync()
+
     return step_fn, sync_fn, p_el

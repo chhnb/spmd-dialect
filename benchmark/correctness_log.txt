@@ -18,23 +18,22 @@ C1: 5 implementation(s) [taichi_cuda, taichi_cpu, warp, triton, tilelang]
   triton vs tilelang: max_rel_error=0.00e+00 — OK
 
 C2: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [0.000000, 0.000943] mean=0.000160 n=32768
-  taichi_cpu: [0.000000, 0.000943] mean=0.000160 n=32768
+  taichi_cuda: [0.000000, 0.002343] mean=0.000332 n=32768
+  taichi_cpu: [0.000000, 0.002343] mean=0.000332 n=32768
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
 
 C3: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [0.000000, 0.001209] mean=0.000212 n=4096
-  taichi_cpu: [0.000000, 0.001209] mean=0.000212 n=4096
-  taichi_cuda vs taichi_cpu: max_rel_error=3.36e-07 — OK
+  taichi_cuda: [0.000000, 0.002414] mean=0.000325 n=4096
+  taichi_cpu: [0.000000, 0.002414] mean=0.000325 n=4096
+  taichi_cuda vs taichi_cpu: max_rel_error=2.96e-07 — OK
 
 C4: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
-  taichi_cuda: [0.000000, 12.772159] mean=1.109505 n=4096
-  taichi_cpu: [0.000000, 40.963215] mean=3.592602 n=4096
-  warp: [0.000000, 12.772159] mean=1.109505 n=4096
-  taichi_cuda vs taichi_cpu: max_rel_error=1.0000 — EXCEEDS 5%
-  taichi_cuda vs warp: max_rel_error=0.1468 — EXCEEDS 5%
-  taichi_cpu vs warp: max_rel_error=1.0000 — EXCEEDS 5%
-  FAIL: no pair within 5% threshold
+  taichi_cuda: [0.000000, 12.854300] mean=1.098540 n=4096
+  taichi_cpu: [0.000000, 12.854301] mean=1.098540 n=4096
+  warp: [0.000000, 12.854300] mean=1.098540 n=4096
+  taichi_cuda vs taichi_cpu: max_rel_error=6.96e-06 — OK
+  taichi_cuda vs warp: max_rel_error=2.02e-16 — OK
+  taichi_cpu vs warp: max_rel_error=6.96e-06 — OK
 
 C5: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [1.000000, 1.000000] mean=1.000000 n=2048
@@ -83,19 +82,19 @@ C9: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
   warp vs triton: max_rel_error=5.09e-07 — OK
 
 C10: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [0.000000, 0.999492] mean=0.800120 n=4096
-  taichi_cpu: [0.000000, 0.999492] mean=0.800120 n=4096
-  taichi_cuda vs taichi_cpu: max_rel_error=1.63e-06 — OK
+  taichi_cuda: [0.000000, 0.999651] mean=0.807298 n=4096
+  taichi_cpu: [0.000000, 0.999651] mean=0.807299 n=4096
+  taichi_cuda vs taichi_cpu: max_rel_error=1.04e-06 — OK
 
 C11: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [-630080292257792.000000, 665605174722560.000000] mean=0.000000 n=4096
-  taichi_cpu: [-630080292257792.000000, 665605174722560.000000] mean=0.000000 n=4096
-  taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
+  taichi_cuda: ERROR — NaN=213 Inf=136 in output (4096 elements)
+  taichi_cpu: ERROR — NaN=213 Inf=136 in output (4096 elements)
+  All implementations errored — FAIL
 
 C12: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [-0.001383, 0.978092] mean=0.015697 n=32768
-  taichi_cpu: [-0.001383, 0.978091] mean=0.015697 n=32768
-  taichi_cuda vs taichi_cpu: max_rel_error=5.58e-03 — OK
+  taichi_cuda: [0.000000, 0.993366] mean=0.015689 n=32768
+  taichi_cpu: [0.000000, 0.993366] mean=0.015689 n=32768
+  taichi_cuda vs taichi_cpu: max_rel_error=7.11e-05 — OK
 
 C13: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.400000] mean=0.001563 n=256
@@ -103,9 +102,9 @@ C13: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
 
 C14: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [0.000048, 0.999330] mean=0.499394 n=1024
-  taichi_cpu: [0.000026, 0.999293] mean=0.499393 n=1024
-  taichi_cuda vs taichi_cpu: max_rel_error=0.4720 — EXCEEDS 5%
+  taichi_cuda: [0.037152, 127.938087] mean=63.614601 n=1024
+  taichi_cpu: [0.203152, 127.827774] mean=63.641140 n=1024
+  taichi_cuda vs taichi_cpu: max_rel_error=0.9997 — EXCEEDS 5%
   FAIL: no pair within 5% threshold
 
 C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
@@ -122,14 +121,14 @@ C16: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cpu vs warp: max_rel_error=4.37e-02 — OK
 
 C17: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [-0.001169, 0.000000] mean=-0.000277 n=32768
-  taichi_cpu: [-0.001169, 0.000000] mean=-0.000277 n=32768
-  taichi_cuda vs taichi_cpu: max_rel_error=2.58e-06 — OK
+  taichi_cuda: [-0.003264, 0.000000] mean=-0.000836 n=32768
+  taichi_cpu: [-0.003264, 0.000000] mean=-0.000836 n=32768
+  taichi_cuda vs taichi_cpu: max_rel_error=5.19e-06 — OK
 
 C18: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [886395945384270626816.000000, 1483771497673795804594176.000000] mean=720739006714587190919168.000000 n=32768
-  taichi_cpu: [886395734278038093824.000000, 1483771641788983880450048.000000] mean=720739006714587190919168.000000 n=32768
-  taichi_cuda vs taichi_cpu: max_rel_error=4.47e-07 — OK
+  taichi_cuda: ERROR — NaN=32768 Inf=0 in output (32768 elements)
+  taichi_cpu: ERROR — NaN=32768 Inf=0 in output (32768 elements)
+  All implementations errored — FAIL
 
 C19: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [-0.141482, 64.698250] mean=1.221923 n=4096
@@ -137,9 +136,9 @@ C19: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=2.31e-05 — OK
 
 C20: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [0.000000, 0.054020] mean=0.022607 n=4096
-  taichi_cpu: [0.000000, 0.054020] mean=0.022607 n=4096
-  taichi_cuda vs taichi_cpu: max_rel_error=3.21e-06 — OK
+  taichi_cuda: [0.000000, 0.056314] mean=0.023870 n=4096
+  taichi_cpu: [0.000000, 0.056314] mean=0.023870 n=4096
+  taichi_cuda vs taichi_cpu: max_rel_error=1.68e-06 — OK
 
 C21: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
   taichi_cuda: [-0.963098, 0.650848] mean=0.012088 n=1024
@@ -150,12 +149,11 @@ C21: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
   numpy_ref vs taichi_cpu: max_rel_error=1.9803 — EXCEEDS 5%
   FAIL: no pair within 5% threshold
 
-=== 17 passed, 4 failed (21 cross-checked out of 21 total) ===
+=== 16 passed, 5 failed (21 cross-checked out of 21 total) ===
 
 === DSL Backend Consistency (AC-3) ===
-  OK (8): C1/tilelang, C1/triton, C1/warp, C16/warp, C8/triton, C8/warp, C9/triton, C9/warp
-  FAILED (3):
-    C4/warp: output mismatch >5%
+  OK (9): C1/tilelang, C1/triton, C1/warp, C16/warp, C4/warp, C8/triton, C8/warp, C9/triton, C9/warp
+  FAILED (2):
     C6/warp: output mismatch >5%
     C7/warp: output mismatch >5%
-  Summary: 8/11 DSL backends consistent
+  Summary: 9/11 DSL backends consistent

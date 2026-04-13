@@ -70,6 +70,12 @@ def run(N=64, steps=200, backend="cuda"):
     step_fn()
     sync_fn()
 
+    # Re-initialize state after warmup so correctness harness sees fresh data
+    u_pred.fill(0.0)
+    u_new.fill(0.0)
+    init()
+    ti.sync()
+
     return step_fn, sync_fn, u
 
 
