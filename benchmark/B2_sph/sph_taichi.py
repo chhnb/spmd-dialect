@@ -25,17 +25,19 @@ def run(N, steps=1, backend="cuda"):
     grid_entries = ti.field(dtype=ti.i32, shape=(grid_x, grid_y, max_per_cell))
     step_counter = ti.field(dtype=ti.i32, shape=())
 
-    # Match CUDA srand(42) init
-    rng = np.random.RandomState(42)
-    pos_np = (rng.rand(N, 2).astype(np.float32) * DOMAIN)
+    # Init matching CUDA srand(42) exactly via libc rand()
+    import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from crand_init import sph_init
+    pos_np = sph_init(N, seed=42, domain=DOMAIN)
     pos.from_numpy(pos_np)
 
     @ti.func
-    def poly6(r2_val: ti.f32) -> ti.f32:
+    def poly6_unnorm(r2_val: ti.f32) -> ti.f32:
+        """Unnormalized poly6: (h²-r²)³. Matches CUDA sph_benchmark.cu."""
         result = ti.cast(0.0, ti.f32)
         if r2_val < H2:
-            x = (H2 - r2_val) / (H2 * H)
-            result = ti.cast(POLY6_COEFF, ti.f32) * x * x * x
+            d = H2 - r2_val
+            result = d * d * d
         return result
 
     @ti.kernel
@@ -53,6 +55,9 @@ def run(N, steps=1, backend="cuda"):
 
     @ti.kernel
     def compute_density():
+        # Match CUDA: unnormalized poly6 + 4/(pi*h^8) normalization
+        h8 = ti.cast(H2 * H2 * H2 * H2, ti.f32)
+        norm = 4.0 / (3.14159265 * h8)
         for p in pos:
             pi = pos[p]
             ci = ti.cast(pi[0] / cell_size, ti.i32)
@@ -67,8 +72,8 @@ def run(N, steps=1, backend="cuda"):
                             q = grid_entries[ni, nj, k]
                             diff = pi - pos[q]
                             r2 = diff.dot(diff)
-                            density += poly6(r2)
-            rho[p] = density
+                            density += ti.cast(MASS, ti.f32) * poly6_unnorm(r2)
+            rho[p] = density * norm
 
     @ti.kernel
     def jitter_positions(step_val: ti.i32):

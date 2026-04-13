@@ -47,9 +47,10 @@ def integrate_kernel(m: NBodyMesh):
     pos[i] = pos[i] + vel[i] * dt
 
 def run(N, steps=1, backend="cuda"):
-    # Match CUDA srand(42) init
-    rng = np.random.RandomState(42)
-    pos_np = (rng.rand(N, 3).astype(np.float32) * 2 - 1)
+    # Init matching CUDA srand(42) exactly via libc rand()
+    import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from crand_init import nbody_init
+    pos_np = nbody_init(N, seed=42)
 
     mesh = NBodyMesh()
     mesh.pos = wp.array(pos_np, dtype=wp.vec3, device=backend)

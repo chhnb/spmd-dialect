@@ -1,6 +1,7 @@
 """SPH density computation — Warp.
-Aligned with sph_benchmark.cu: H=0.05, DOMAIN=1.0, srand(42) init,
-3 kernels/step: build_grid + compute_density + jitter_positions."""
+Aligned with sph_benchmark.cu: H=0.05, DOMAIN=1.0, libc srand(42) init,
+3 kernels/step: build_grid + compute_density + jitter_positions.
+Uses unnormalized poly6 + 4/(pi*h^8) normalization matching CUDA."""
 import numpy as np
 import warp as wp
 
@@ -8,7 +9,7 @@ H = 0.05
 H2 = H * H
 DOMAIN = 1.0
 DT_SPH = 0.0001
-POLY6_COEFF = 315.0 / (64.0 * np.pi)
+MASS = 1.0
 
 
 @wp.struct
@@ -22,12 +23,6 @@ class SPHMesh:
     max_per_cell: int
     N: int
     cell_size: float
-
-
-@wp.kernel
-def clear_grid_kernel(gc: wp.array2d(dtype=int)):
-    i, j = wp.tid()
-    gc[i, j] = 0
 
 
 @wp.kernel
@@ -64,9 +59,11 @@ def compute_density_kernel(m: SPHMesh):
                             diff = pi - m.pos[q]
                             r2 = wp.dot(diff, diff)
                             if r2 < H2:
-                                x = (H2 - r2) / (H2 * H)
-                                density += POLY6_COEFF * x * x * x
-        m.rho[p] = density
+                                d = H2 - r2
+                                density += MASS * d * d * d
+        # Normalize: 4/(pi*h^8) matching CUDA
+        h8 = H2 * H2 * H2 * H2
+        m.rho[p] = density * 4.0 / (3.14159265 * h8)
 
 
 @wp.kernel
@@ -86,8 +83,9 @@ def run(N, steps=1, backend="cuda"):
     grid_y = int(DOMAIN / cell_size)
     max_per_cell = 64
 
-    rng = np.random.RandomState(42)
-    pos_np = (rng.rand(N, 2).astype(np.float32) * DOMAIN)
+    import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from crand_init import sph_init
+    pos_np = sph_init(N, seed=42, domain=DOMAIN)
 
     mesh = SPHMesh()
     mesh.pos = wp.array(pos_np, dtype=wp.vec2, device=backend)
@@ -103,7 +101,9 @@ def run(N, steps=1, backend="cuda"):
 
     def step_fn():
         for _ in range(steps):
-            wp.launch(clear_grid_kernel, dim=(grid_x, grid_y), inputs=[mesh.grid_count], device=backend)
+            # Clear grid via fill (not a separate kernel launch)
+            mesh.grid_count.zero_()
+            # 3 kernels matching CUDA: build_grid + compute_density + jitter
             wp.launch(build_grid_kernel, dim=N, inputs=[mesh], device=backend)
             wp.launch(compute_density_kernel, dim=N, inputs=[mesh], device=backend)
             wp.launch(jitter_kernel, dim=N, inputs=[mesh.pos, N, step_val[0]], device=backend)

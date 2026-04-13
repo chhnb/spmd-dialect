@@ -15,10 +15,10 @@ def run(N, steps=1, backend="cuda"):
     vel = ti.Vector.field(3, dtype=ti.f32, shape=N)
     acc = ti.Vector.field(3, dtype=ti.f32, shape=N)
 
-    # Deterministic init matching CUDA srand(42)
-    rng = np.random.RandomState(42)
-    pos_np = (rng.rand(N, 3).astype(np.float32) * 2 - 1)
-    vel_np = np.zeros((N, 3), dtype=np.float32)
+    # Init matching CUDA srand(42) exactly via libc rand()
+    import sys, os; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from crand_init import nbody_init
+    pos_np = nbody_init(N, seed=42)
 
     @ti.kernel
     def init():
