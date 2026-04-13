@@ -129,11 +129,17 @@ def parse_cuda(output):
         # [N] Description: Y.Y us/step
         m = re.search(r'\[\d+\]\s+(.+?):\s+([\d.]+)\s*us/step', line)
         if m: results.append((m.group(1).strip(), float(m.group(2)))); continue
-        # N/A or SKIPPED
-        m = re.search(r'\[([^\]]+)\]\s*(N/A|SKIPPED)', line)
-        if m: results.append((m.group(1).strip(), None)); continue
-        m = re.search(r'\[\d+\]\s+(.+?):\s*(N/A|SKIPPED)', line)
-        if m: results.append((m.group(1).strip(), None)); continue
+        # N/A or SKIPPED — capture reason from the line
+        m = re.search(r'\[([^\]]+)\]\s*(N/A|SKIPPED)\s*(.*)', line)
+        if m:
+            reason = m.group(3).strip("() ") if m.group(3) else ""
+            results.append((m.group(1).strip(), f"N/A ({reason})" if reason else "N/A (no reason given)"))
+            continue
+        m = re.search(r'\[\d+\]\s+(.+?):\s*(N/A|SKIPPED)\s*(.*)', line)
+        if m:
+            reason = m.group(3).strip("() ") if m.group(3) else ""
+            results.append((m.group(1).strip(), f"N/A ({reason})" if reason else "N/A (no reason given)"))
+            continue
         # GPU compute
         m = re.search(r'GPU.*?([\d.]+)\s*us/step', line)
         if m and ('compute' in line.lower() or 'total' in line.lower()):
@@ -157,7 +163,10 @@ def parse_overhead_solutions(output):
             smap = heat_steps if kernel=="Heat2D" else gs_steps
             st = smap.get(sz, 100)
             for name,val in [("Sync",sync),("Async",asyn),("Graph",graph),("Persistent",pers)]:
-                us = None if val=="N/A" else float(val)
+                if val == "N/A":
+                    us = "N/A (grid exceeds cooperative launch limit)"
+                else:
+                    us = float(val)
                 rows.append((cid, f"{sz}x{sz}", name, us, st))
     return rows
 
@@ -186,15 +195,17 @@ def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_pre
         rows = []
         seen_strats = set()
         for strat, us in timings:
-            if us is not None and compute is not None and us > 0:
+            is_na = isinstance(us, str) and us.startswith("N/A")
+            if not is_na and us is not None and compute is not None and us > 0:
                 oh = f"{max(0,(us-compute)/us*100):.1f}"
-            elif us is not None and compute is None:
-                oh = "N/A"  # no GPU compute baseline available for this binary
+            elif not is_na and us is not None and compute is None:
+                oh = "N/A"
             else:
                 oh = ""
+            median_val = us if is_na else (f"{us:.2f}" if us else "N/A")
             rows.append({"case":CN[case_id],"strategy":f"{strategy_prefix}_{strat}","gpu":gpu,
                         "problem_size":size_label,"steps":steps_val,
-                        "median_us":f"{us:.2f}" if us else "N/A",
+                        "median_us":median_val,
                         "min_us":"","max_us":"","overhead_pct":oh})
             seen_strats.add(strat)
         # Ensure all 4 expected CUDA strategies have a row (AC-1: no silent skips)
@@ -459,17 +470,20 @@ def main():
             # Group by (case, size) to find Async as GPU-compute baseline
             async_baseline = {}
             for cid, sz, strat, us, st in parsed:
-                if strat == "Async" and us is not None:
+                is_na = isinstance(us, str) and str(us).startswith("N/A")
+                if strat == "Async" and not is_na and us is not None:
                     async_baseline[(cid, sz)] = us
             for cid, sz, strat, us, st in parsed:
                 if cid not in ids: continue
+                is_na = isinstance(us, str) and str(us).startswith("N/A")
                 oh = ""
                 compute = async_baseline.get((cid, sz))
-                if us is not None and compute is not None and us > 0:
+                if not is_na and us is not None and compute is not None and us > 0:
                     oh = f"{max(0,(us-compute)/us*100):.1f}"
+                median_val = us if is_na else (f"{us:.2f}" if us else "N/A")
                 all_rows.append({"case":CN[cid],"strategy":f"CUDA_{strat}","gpu":gpu,
                                 "problem_size":sz,"steps":str(st),
-                                "median_us":f"{us:.2f}" if us else "N/A",
+                                "median_us":median_val,
                                 "min_us":"","max_us":"","overhead_pct":oh})
             print(f"  {len([r for r in all_rows if r['case'] in ('Heat2D','GrayScott')])} entries")
 
