@@ -150,23 +150,32 @@ def plot2(data, od):
             line += f"{cr.get(s,'—'):>14s}x" if s in cr else f"{'—':>15s}"
         print(line)
 
-    # Generate PNG
+    # Generate actual heatmap PNG using imshow
     plt, has_mpl = try_matplotlib()
     if has_mpl and rows:
+        import numpy as np
         cases_sorted = sorted(set(r["case"] for r in rows), key=lambda c: KERN.get(c,0))
         strats_list = sorted(set(r["strategy"] for r in rows))
-        fig, ax = plt.subplots(figsize=(14, 6))
-        width = 0.8 / max(len(strats_list), 1)
-        x = range(len(cases_sorted))
-        for i, strat in enumerate(strats_list):
-            vals = [float(next((r["speedup_vs_sync"] for r in rows if r["case"]==c and r["strategy"]==strat), 0)) for c in cases_sorted]
-            ax.bar([xi+i*width for xi in x], vals, width, label=strat)
-        ax.set_ylabel("Speedup vs CUDA Sync")
-        ax.set_title("Strategy Speedup Heatmap")
-        ax.set_xticks([xi+width*len(strats_list)/2 for xi in x])
-        ax.set_xticklabels(cases_sorted, rotation=45, ha='right', fontsize=6)
-        ax.axhline(y=1.0, color='black', linestyle='--', alpha=0.3)
-        ax.legend(fontsize=6, ncol=3)
+        matrix = np.zeros((len(strats_list), len(cases_sorted)))
+        for r in rows:
+            si = strats_list.index(r["strategy"]) if r["strategy"] in strats_list else -1
+            ci = cases_sorted.index(r["case"]) if r["case"] in cases_sorted else -1
+            if si >= 0 and ci >= 0:
+                matrix[si, ci] = float(r["speedup_vs_sync"])
+        fig, ax = plt.subplots(figsize=(16, 8))
+        im = ax.imshow(matrix, aspect='auto', cmap='RdYlGn', vmin=0, vmax=max(3, matrix.max()))
+        ax.set_xticks(range(len(cases_sorted)))
+        ax.set_xticklabels(cases_sorted, rotation=45, ha='right', fontsize=7)
+        ax.set_yticks(range(len(strats_list)))
+        ax.set_yticklabels(strats_list, fontsize=7)
+        ax.set_title("Speedup vs CUDA Sync (green=faster)")
+        for si in range(len(strats_list)):
+            for ci in range(len(cases_sorted)):
+                v = matrix[si, ci]
+                if v > 0:
+                    ax.text(ci, si, f"{v:.1f}x", ha='center', va='center', fontsize=5,
+                           color='white' if v > 2 else 'black')
+        fig.colorbar(im, ax=ax, label="Speedup", shrink=0.6)
         plt.tight_layout()
         png_path = os.path.join(od, "speedup_heatmap.png")
         plt.savefig(png_path, dpi=150)
@@ -228,6 +237,24 @@ def plot3(data, od):
     write_csv(os.path.join(od,"dsl_decomposition.csv"), rows,
               ["case","problem_size","gpu_compute_us","cuda_sync_us","taichi_us","warp_us","triton_us"])
 
+    plt, has_mpl = try_matplotlib()
+    if has_mpl and rows:
+        cases = sorted(set(r["case"] for r in rows), key=lambda c: KERN.get(c,0))
+        fig, ax = plt.subplots(figsize=(12, 6))
+        x = range(len(cases))
+        for col, label in [("gpu_compute_us","GPU compute"),("cuda_sync_us","CUDA Sync"),("taichi_us","Taichi"),("warp_us","Warp")]:
+            vals = [float(next((r[col] for r in rows if r["case"]==c and r[col]), 0)) for c in cases]
+            ax.bar(x, vals, label=label, alpha=0.7)
+        ax.set_ylabel("Time (us/step)")
+        ax.set_title("DSL Overhead Decomposition")
+        ax.set_xticks(x)
+        ax.set_xticklabels(cases, rotation=45, ha='right', fontsize=7)
+        ax.legend()
+        plt.tight_layout()
+        png = os.path.join(od, "dsl_decomposition.png")
+        plt.savefig(png, dpi=150); plt.close()
+        print(f"  Plot: {png}")
+
 
 def plot4(data, od):
     """Size scaling: overhead% across sizes."""
@@ -259,6 +286,28 @@ def plot4(data, od):
                     rows.append({"case":case,"problem_size":size,"strategy":s,"overhead_pct":f"{v:.1f}"})
     write_csv(os.path.join(od,"size_scaling.csv"), rows,
               ["case","problem_size","strategy","overhead_pct"])
+
+    plt, has_mpl = try_matplotlib()
+    if has_mpl and rows:
+        import numpy as np
+        cases = sorted(set(r["case"] for r in rows), key=lambda c: KERN.get(c,0))[:12]  # top 12
+        fig, ax = plt.subplots(figsize=(12, 5))
+        for case in cases:
+            cr = [(size_sort_key(r["problem_size"]), float(r["overhead_pct"]))
+                  for r in rows if r["case"]==case and r["strategy"]=="CUDA_Sync"]
+            if cr:
+                cr.sort()
+                ax.plot([c[0] for c in cr], [c[1] for c in cr], 'o-', label=case, markersize=4)
+        ax.set_xlabel("Problem Size")
+        ax.set_ylabel("Overhead % (CUDA Sync)")
+        ax.set_title("Overhead vs Problem Size")
+        ax.set_xscale('log')
+        ax.legend(fontsize=6, ncol=3)
+        ax.grid(alpha=0.3)
+        plt.tight_layout()
+        png = os.path.join(od, "size_scaling.png")
+        plt.savefig(png, dpi=150); plt.close()
+        print(f"  Plot: {png}")
 
 
 def main():
