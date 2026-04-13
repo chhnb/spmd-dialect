@@ -47,6 +47,8 @@ def run(N, steps=1, backend="cuda"):
     mesh.N = N
     mesh.coeff = coeff
 
+    h_out = wp.array(h_np, dtype=float, device=backend)  # persistent output
+
     def step():
         for _ in range(steps):
             wp.launch(wave_step_kernel, dim=(N, N), inputs=[mesh], device=backend)
@@ -55,7 +57,9 @@ def run(N, steps=1, backend="cuda"):
             mesh.h_prev = mesh.h_curr
             mesh.h_curr = mesh.h_next
             mesh.h_next = tmp
+        # Export current to persistent output
+        wp.launch(copy_kernel, dim=(N, N), inputs=[mesh.h_curr, h_out], device=backend)
 
     def sync():
         wp.synchronize_device(backend)
-    return step, sync, mesh.h_curr
+    return step, sync, h_out

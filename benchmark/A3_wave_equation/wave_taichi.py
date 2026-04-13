@@ -10,6 +10,7 @@ def run(N, steps=1, backend="cuda"):
     h0 = ti.field(dtype=ti.f32, shape=(N, N))
     h1 = ti.field(dtype=ti.f32, shape=(N, N))
     h2 = ti.field(dtype=ti.f32, shape=(N, N))
+    h_out = ti.field(dtype=ti.f32, shape=(N, N))  # persistent output
 
     @ti.kernel
     def init():
@@ -23,16 +24,21 @@ def run(N, steps=1, backend="cuda"):
             lap = (h_curr[i-1,j] + h_curr[i+1,j] + h_curr[i,j-1] + h_curr[i,j+1] - 4.0*h_curr[i,j])
             h_next[i,j] = 2.0 * h_curr[i,j] - h_prev[i,j] + coeff * lap
 
+    @ti.kernel
+    def copy_field(src: ti.template(), dst: ti.template()):
+        for i, j in src:
+            dst[i, j] = src[i, j]
+
     init()
 
-    # Pointer rotation state: [prev, curr, next] indices into (h0, h1, h2)
     bufs = [h0, h1, h2]
     rot = [0, 1, 2]  # prev=h0, curr=h1, next=h2
 
     def step():
         for _ in range(steps):
             wave_step_01(bufs[rot[0]], bufs[rot[1]], bufs[rot[2]])
-            # Rotate: prev=old_curr, curr=old_next, next=old_prev
             rot[0], rot[1], rot[2] = rot[1], rot[2], rot[0]
+        # Export current buffer to persistent output
+        copy_field(bufs[rot[1]], h_out)
 
-    return step, ti.sync, h1
+    return step, ti.sync, h_out

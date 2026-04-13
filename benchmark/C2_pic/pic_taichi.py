@@ -20,10 +20,16 @@ def run(n_particles=16384, n_grid=512, steps=1, backend="cuda"):
 
     @ti.kernel
     def init():
-        # Uniform particle distribution matching CUDA
+        # Match CUDA: uniform + sinusoidal perturbation, thermal velocity
+        Ng_len = ti.cast(Ng, ti.f32) * DX
+        PI2 = 6.283185307
         for p in xp:
-            xp[p] = (ti.cast(p, ti.f32) + 0.5) * (ti.cast(Ng, ti.f32) * DX / ti.cast(Np, ti.f32))
-            vp[p] = 0.0
+            base = (ti.cast(p, ti.f32) + 0.5) * Ng_len / ti.cast(Np, ti.f32)
+            x = base + 0.5 * ti.sin(PI2 * base / Ng_len)
+            if x < 0.0: x += Ng_len
+            if x >= Ng_len: x -= Ng_len
+            xp[p] = x
+            vp[p] = 0.1 * ti.sin(PI2 * ti.cast(p, ti.f32) / ti.cast(Np, ti.f32))
 
     @ti.kernel
     def deposit():
