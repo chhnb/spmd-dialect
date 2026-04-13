@@ -38,6 +38,8 @@ elif isinstance(o, np.ndarray):
     a = o
 elif hasattr(o, 'to_numpy'):
     a = o.to_numpy()
+elif hasattr(o, 'numpy'):
+    a = o.numpy()
 else:
     a = np.array(o)
 a = a.flatten().astype(np.float32)
@@ -175,6 +177,10 @@ def main():
 
     print("=== Cross-Framework Correctness Validation ===\n")
     passed = 0; failed = 0
+    # Track per-backend success/failure for DSL consistency reporting (AC-3)
+    dsl_backends = {"warp", "triton"}
+    dsl_ok = []    # (case, backend) tuples that ran and matched
+    dsl_fail = []  # (case, backend, reason) tuples that errored or mismatched
 
     for cid in ids:
         if cid not in CASES: continue
@@ -187,7 +193,9 @@ def main():
             r = run_impl(subdir, mod, call, fw)
             results[fw] = r
             if "error" in r:
-                print(f"  {fw}: ERROR — {r['error'][:120]}")
+                print(f"  {fw}: ERROR — {r['error'][:200]}")
+                if fw in dsl_backends:
+                    dsl_fail.append((cid, fw, r["error"][:120]))
             else:
                 print(f"  {fw}: [{r['min']:.6f}, {r['max']:.6f}] mean={r['mean']:.6f} n={r['n']}")
 
@@ -218,6 +226,18 @@ def main():
             else:
                 print(f"  FAIL: no pair within 5% threshold")
                 failed += 1
+
+            # Track DSL backend consistency: did each DSL backend match at least one reference?
+            for fw in fws:
+                if fw in dsl_backends:
+                    matched = any(
+                        ok for (a, b, _, ok) in all_comparisons
+                        if (a == fw or b == fw)
+                    )
+                    if matched:
+                        dsl_ok.append((cid, fw))
+                    else:
+                        dsl_fail.append((cid, fw, "output mismatch >5%"))
         elif len(fws) == 1:
             r = results[fws[0]]
             if r.get("n", 0) > 0:
@@ -240,7 +260,21 @@ def main():
     cross_checked = passed + failed
     total_cases = len(ids)
     print(f"=== {passed} passed, {failed} failed ({cross_checked} cross-checked out of {total_cases} total) ===")
-    return 0 if failed == 0 else 1
+
+    # DSL Backend Consistency Report (AC-3 evidence)
+    if dsl_ok or dsl_fail:
+        print(f"\n=== DSL Backend Consistency (AC-3) ===")
+        if dsl_ok:
+            print(f"  OK ({len(dsl_ok)}): " + ", ".join(f"{c}/{fw}" for c, fw in sorted(dsl_ok)))
+        if dsl_fail:
+            print(f"  FAILED ({len(dsl_fail)}):")
+            for c, fw, reason in sorted(dsl_fail):
+                print(f"    {c}/{fw}: {reason}")
+        n_total = len(dsl_ok) + len(dsl_fail)
+        print(f"  Summary: {len(dsl_ok)}/{n_total} DSL backends consistent")
+    if failed > 0 or dsl_fail:
+        return 1
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main())
