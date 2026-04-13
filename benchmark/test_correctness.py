@@ -111,7 +111,7 @@ for cid, subdir, mod, call in [
     ("C18", ".", "doitgen_taichi", "run(N=32,steps=1,backend='cuda')"),
     ("C19", ".", "lu_taichi", "run(N=64,steps=1,backend='cuda')"),
     ("C20", ".", "adi_taichi", "run(N=64,steps=3,backend='cuda')"),
-    ("C21", ".", "gramschmidt_taichi", "run(N=2,steps=1,backend='cuda')"),
+    ("C21", ".", "gramschmidt_taichi", "run(N=32,steps=1,backend='cuda')"),
 ]:
     CASES[cid] = [("taichi_cuda", subdir, mod, call)]
 
