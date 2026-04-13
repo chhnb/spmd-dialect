@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """First-divergence diagnostic for AC-6 failing cases.
 
-Runs each case step-by-step comparing GPU vs CPU after each checkpoint
-to identify the first step where divergence exceeds 5%.
+Runs each case at dense step checkpoints comparing GPU vs CPU (and NumPy
+where available) to identify the step range where divergence exceeds 5%.
+Checkpoints are dense around known transition regions (NaN onset, divergence).
 
 Usage:
-    python divergence_diagnostic.py [--cases C11 C14 C18 C21]
+    python divergence_diagnostic.py [--cases C11 C14 C18 C21] [--sparse]
 """
 import subprocess, tempfile, numpy as np, argparse, os
 
@@ -17,26 +18,30 @@ CASES = {
         "mod": "fdtd2d_taichi",
         "call": "N={N},steps={st},backend='{backend}'",
         "N": 64,
-        "checkpoints": list(range(1, 101)),  # every step 1-100
+        # Dense around NaN transition (step 50-100)
+        "checkpoints": list(range(1, 11)) + list(range(15, 55, 5)) + list(range(55, 101)),
     },
     "C14": {
         "mod": "pic_taichi",
         "subdir": "C2_pic",
         "call": "n_particles={N},n_grid=128,steps={st},backend='{backend}'",
         "N": 1024,
-        "checkpoints": list(range(1, 101)),
+        # Dense around divergence (step 50-100)
+        "checkpoints": list(range(1, 11)) + list(range(15, 55, 5)) + list(range(55, 101)),
     },
     "C18": {
         "mod": "doitgen_taichi",
         "call": "N={N},steps={st},backend='{backend}'",
         "N": 32,
-        "checkpoints": list(range(1, 101)),
+        # Dense around NaN transition (step 20-50)
+        "checkpoints": list(range(1, 11)) + list(range(15, 55, 5)) + list(range(45, 55)),
     },
     "C21": {
         "mod": "gramschmidt_taichi",
         "call": "N={N},steps={st},backend='{backend}'",
         "N": 32,
-        "checkpoints": list(range(1, 101)),
+        # Dense at start (diverges at step 1)
+        "checkpoints": list(range(1, 11)) + [20, 50, 100],
         "numpy_ref": {
             "mod": "numpy_refs",
             "call": "run_gramschmidt(N={N},steps={st})",
