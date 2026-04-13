@@ -29,10 +29,13 @@ def run(N, steps=1, backend="cuda"):
     # Init
     @ti.kernel
     def init_data():
+        # Match CUDA doitgen_benchmark.cu: sinf/cosf bounded init
         for p, q, r in A:
-            A[p, q, r] = ti.cast((p * NQ + q) * NR + r, ti.f32) / ti.cast(NP * NQ * NR, ti.f32)
+            idx = ti.cast((p * NQ + q) * NR + r, ti.f32)
+            A[p, q, r] = ti.sin(idx * 0.001)
         for i, j in C4:
-            C4[i, j] = ti.cast(i * NR + j, ti.f32) / ti.cast(NR * NR, ti.f32)
+            idx = ti.cast(i * NR + j, ti.f32)
+            C4[i, j] = ti.cos(idx * 0.002)
 
     init_data()
 

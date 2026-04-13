@@ -154,15 +154,17 @@ def run_doitgen(N=32, steps=1):
     C4 = np.zeros((NR, NR), dtype=np.float32)
     A_out = np.zeros_like(A)
 
-    # Init A
+    # Init A — match CUDA doitgen_benchmark.cu: sinf(i*0.001)
     for p in range(NP):
         for q in range(NQ):
             for r in range(NR):
-                A[p, q, r] = ((p * NQ + q) * NR + r) / (NP * NQ * NR)
-    # Init C4
+                idx = float((p * NQ + q) * NR + r)
+                A[p, q, r] = np.float32(np.sin(idx * 0.001))
+    # Init C4 — match CUDA: cosf(i*0.002)
     for i in range(NR):
         for j in range(NR):
-            C4[i, j] = (i * NR + j) / (NR * NR)
+            idx = float(i * NR + j)
+            C4[i, j] = np.float32(np.cos(idx * 0.002))
 
     for _ in range(steps):
         for r in range(NR):

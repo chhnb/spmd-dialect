@@ -1,18 +1,17 @@
 """N-body (direct all-pairs) — Warp.
-Adapted from warp/examples/tile/example_tile_nbody.py
-"""
+Aligned with nbody_benchmark.cu: srand(42) positions in [-1,1]^3,
+unit mass, EPS2=0.01, DT=0.001."""
 import numpy as np
 import warp as wp
 
-G = 1.0
-SOFTENING = 1e-5
+EPS2 = 0.01  # softening squared, matching CUDA
 
 
 @wp.struct
 class NBodyMesh:
     pos: wp.array(dtype=wp.vec3)
     vel: wp.array(dtype=wp.vec3)
-    force: wp.array(dtype=wp.vec3)
+    acc: wp.array(dtype=wp.vec3)
     dt: float
     N: int
 
@@ -20,47 +19,43 @@ class NBodyMesh:
 @wp.kernel
 def compute_force_kernel(m: NBodyMesh):
     pos = m.pos
-    force = m.force
+    acc = m.acc
     N = m.N
     i = wp.tid()
     if i >= N:
         return
     pi = pos[i]
-    f = wp.vec3(0.0, 0.0, 0.0)
+    a = wp.vec3(0.0, 0.0, 0.0)
     for j in range(N):
-        if j != i:
-            diff = pos[j] - pi
-            dist = wp.length(diff) + SOFTENING
-            f = f + G / (dist * dist * dist) * diff
-    force[i] = f
+        diff = pos[j] - pi
+        r2 = wp.dot(diff, diff) + EPS2
+        inv_r3 = 1.0 / (r2 * wp.sqrt(r2))
+        a = a + diff * inv_r3  # unit mass
+    acc[i] = a
 
 @wp.kernel
 def integrate_kernel(m: NBodyMesh):
     pos = m.pos
     vel = m.vel
-    force = m.force
+    acc = m.acc
     dt = m.dt
     N = m.N
     i = wp.tid()
     if i >= N:
         return
-    vel[i] = vel[i] + force[i] * dt
+    vel[i] = vel[i] + acc[i] * dt
     pos[i] = pos[i] + vel[i] * dt
 
 def run(N, steps=1, backend="cuda"):
-    dt = 0.001
-    # Deterministic init matching Taichi: golden-ratio quasi-random
-    g = 1.618033988749895
-    i = np.arange(N, dtype=np.float32)
-    pos_np = np.stack([(i * g) % 1.0 - 0.5,
-                       (i * 7 * g) % 1.0 - 0.5,
-                       (i * 13 * g) % 1.0 - 0.5], axis=1).astype(np.float32)
+    # Match CUDA srand(42) init
+    rng = np.random.RandomState(42)
+    pos_np = (rng.rand(N, 3).astype(np.float32) * 2 - 1)
 
     mesh = NBodyMesh()
     mesh.pos = wp.array(pos_np, dtype=wp.vec3, device=backend)
     mesh.vel = wp.zeros(N, dtype=wp.vec3, device=backend)
-    mesh.force = wp.zeros(N, dtype=wp.vec3, device=backend)
-    mesh.dt = dt
+    mesh.acc = wp.zeros(N, dtype=wp.vec3, device=backend)
+    mesh.dt = 0.001
     mesh.N = N
 
     def step_fn():

@@ -1,44 +1,42 @@
 """SPH density computation — Taichi.
-Adapted from taichi/examples/simulation/pbf2d.py
-"""
+Aligned with sph_benchmark.cu: H=0.05, DOMAIN=1.0, srand(42) init,
+3 kernels/step: build_grid + compute_density + jitter_positions."""
 import taichi as ti
 import numpy as np
 
-KERNEL_RADIUS = 1.0
-POLY6_COEFF = 315.0 / (64.0 * np.pi)  # 2D poly6 coefficient
+H = 0.05
+H2 = H * H
+DOMAIN = 1.0
+MASS = 1.0
+DT_SPH = 0.0001
+POLY6_COEFF = 315.0 / (64.0 * np.pi)
 
 def run(N, steps=1, backend="cuda"):
     ti.init(arch=ti.cuda if backend == "cuda" else ti.cpu, default_fp=ti.f32)
 
-    h = KERNEL_RADIUS
-    grid_size = 64
-    cell_size = h
-    max_neighbors = 64
+    cell_size = H
+    grid_x = int(DOMAIN / cell_size)
+    grid_y = int(DOMAIN / cell_size)
+    max_per_cell = 64
 
     pos = ti.Vector.field(2, dtype=ti.f32, shape=N)
-    vel = ti.Vector.field(2, dtype=ti.f32, shape=N)
     rho = ti.field(dtype=ti.f32, shape=N)
+    grid_count = ti.field(dtype=ti.i32, shape=(grid_x, grid_y))
+    grid_entries = ti.field(dtype=ti.i32, shape=(grid_x, grid_y, max_per_cell))
+    step_counter = ti.field(dtype=ti.i32, shape=())
 
-    # Grid for neighbor search
-    grid_count = ti.field(dtype=ti.i32, shape=(grid_size, grid_size))
-    grid_entries = ti.field(dtype=ti.i32, shape=(grid_size, grid_size, 64))
+    # Match CUDA srand(42) init
+    rng = np.random.RandomState(42)
+    pos_np = (rng.rand(N, 2).astype(np.float32) * DOMAIN)
+    pos.from_numpy(pos_np)
 
     @ti.func
-    def poly6(r, h):
-        result = 0.0
-        if r < h:
-            x = (h * h - r * r) / (h * h * h)
-            result = POLY6_COEFF * x * x * x
+    def poly6(r2_val: ti.f32) -> ti.f32:
+        result = ti.cast(0.0, ti.f32)
+        if r2_val < H2:
+            x = (H2 - r2_val) / (H2 * H)
+            result = ti.cast(POLY6_COEFF, ti.f32) * x * x * x
         return result
-
-    @ti.kernel
-    def init():
-        for i in pos:
-            g = 1.618033988749895
-            pos[i] = ti.Vector([
-                (ti.cast(i, ti.f32) * g % 1.0) * grid_size * 0.5 + grid_size * 0.1,
-                (ti.cast(i * 7, ti.f32) * g % 1.0) * grid_size * 0.5 + grid_size * 0.1,
-            ])
 
     @ti.kernel
     def build_grid():
@@ -47,10 +45,10 @@ def run(N, steps=1, backend="cuda"):
         for p in pos:
             ci = ti.cast(pos[p][0] / cell_size, ti.i32)
             cj = ti.cast(pos[p][1] / cell_size, ti.i32)
-            ci = ti.max(0, ti.min(ci, grid_size - 1))
-            cj = ti.max(0, ti.min(cj, grid_size - 1))
+            ci = ti.max(0, ti.min(ci, grid_x - 1))
+            cj = ti.max(0, ti.min(cj, grid_y - 1))
             idx = ti.atomic_add(grid_count[ci, cj], 1)
-            if idx < 64:
+            if idx < max_per_cell:
                 grid_entries[ci, cj, idx] = p
 
     @ti.kernel
@@ -59,23 +57,35 @@ def run(N, steps=1, backend="cuda"):
             pi = pos[p]
             ci = ti.cast(pi[0] / cell_size, ti.i32)
             cj = ti.cast(pi[1] / cell_size, ti.i32)
-            density = 0.0
+            density = ti.cast(0.0, ti.f32)
             for di in range(-1, 2):
                 for dj in range(-1, 2):
                     ni = ci + di
                     nj = cj + dj
-                    if ni >= 0 and ni < grid_size and nj >= 0 and nj < grid_size:
+                    if ni >= 0 and ni < grid_x and nj >= 0 and nj < grid_y:
                         for k in range(grid_count[ni, nj]):
                             q = grid_entries[ni, nj, k]
-                            dist = (pi - pos[q]).norm()
-                            density += poly6(dist, h)
+                            diff = pi - pos[q]
+                            r2 = diff.dot(diff)
+                            density += poly6(r2)
             rho[p] = density
 
-    init()
+    @ti.kernel
+    def jitter_positions(step_val: ti.i32):
+        for i in pos:
+            dx = ti.sin(ti.cast(i + step_val * 7, ti.f32)) * ti.cast(DT_SPH, ti.f32)
+            dy = ti.cos(ti.cast(i + step_val * 13, ti.f32)) * ti.cast(DT_SPH, ti.f32)
+            x = ti.min(ti.max(pos[i][0] + dx, 0.001), ti.cast(DOMAIN, ti.f32) - 0.001)
+            y = ti.min(ti.max(pos[i][1] + dy, 0.001), ti.cast(DOMAIN, ti.f32) - 0.001)
+            pos[i] = ti.Vector([x, y])
+
+    step_counter[None] = 0
 
     def step_fn():
         for _ in range(steps):
             build_grid()
             compute_density()
+            jitter_positions(step_counter[None])
+            step_counter[None] += 1
 
     return step_fn, ti.sync, rho
