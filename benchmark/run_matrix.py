@@ -553,6 +553,42 @@ def main():
             if rows: print(f"  EBISU: {len(rows)}")
 
     if not a.dry_run and all_rows:
+        # Normalize problem_size labels: strip N=, x dimensions, p suffix
+        def norm_size(s):
+            s = s.strip()
+            if s.startswith("N="): s = s[2:]
+            if s.endswith("p"): s = s[:-1]
+            # For multi-dim like "4096x4096" or "256x256x256", keep first number
+            if "x" in s: s = s.split("x")[0]
+            return s
+        for row in all_rows:
+            row["problem_size"] = norm_size(row["problem_size"])
+
+        # Fill overhead_pct for DSL/Kokkos/PERKS rows using CUDA compute baseline
+        cuda_compute = {}  # (case, size) -> gpu_compute_us
+        for row in all_rows:
+            if row["strategy"].startswith("CUDA_") and row["overhead_pct"] not in ("", "N/A"):
+                try:
+                    us = float(row["median_us"])
+                    oh = float(row["overhead_pct"])
+                    comp = us * (1 - oh / 100)
+                    key = (row["case"], row["problem_size"])
+                    if key not in cuda_compute or comp < cuda_compute[key]:
+                        cuda_compute[key] = comp
+                except (ValueError, TypeError):
+                    pass
+        for row in all_rows:
+            if not row["strategy"].startswith("CUDA_") and row["overhead_pct"] == "":
+                key = (row["case"], row["problem_size"])
+                if key in cuda_compute and row["median_us"] not in ("", "N/A"):
+                    try:
+                        us = float(row["median_us"])
+                        comp = cuda_compute[key]
+                        if us > 0:
+                            row["overhead_pct"] = f"{max(0,(us-comp)/us*100):.1f}"
+                    except (ValueError, TypeError):
+                        pass
+
         fields = ["case","strategy","gpu","problem_size","steps","median_us","min_us","max_us","overhead_pct"]
         with open(a.output, "w", newline="") as f:
             csv.DictWriter(f, fieldnames=fields).writeheader()
