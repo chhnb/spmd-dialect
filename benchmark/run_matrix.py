@@ -380,15 +380,17 @@ def run_tilelang(case_id, gpu, dry_run):
     """Run TileLang DSL for cases with TileLang implementations."""
     TILELANG_MAP = {
         "C1": ("A1_jacobi_2d","jacobi_tilelang","run(N={sz},steps={st},backend='cuda')",[(256,100),(4096,100)]),
-        "C8": ("F1_hydro_shallow_water","hydro_tilelang","run_real(steps={st},backend='cuda',mesh='{mesh}')",[("default",10)]),
-        "C9": ("F2_hydro_refactored","hydro_refactored_tilelang","run(steps={st},backend='cuda',mesh='{mesh}')",[("default",100)]),
+        "C8": ("F1_hydro_shallow_water","hydro_tilelang","run_real(steps={st},backend='cuda',mesh='{mesh}')",[("default",10),("20w",10)]),
+        "C9": ("F2_hydro_refactored","hydro_refactored_tilelang","run(steps={st},backend='cuda',mesh='{mesh}')",[("default",100),("20w",100)]),
     }
     if case_id not in TILELANG_MAP: return []
     subdir, mod, call_tpl, sizes = TILELANG_MAP[case_id]
     mod_dir = str(BD/subdir)
     rows = []
+    slm = {"default":{"C8":"6675","C9":"24020"},"20w":{"C8":"207234","C9":"207234"}}
     for sz, st in sizes:
         call = call_tpl.format(sz=sz, st=st, mesh=sz)
+        plabel = slm.get(str(sz),{}).get(case_id, str(sz))
         code = f"""
 import sys,time,os
 os.environ.setdefault('CUDA_HOME','/home/scratch.huanhuanc_gpu/spmd/cuda-toolkit')
@@ -410,14 +412,22 @@ print(f"R {{ts[5]:.2f}} {{ts[0]:.2f}} {{ts[9]:.2f}}")
             r = subprocess.run([PYTHON,"-c",code], capture_output=True, text=True, timeout=600, cwd=str(BD))
             m = re.search(r'R ([\d.]+) ([\d.]+) ([\d.]+)', r.stdout)
             if m:
-                slm = {"default":{"C8":"6675","C9":"24020"},"20w":{"C8":"207234","C9":"207234"}}
-                plabel = slm.get(str(sz),{}).get(case_id, str(sz))
                 rows.append({"case":CN[case_id],"strategy":"TileLang","gpu":gpu,
                             "problem_size":plabel,"steps":str(st),
                             "median_us":m.group(1),"min_us":m.group(2),"max_us":m.group(3),
                             "overhead_pct":""})
+            else:
+                # Emit N/A row with reason from stderr
+                reason = r.stderr.strip().split('\n')[-1][:80] if r.stderr else "unknown error"
+                rows.append({"case":CN[case_id],"strategy":"TileLang","gpu":gpu,
+                            "problem_size":plabel,"steps":str(st),
+                            "median_us":f"N/A ({reason})","min_us":"","max_us":"",
+                            "overhead_pct":"N/A"})
         except Exception as e:
-            print(f"    tilelang {case_id}: {e}")
+            rows.append({"case":CN[case_id],"strategy":"TileLang","gpu":gpu,
+                        "problem_size":plabel,"steps":str(st),
+                        "median_us":f"N/A ({e})","min_us":"","max_us":"",
+                        "overhead_pct":"N/A"})
     return rows
 
 

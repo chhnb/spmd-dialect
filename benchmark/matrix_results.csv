@@ -265,5 +265,7 @@ GramSchmidt,Taichi,NVIDIA A100 80GB PCIe,128,1,295200.38,293064.43,297250.17,100
 GramSchmidt,Taichi,NVIDIA A100 80GB PCIe,256,1,1216539.21,1209514.29,1239794.63,100.0
 Jacobi2D,TileLang,NVIDIA A100 80GB PCIe,256,100,22.87,22.64,24.26,66.9
 Jacobi2D,TileLang,NVIDIA A100 80GB PCIe,4096,100,186.29,186.12,186.43,0.0
-HydroF1,TileLang,NVIDIA A100 80GB PCIe,6675,10,N/A (TileLang JIT runtime crash during step_fn — F1 Osher solver too complex for TVM backend),,,N/A
-HydroF2,TileLang,NVIDIA A100 80GB PCIe,24020,100,N/A (TileLang JIT runtime crash during step_fn — F2 flux kernel TVM compilation failure),,,N/A
+HydroF1,TileLang,NVIDIA A100 80GB PCIe,6675,10,"N/A (ValueError: Kernel expected 5 inputs, but 10 are provided.)",,,N/A
+HydroF1,TileLang,NVIDIA A100 80GB PCIe,207234,10,"N/A (ValueError: Kernel expected 5 inputs, but 10 are provided.)",,,N/A
+HydroF2,TileLang,NVIDIA A100 80GB PCIe,24020,100,62.76,60.91,66.19,79.9
+HydroF2,TileLang,NVIDIA A100 80GB PCIe,207234,100,61.45,60.45,62.87,3.2

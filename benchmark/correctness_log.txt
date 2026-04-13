@@ -49,7 +49,7 @@ C6: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cpu vs warp: max_rel_error=2.02e-03 — OK
 
 C7: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
-  taichi_cuda: [509.295837, 2713.485596] mean=983.672269 n=512
+  taichi_cuda: [509.295837, 2713.485596] mean=983.672270 n=512
   taichi_cpu: [509.295837, 2713.479980] mean=983.671927 n=512
   warp: [509.295837, 2713.479736] mean=983.671892 n=512
   taichi_cuda vs taichi_cpu: max_rel_error=1.37e-05 — OK
@@ -77,10 +77,7 @@ C9: 5 implementation(s) [taichi_cuda, taichi_cpu, warp, triton, tilelang]
   taichi_cpu: [7.499997, 7.500002] mean=7.500000 n=24020
   warp: [7.499998, 7.500002] mean=7.500000 n=24020
   triton: [7.499997, 7.500002] mean=7.500000 n=24020
-  tilelang: ERROR — Traceback (most recent call last):
-  File "<string>", line 8, in <module>
-TypeError: run() got an unexpected keyword argument 'steps'
-
+  tilelang: ERROR — NaN=0 Inf=1748 in output (24020 elements)
   taichi_cuda vs taichi_cpu: max_rel_error=4.45e-07 — OK
   taichi_cuda vs warp: max_rel_error=4.45e-07 — OK
   taichi_cuda vs triton: max_rel_error=5.72e-07 — OK
@@ -116,7 +113,7 @@ C14: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
   numpy_ref: [0.016980, 127.920609] mean=63.837117 n=1024
   taichi_cpu: [0.016945, 127.920562] mean=63.837116 n=1024
   taichi_cuda vs numpy_ref: max_rel_error=2.70e-03 — OK
-  taichi_cuda vs taichi_cpu: max_rel_error=3.42e-08 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=3.34e-08 — OK
   numpy_ref vs taichi_cpu: max_rel_error=2.70e-03 — OK
 
 C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
@@ -172,7 +169,5 @@ C21: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
     C8/tilelang: Traceback (most recent call last):
   File "<string>", line 9, in <module>
   File "/home/scratch.huanhuanc_gpu/spmd/spmd-
-    C9/tilelang: Traceback (most recent call last):
-  File "<string>", line 8, in <module>
-TypeError: run() got an unexpected keyword arg
+    C9/tilelang: NaN=0 Inf=1748 in output (24020 elements)
   Summary: 10/13 DSL backends consistent

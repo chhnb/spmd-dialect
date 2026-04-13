@@ -230,7 +230,7 @@ def build_kernels(CELL, NE, DT_val, HM1_val, HM2_val):
     return flux_mod, update_mod
 
 
-def run(days=10, backend="cuda", mesh="default"):
+def run(days=10, backend="cuda", mesh="default", steps=None):
     """Run F2 hydro refactored solver on real mesh."""
     assert backend == "cuda", "TileLang requires CUDA"
     from mesh_loader import load_mesh
@@ -242,7 +242,7 @@ def run(days=10, backend="cuda", mesh="default"):
     HM2 = float(m["HM2"])
     DT = float(m["DT"])
     steps_per_day = int(m["steps_per_day"])
-    total_steps = steps_per_day * days
+    total_steps = steps if steps is not None else steps_per_day * days
 
     dev = "cuda"
     NAC_t = torch.from_numpy(m["NAC"].astype(np.int32)).to(dev)
