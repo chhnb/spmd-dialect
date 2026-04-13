@@ -18,6 +18,7 @@ class FluidMesh:
     div: wp.array2d(dtype=float)
     N: int
     dt: float
+    dt_N: float  # precomputed dt * N for exact Taichi match
 
 
 @wp.kernel
@@ -25,14 +26,19 @@ def advect_kernel(m: FluidMesh):
     u = m.u
     u_new = m.u_new
     N = m.N
-    dt = m.dt
+    dt_N = m.dt_N
     i, j = wp.tid()
     vel = u[i, j]
-    x = float(i) - dt * float(N) * vel[0]
-    y = float(j) - dt * float(N) * vel[1]
-    si = clamp_idx(int(x), 0, N - 1)
-    sj = clamp_idx(int(y), 0, N - 1)
-    u_new[i, j] = u[si, sj]
+    # Bilinear interpolation matching Taichi (Stam 1999 semi-Lagrangian)
+    x = wp.max(0.0, wp.min(float(i) - dt_N * vel[0], float(N - 1)))
+    y = wp.max(0.0, wp.min(float(j) - dt_N * vel[1], float(N - 1)))
+    i0 = int(wp.floor(x))
+    j0 = int(wp.floor(y))
+    i1 = wp.min(i0 + 1, N - 1)
+    j1 = wp.min(j0 + 1, N - 1)
+    sx = x - float(i0)
+    sy = y - float(j0)
+    u_new[i, j] = (1.0-sx)*(1.0-sy)*u[i0,j0] + sx*(1.0-sy)*u[i1,j0] + (1.0-sx)*sy*u[i0,j1] + sx*sy*u[i1,j1]
 
 @wp.kernel
 def divergence_kernel(m: FluidMesh):
@@ -91,6 +97,7 @@ def run(N, steps=1, jacobi_iters=50, backend="cuda"):
     mesh.div = wp.zeros((N, N), dtype=float, device=backend)
     mesh.N = N
     mesh.dt = dt
+    mesh.dt_N = dt * N  # precomputed for exact Taichi match
 
     dim = (N, N)
 

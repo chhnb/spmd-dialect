@@ -14,25 +14,30 @@ def run(N, steps=1, jacobi_iters=50, backend="cuda"):
     div = ti.field(dtype=ti.f32, shape=(N, N))  # divergence
 
     @ti.func
-    def sample_v(field: ti.template(), x: float, y: float) -> ti.math.vec2:
-        i = ti.max(0, ti.min(ti.cast(x, ti.i32), N - 1))
-        j = ti.max(0, ti.min(ti.cast(y, ti.i32), N - 1))
-        return field[i, j]
+    def sample_bilinear(field: ti.template(), x: float, y: float) -> ti.math.vec2:
+        # Bilinear interpolation (standard Stam 1999 semi-Lagrangian)
+        x = ti.max(0.0, ti.min(x, ti.cast(N - 1, ti.f32)))
+        y = ti.max(0.0, ti.min(y, ti.cast(N - 1, ti.f32)))
+        i0 = ti.cast(ti.floor(x), ti.i32)
+        j0 = ti.cast(ti.floor(y), ti.i32)
+        i1 = ti.min(i0 + 1, N - 1)
+        j1 = ti.min(j0 + 1, N - 1)
+        sx = x - ti.cast(i0, ti.f32)
+        sy = y - ti.cast(j0, ti.f32)
+        return (1-sx)*(1-sy)*field[i0,j0] + sx*(1-sy)*field[i1,j0] + (1-sx)*sy*field[i0,j1] + sx*sy*field[i1,j1]
 
     @ti.kernel
     def advect():
         for i, j in u:
             coord = ti.Vector([float(i), float(j)]) - dt * N * u[i, j]
-            u_new[i, j] = sample_v(u, coord[0], coord[1])
+            u_new[i, j] = sample_bilinear(u, coord[0], coord[1])
 
     @ti.kernel
     def divergence_step():
         for i, j in u_new:
-            vl = sample_v(u_new, float(i - 1), float(j))[0]
-            vr = sample_v(u_new, float(i + 1), float(j))[0]
-            vb = sample_v(u_new, float(i), float(j - 1))[1]
-            vt = sample_v(u_new, float(i), float(j + 1))[1]
-            div[i, j] = 0.5 * (vr - vl + vt - vb)
+            il = ti.max(i - 1, 0); ir = ti.min(i + 1, N - 1)
+            jl = ti.max(j - 1, 0); jr = ti.min(j + 1, N - 1)
+            div[i, j] = 0.5 * (u_new[ir, j][0] - u_new[il, j][0] + u_new[i, jr][1] - u_new[i, jl][1])
 
     @ti.kernel
     def pressure_jacobi():

@@ -90,7 +90,7 @@ StableFluids,256,CUDA_Sync,1095.07,1.00
 StableFluids,256,CUDA_Async,415.95,2.63
 StableFluids,256,CUDA_Graph,268.70,4.08
 StableFluids,256,CUDA_Persistent,311.09,3.52
-StableFluids,256,Taichi,2394.87,0.46
+StableFluids,256,Taichi,2445.87,0.45
 StableFluids,256,Warp,1184.65,0.92
 Conv3D,128,CUDA_Sync,1804.61,1.00
 Conv3D,128,CUDA_Async,1066.82,1.69

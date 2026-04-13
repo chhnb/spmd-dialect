@@ -25,14 +25,14 @@ C2: 2 implementation(s) [taichi_cuda, taichi_cpu]
 C3: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.002414] mean=0.000325 n=4096
   taichi_cpu: [0.000000, 0.002414] mean=0.000325 n=4096
-  taichi_cuda vs taichi_cpu: max_rel_error=2.79e-07 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=2.96e-07 — OK
 
 C4: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cuda: [0.000000, 12.772159] mean=1.109505 n=4096
   taichi_cpu: [0.000000, 12.772162] mean=1.109505 n=4096
   warp: [0.000000, 12.772159] mean=1.109505 n=4096
   taichi_cuda vs taichi_cpu: max_rel_error=6.87e-06 — OK
-  taichi_cuda vs warp: max_rel_error=0.00e+00 — OK
+  taichi_cuda vs warp: max_rel_error=2.02e-16 — OK
   taichi_cpu vs warp: max_rel_error=6.87e-06 — OK
 
 C5: 2 implementation(s) [taichi_cuda, taichi_cpu]
@@ -44,9 +44,9 @@ C6: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cuda: [-0.587712, 0.599161] mean=-0.004617 n=768
   taichi_cpu: [-0.587712, 0.599161] mean=-0.004617 n=768
   warp: [-0.587712, 0.599161] mean=-0.004617 n=768
-  taichi_cuda vs taichi_cpu: max_rel_error=6.17e-04 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=1.33e-03 — OK
   taichi_cuda vs warp: max_rel_error=6.98e-04 — OK
-  taichi_cpu vs warp: max_rel_error=8.13e-05 — OK
+  taichi_cpu vs warp: max_rel_error=2.02e-03 — OK
 
 C7: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cuda: [509.295837, 2713.485596] mean=983.672270 n=512
@@ -101,7 +101,7 @@ C11: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
 C12: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.993366] mean=0.015689 n=32768
   taichi_cpu: [0.000000, 0.993366] mean=0.015689 n=32768
-  taichi_cuda vs taichi_cpu: max_rel_error=3.39e-05 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=7.11e-05 — OK
 
 C13: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.400000] mean=0.001563 n=256
@@ -113,7 +113,7 @@ C14: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
   numpy_ref: [0.016980, 127.920609] mean=63.837117 n=1024
   taichi_cpu: [0.016945, 127.920562] mean=63.837116 n=1024
   taichi_cuda vs numpy_ref: max_rel_error=2.70e-03 — OK
-  taichi_cuda vs taichi_cpu: max_rel_error=2.15e-08 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=2.40e-08 — OK
   numpy_ref vs taichi_cpu: max_rel_error=2.70e-03 — OK
 
 C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
@@ -122,12 +122,12 @@ C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=1.97e-07 — OK
 
 C16: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
-  taichi_cuda: [-0.300027, 0.418906] mean=-0.018919 n=8192
-  taichi_cpu: [-0.300028, 0.418903] mean=-0.018920 n=8192
-  warp: [-0.300026, 0.418905] mean=-0.018919 n=8192
-  taichi_cuda vs taichi_cpu: max_rel_error=1.10e-02 — OK
-  taichi_cuda vs warp: max_rel_error=2.16e-02 — OK
-  taichi_cpu vs warp: max_rel_error=1.89e-02 — OK
+  taichi_cuda: [-0.189246, 0.187864] mean=-0.003548 n=8192
+  taichi_cpu: [-0.189246, 0.187864] mean=-0.003548 n=8192
+  warp: [-0.189246, 0.187865] mean=-0.003548 n=8192
+  taichi_cuda vs taichi_cpu: max_rel_error=2.45e-02 — OK
+  taichi_cuda vs warp: max_rel_error=2.88e-02 — OK
+  taichi_cpu vs warp: max_rel_error=1.42e-02 — OK
 
 C17: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [-0.003264, 0.000000] mean=-0.000836 n=32768
@@ -138,14 +138,14 @@ C18: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
   taichi_cuda: [-0.000000, 0.000000] mean=0.000000 n=32768
   numpy_ref: [-0.000000, 0.000000] mean=0.000000 n=32768
   taichi_cpu: [-0.000000, 0.000000] mean=0.000000 n=32768
-  taichi_cuda vs numpy_ref: max_rel_error=0.00e+00 — OK
-  taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
-  numpy_ref vs taichi_cpu: max_rel_error=0.00e+00 — OK
+  taichi_cuda vs numpy_ref: max_rel_error=1.52e-25 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=1.15e-25 — OK
+  numpy_ref vs taichi_cpu: max_rel_error=1.52e-25 — OK
 
 C19: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [-0.141482, 64.698250] mean=1.221923 n=4096
   taichi_cpu: [-0.141482, 64.698250] mean=1.221923 n=4096
-  taichi_cuda vs taichi_cpu: max_rel_error=8.16e-07 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=2.31e-05 — OK
 
 C20: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.056314] mean=0.023870 n=4096
@@ -157,8 +157,8 @@ C21: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
   numpy_ref: [-0.489256, 0.917529] mean=0.019220 n=1024
   taichi_cpu: [-0.489256, 0.917529] mean=0.019220 n=1024
   taichi_cuda vs numpy_ref: max_rel_error=4.93e-13 — OK
-  taichi_cuda vs taichi_cpu: max_rel_error=2.58e-13 — OK
-  numpy_ref vs taichi_cpu: max_rel_error=3.06e-13 — OK
+  taichi_cuda vs taichi_cpu: max_rel_error=5.10e-13 — OK
+  numpy_ref vs taichi_cpu: max_rel_error=1.00e-12 — OK
 
 === 21 passed, 0 failed (21 cross-checked out of 21 total) ===
 
