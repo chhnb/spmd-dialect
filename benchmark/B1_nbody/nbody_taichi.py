@@ -18,7 +18,13 @@ def run(N, steps=1, backend="cuda"):
     @ti.kernel
     def init():
         for i in pos:
-            pos[i] = ti.Vector([ti.random()-0.5, ti.random()-0.5, ti.random()-0.5])
+            # Deterministic init: golden-ratio-based quasi-random sequence
+            g = 1.618033988749895
+            pos[i] = ti.Vector([
+                ti.cast(i, ti.f32) * g % 1.0 - 0.5,
+                ti.cast(i * 7, ti.f32) * g % 1.0 - 0.5,
+                ti.cast(i * 13, ti.f32) * g % 1.0 - 0.5,
+            ])
             vel[i] = ti.Vector([0.0, 0.0, 0.0])
 
     @ti.kernel

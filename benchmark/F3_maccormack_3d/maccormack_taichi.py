@@ -79,6 +79,12 @@ if __name__ == "__main__":
 
     print(f"MacCormack 3D Advection (Taichi, CUDA)")
     for n in [32, 64, 128]:
-        us = run(n, steps, "cuda")
-        print(f"  N={n:>4} ({n**3:>8} cells, 3 kernels/step): {us:>8.1f} μs/step")
+        step_fn, sync_fn, u_field = run(n, steps, "cuda")
+        sync_fn()
+        t0 = time.perf_counter()
+        step_fn()
+        sync_fn()
+        elapsed = time.perf_counter() - t0
+        us = elapsed * 1e6 / steps
+        print(f"  N={n:>4} ({n**3:>8} cells, 3 kernels/step): {us:>8.1f} us/step")
         ti.reset()

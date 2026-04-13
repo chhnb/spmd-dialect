@@ -39,7 +39,7 @@ elif hasattr(o, 'numpy'):
     a = o.numpy()
 else:
     import torch
-    a = o.cpu().numpy()
+    a = o.detach().cpu().numpy()
 a = a.flatten().astype(np.float32)
 np.save('{out_npy}', a)
 print(json.dumps({{"min": float(a.min()), "max": float(a.max()),

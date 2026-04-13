@@ -50,8 +50,12 @@ def run(N, steps=1, backend="cuda"):
     h = KERNEL_RADIUS
     domain = 32.0
 
-    pos_np = (np.random.rand(N, 3).astype(np.float32) * domain * 0.5 + domain * 0.1)
-    pos_np[:, 2] = 0.0  # 2D in XY plane
+    # Deterministic init matching Taichi: golden-ratio quasi-random
+    g = 1.618033988749895
+    idx = np.arange(N, dtype=np.float32)
+    pos_np = np.stack([(idx * g % 1.0) * domain * 0.5 + domain * 0.1,
+                       (idx * 7 * g % 1.0) * domain * 0.5 + domain * 0.1,
+                       np.zeros(N, dtype=np.float32)], axis=1).astype(np.float32)
 
     pos = wp.array(pos_np, dtype=wp.vec3, device=backend)
     rho = wp.zeros(N, dtype=float, device=backend)

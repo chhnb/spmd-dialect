@@ -22,7 +22,7 @@ C3: 2 implementation(s) [taichi_cuda, taichi_cpu]
 
 C4: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cuda: [0.000000, 12.795872] mean=1.111206 n=4096
-  taichi_cpu: [0.000000, 41.097580] mean=3.589473 n=4096
+  taichi_cpu: [0.000000, 40.957630] mean=3.587745 n=4096
   warp: [0.000000, 12.772159] mean=1.109505 n=4096
   FAIL: taichi_cuda vs taichi_cpu max_rel_error=1.0000
   FAIL: taichi_cuda vs warp max_rel_error=0.2303
@@ -33,18 +33,18 @@ C5: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
 
 C6: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
-  taichi_cuda: [-84.640717, 85.356133] mean=0.007380 n=768
-  taichi_cpu: [-2.071374, 1.908823] mean=-0.007077 n=768
-  warp: [-1.668971, 1.749534] mean=-0.011530 n=768
-  FAIL: taichi_cuda vs taichi_cpu max_rel_error=1.9964
-  FAIL: taichi_cuda vs warp max_rel_error=1.9922
+  taichi_cuda: [-358.977722, 359.361267] mean=0.001599 n=768
+  taichi_cpu: [-358.977722, 359.361237] mean=0.001599 n=768
+  warp: [-358.977722, 359.361237] mean=0.001599 n=768
+  taichi_cuda vs taichi_cpu: max_rel_error=2.87e-03 — OK
+  taichi_cuda vs warp: max_rel_error=3.08e-03 — OK
 
 C7: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
-  taichi_cuda: [1.566682, 6.772678] mean=2.717770 n=1024
-  taichi_cpu: [1.566682, 9.367668] mean=2.844100 n=1024
-  warp: [1.737168, 14.601628] mean=6.457500 n=1024
-  FAIL: taichi_cuda vs taichi_cpu max_rel_error=0.8163
-  FAIL: taichi_cuda vs warp max_rel_error=0.8779
+  taichi_cuda: [3.598241, 7.816849] mean=6.477975 n=1024
+  taichi_cpu: [3.488189, 7.854033] mean=6.478819 n=1024
+  warp: [6.715016, 14.062933] mean=12.784571 n=1024
+  taichi_cuda vs taichi_cpu: max_rel_error=3.06e-02 — OK
+  FAIL: taichi_cuda vs warp max_rel_error=0.5351
 
 C8: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
   taichi_cuda: [0.001000, 40.130001] mean=4.218271 n=6676
@@ -77,13 +77,9 @@ C11: 2 implementation(s) [taichi_cuda, numpy_ref]
   taichi_cuda vs numpy_ref: max_rel_error=0.00e+00 — OK
 
 C12: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: ERROR — Traceback (most recent call last):
-  File "<string>", line 7, in <module>
-TypeError: cannot unpack non-iterable float ob
-  taichi_cpu: ERROR — Traceback (most recent call last):
-  File "<string>", line 7, in <module>
-TypeError: cannot unpack non-iterable float ob
-  All implementations errored — FAIL
+  taichi_cuda: [0.000000, 0.993366] mean=0.015689 n=32768
+  taichi_cpu: [0.000000, 0.993366] mean=0.015689 n=32768
+  taichi_cuda vs taichi_cpu: max_rel_error=7.11e-05 — OK
 
 C13: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.400000] mean=0.001563 n=256
@@ -92,8 +88,8 @@ C13: 2 implementation(s) [taichi_cuda, taichi_cpu]
 
 C14: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.089902, 0.910430] mean=0.503230 n=1024
-  taichi_cpu: [0.093074, 0.909525] mean=0.502094 n=1024
-  FAIL: taichi_cuda vs taichi_cpu max_rel_error=0.8928
+  taichi_cpu: [0.087205, 0.906770] mean=0.494574 n=1024
+  FAIL: taichi_cuda vs taichi_cpu max_rel_error=0.8936
 
 C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [1.213652, 5.786902] mean=3.462472 n=64
@@ -132,4 +128,4 @@ C21: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cpu: [-0.977508, 0.534831] mean=0.004081 n=4096
   FAIL: taichi_cuda vs taichi_cpu max_rel_error=1.9998
 
-=== 14 passed, 7 failed (21 cross-checked out of 21 total) ===
+=== 16 passed, 5 failed (21 cross-checked out of 21 total) ===

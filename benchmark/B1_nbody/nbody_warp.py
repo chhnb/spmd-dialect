@@ -49,7 +49,12 @@ def integrate_kernel(m: NBodyMesh):
 
 def run(N, steps=1, backend="cuda"):
     dt = 0.001
-    pos_np = (np.random.randn(N, 3) * 0.5).astype(np.float32)
+    # Deterministic init matching Taichi: golden-ratio quasi-random
+    g = 1.618033988749895
+    i = np.arange(N, dtype=np.float32)
+    pos_np = np.stack([(i * g) % 1.0 - 0.5,
+                       (i * 7 * g) % 1.0 - 0.5,
+                       (i * 13 * g) % 1.0 - 0.5], axis=1).astype(np.float32)
 
     mesh = NBodyMesh()
     mesh.pos = wp.array(pos_np, dtype=wp.vec3, device=backend)
