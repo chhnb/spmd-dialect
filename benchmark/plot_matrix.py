@@ -123,7 +123,7 @@ def plot2(data, od):
         best_size = None
         for sz in sizes_sorted:
             has_sync = any("Sync" in k and "CUDA" in k for k in times[case][sz])
-            has_dsl = any(k in ("Taichi","Warp","Triton","Kokkos") for k in times[case][sz])
+            has_dsl = any(k in ("Taichi","Warp","Triton","Kokkos","TileLang") for k in times[case][sz])
             if has_sync and has_dsl:
                 best_size = sz; break
         if best_size is None:
@@ -224,11 +224,13 @@ def plot3(data, od):
             taichi = s.get("Taichi")
             warp = s.get("Warp")
             triton = s.get("Triton")
+            tilelang = s.get("TileLang")
             row = {"case":case,"problem_size":size,"gpu_compute_us":f"{gpu_base:.1f}",
                    "cuda_sync_us":f"{sync:.1f}" if sync else "",
                    "taichi_us":f"{taichi:.1f}" if taichi else "",
                    "warp_us":f"{warp:.1f}" if warp else "",
-                   "triton_us":f"{triton:.1f}" if triton else ""}
+                   "triton_us":f"{triton:.1f}" if triton else "",
+                   "tilelang_us":f"{tilelang:.1f}" if tilelang else ""}
             rows.append(row)
             print(f"{case:15s} {size:>8s} {gpu_base:10.1f} "
                   f"{sync if sync else 0:10.1f} "
@@ -236,7 +238,7 @@ def plot3(data, od):
                   f"{warp if warp else 0:10.1f} "
                   f"{triton if triton else 0:10.1f}")
     write_csv(os.path.join(od,"dsl_decomposition.csv"), rows,
-              ["case","problem_size","gpu_compute_us","cuda_sync_us","taichi_us","warp_us","triton_us"])
+              ["case","problem_size","gpu_compute_us","cuda_sync_us","taichi_us","warp_us","triton_us","tilelang_us"])
 
     plt, has_mpl = try_matplotlib()
     if has_mpl and rows:
@@ -244,7 +246,7 @@ def plot3(data, od):
         cases = sorted(set(r["case"] for r in rows), key=lambda c: KERN.get(c,0))
         fig, ax = plt.subplots(figsize=(14, 6))
         x = np.arange(len(cases))
-        cols = [("gpu_compute_us","GPU compute"),("cuda_sync_us","CUDA Sync"),("taichi_us","Taichi"),("warp_us","Warp")]
+        cols = [("gpu_compute_us","GPU compute"),("cuda_sync_us","CUDA Sync"),("taichi_us","Taichi"),("warp_us","Warp"),("tilelang_us","TileLang")]
         width = 0.8 / len(cols)
         for i, (col, label) in enumerate(cols):
             vals = [float(next((r[col] for r in rows if r["case"]==c and r[col]), 0)) for c in cases]

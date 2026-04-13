@@ -61,7 +61,7 @@ HydroF2,2,24020,Taichi,100.0
 HydroF2,2,24020,Warp,100.0
 HydroF2,2,24020,Triton,100.0
 HydroF2,2,24020,Kokkos,17.9
-HydroF2,2,24020,TileLang,79.9
+HydroF2,2,24020,TileLang,80.0
 FDTD2D,3,512,CUDA_Sync,21.2
 FDTD2D,3,512,CUDA_Async,0.2
 FDTD2D,3,512,CUDA_Graph,0.0

@@ -255,7 +255,7 @@ sys.path.insert(0,'{mod_dir}')
 sys.path.insert(0,'{BD}')
 from {mod} import *
 s,y,o={call}
-y();s();y()
+for _w in range(5): s();y()
 ts=[]
 for _ in range(10):
     y();t0=time.perf_counter();s();y()
@@ -308,7 +308,7 @@ sys.path.insert(0,'{BD}')
 import warp as wp; wp.init()
 from {mod} import *
 s,y,o={call}
-y();s();y()
+for _w in range(5): s();y()
 ts=[]
 for _ in range(10):
     y();t0=time.perf_counter();s();y()
@@ -352,7 +352,7 @@ sys.path.insert(0,'{mod_dir}')
 sys.path.insert(0,'{BD}')
 from {mod} import *
 s,y,o={call}
-y();s();y()
+for _w in range(5): s();y()
 ts=[]
 for _ in range(10):
     y();t0=time.perf_counter();s();y()
@@ -399,7 +399,7 @@ sys.path.insert(0,'{BD}')
 from {mod} import *
 import torch
 s,y,o={call}
-y();s();y()
+for _w in range(5): s();y()
 ts=[]
 for _ in range(10):
     y();t0=time.perf_counter();s();y()

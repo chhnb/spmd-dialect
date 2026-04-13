@@ -84,8 +84,8 @@ However, the full Osher Riemann solver generates enormous TileLang IR that cause
 TVM JIT compilation to exceed practical time limits (>10 min per kernel). The F2
 refactored version with separate flux/update kernels compiles successfully.
 
-- **Correctness**: TileLang JIT runtime crash during step_fn execution. F1 Osher solver generates TVM IR too complex for the JIT backend. Registered in correctness test (fails with runtime error).
-- **Timing**: N/A row in matrix_results.csv (TileLang JIT crash)
+- **C8 (HydroF1)**: N/A — JIT kernel input count mismatch in transfer kernel. Registered in correctness test and runner; emits N/A rows for both default (6675) and 20w (207234) meshes.
+- **C9 (HydroF2)**: Timing works: 62.76 μs/step (default), 61.45 μs/step (20w). Correctness: produces Inf at 100 steps (simplified Osher solver numerically unstable for long time integration).
 
 ### Not Benchmarked
 
