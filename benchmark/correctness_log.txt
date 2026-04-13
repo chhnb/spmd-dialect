@@ -86,9 +86,9 @@ C10: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=1.04e-06 — OK
 
 C11: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [-7727977948963143680.000000, 8076031653270519808.000000] mean=-1073741824.000000 n=4096
-  taichi_cpu: [-7727977948963143680.000000, 8076031653270519808.000000] mean=-1073741824.000000 n=4096
-  taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
+  taichi_cuda: ERROR — NaN=213 Inf=136 in output (4096 elements)
+  taichi_cpu: ERROR — NaN=213 Inf=136 in output (4096 elements)
+  All implementations errored — FAIL
 
 C12: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.993366] mean=0.015689 n=32768
@@ -101,9 +101,10 @@ C13: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
 
 C14: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [0.299064, 127.816353] mean=63.381729 n=1024
-  taichi_cpu: [0.299374, 127.817139] mean=63.381733 n=1024
-  taichi_cuda vs taichi_cpu: max_rel_error=8.54e-03 — OK
+  taichi_cuda: [0.237564, 127.950386] mean=64.350006 n=1024
+  taichi_cpu: [0.219823, 127.659866] mean=64.290741 n=1024
+  taichi_cuda vs taichi_cpu: max_rel_error=0.9982 — EXCEEDS 5%
+  FAIL: no pair within 5% threshold
 
 C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [1.213652, 5.786902] mean=3.462472 n=64
@@ -124,9 +125,9 @@ C17: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=5.19e-06 — OK
 
 C18: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [-134729713474013522558976.000000, 134729767517209051004928.000000] mean=3033355337444054007808.000000 n=32768
-  taichi_cpu: [-134729686452415758336000.000000, 134729740495611286781952.000000] mean=3033366877918099144704.000000 n=32768
-  taichi_cuda vs taichi_cpu: max_rel_error=1.89e-03 — OK
+  taichi_cuda: ERROR — NaN=32768 Inf=0 in output (32768 elements)
+  taichi_cpu: ERROR — NaN=32768 Inf=0 in output (32768 elements)
+  All implementations errored — FAIL
 
 C19: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [-0.141482, 64.698250] mean=1.221923 n=4096
@@ -147,7 +148,7 @@ C21: 3 implementation(s) [taichi_cuda, numpy_ref, taichi_cpu]
   numpy_ref vs taichi_cpu: max_rel_error=1.9803 — EXCEEDS 5%
   FAIL: no pair within 5% threshold
 
-=== 20 passed, 1 failed (21 cross-checked out of 21 total) ===
+=== 17 passed, 4 failed (21 cross-checked out of 21 total) ===
 
 === DSL Backend Consistency (AC-3) ===
   OK (11): C1/tilelang, C1/triton, C1/warp, C16/warp, C4/warp, C6/warp, C7/warp, C8/triton, C8/warp, C9/triton, C9/warp
