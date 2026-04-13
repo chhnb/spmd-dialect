@@ -1,14 +1,15 @@
 === Cross-Framework Correctness Validation ===
 
 C1: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
-  taichi_cuda: [0.000000, 0.002421] mean=0.000356 n=4096
-  taichi_cpu: [0.000000, 0.002421] mean=0.000356 n=4096
-  warp: [0.000000, 1.000000] mean=0.087288 n=4096
-  triton: ERROR — Traceback (most recent call last):
-  File "<string>", line 14, in <module>
-TypeError: can't convert cuda:0 device type t
+  taichi_cuda: [0.000000, 0.024027] mean=0.001277 n=4096
+  taichi_cpu: [0.000000, 0.024027] mean=0.001277 n=4096
+  warp: ERROR — Traceback (most recent call last):
+  File "<string>", line 19, in <module>
+  File "/home/scratch.huanhuanc_gpu/spmd/spmd
+  triton: [0.000000, 1.000000] mean=0.087288 n=4096
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
-  FAIL: taichi_cuda vs warp max_rel_error=1.0000
+  taichi_cuda vs triton: max_rel_error=1.0000 — EXCEEDS 5%
+  taichi_cpu vs triton: max_rel_error=1.0000 — EXCEEDS 5%
 
 C2: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.002343] mean=0.000332 n=32768
@@ -21,11 +22,13 @@ C3: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=3.36e-07 — OK
 
 C4: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
-  taichi_cuda: [0.000000, 12.795872] mean=1.111206 n=4096
-  taichi_cpu: [0.000000, 40.957630] mean=3.587745 n=4096
-  warp: [0.000000, 12.772159] mean=1.109505 n=4096
-  FAIL: taichi_cuda vs taichi_cpu max_rel_error=1.0000
-  FAIL: taichi_cuda vs warp max_rel_error=0.2303
+  taichi_cuda: [0.000000, 2.000000] mean=0.021990 n=4096
+  taichi_cpu: [0.000000, 2.020408] mean=0.022197 n=4096
+  warp: ERROR — Traceback (most recent call last):
+  File "<string>", line 19, in <module>
+  File "/home/scratch.huanhuanc_gpu/spmd/spmd
+  taichi_cuda vs taichi_cpu: max_rel_error=1.0000 — EXCEEDS 5%
+  FAIL: no pair within 5% threshold
 
 C5: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [1.000000, 1.000000] mean=1.000000 n=2048
@@ -35,36 +38,40 @@ C5: 2 implementation(s) [taichi_cuda, taichi_cpu]
 C6: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cuda: [-358.977722, 359.361267] mean=0.001599 n=768
   taichi_cpu: [-358.977722, 359.361237] mean=0.001599 n=768
-  warp: [-358.977722, 359.361237] mean=0.001599 n=768
+  warp: ERROR — Traceback (most recent call last):
+  File "<string>", line 19, in <module>
+  File "/home/scratch.huanhuanc_gpu/spmd/spmd
   taichi_cuda vs taichi_cpu: max_rel_error=2.87e-03 — OK
-  taichi_cuda vs warp: max_rel_error=3.08e-03 — OK
 
 C7: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
-  taichi_cuda: [3.598241, 7.816849] mean=6.477975 n=1024
-  taichi_cpu: [3.488189, 7.854033] mean=6.478819 n=1024
-  warp: [6.715016, 14.062933] mean=12.784571 n=1024
-  taichi_cuda vs taichi_cpu: max_rel_error=3.06e-02 — OK
-  FAIL: taichi_cuda vs warp max_rel_error=0.5351
+  taichi_cuda: [1.770778, 3.882558] mean=3.409310 n=512
+  taichi_cpu: [1.770397, 3.903176] mean=3.409721 n=512
+  warp: ERROR — Traceback (most recent call last):
+  File "<string>", line 19, in <module>
+  File "/home/scratch.huanhuanc_gpu/spmd/spmd
+  taichi_cuda vs taichi_cpu: max_rel_error=1.03e-02 — OK
 
 C8: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
   taichi_cuda: [0.001000, 40.130001] mean=4.218271 n=6676
   taichi_cpu: [0.001000, 40.130001] mean=4.218271 n=6676
-  warp: [0.001000, 40.129997] mean=4.218271 n=6676
-  triton: ERROR — Traceback (most recent call last):
-  File "<string>", line 14, in <module>
-TypeError: can't convert cuda:0 device type t
+  warp: ERROR — Traceback (most recent call last):
+  File "<string>", line 19, in <module>
+  File "/home/scratch.huanhuanc_gpu/spmd/spmd
+  triton: [0.001000, 40.130001] mean=4.218271 n=6676
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
-  taichi_cuda vs warp: max_rel_error=3.17e-04 — OK
+  taichi_cuda vs triton: max_rel_error=6.44e-05 — OK
+  taichi_cpu vs triton: max_rel_error=6.44e-05 — OK
 
 C9: 4 implementation(s) [taichi_cuda, taichi_cpu, warp, triton]
   taichi_cuda: [7.499996, 7.500005] mean=7.500000 n=24020
   taichi_cpu: [7.499995, 7.500006] mean=7.500000 n=24020
-  warp: [7.499997, 7.500003] mean=7.500000 n=24020
-  triton: ERROR — Traceback (most recent call last):
-  File "<string>", line 14, in <module>
-TypeError: can't convert cuda:0 device type t
+  warp: ERROR — Traceback (most recent call last):
+  File "<string>", line 19, in <module>
+  File "/home/scratch.huanhuanc_gpu/spmd/spmd
+  triton: [7.499998, 7.500004] mean=7.500000 n=24020
   taichi_cuda vs taichi_cpu: max_rel_error=6.36e-07 — OK
-  taichi_cuda vs warp: max_rel_error=7.63e-07 — OK
+  taichi_cuda vs triton: max_rel_error=9.54e-07 — OK
+  taichi_cpu vs triton: max_rel_error=7.63e-07 — OK
 
 C10: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.999492] mean=0.800120 n=4096
@@ -72,9 +79,9 @@ C10: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=1.63e-06 — OK
 
 C11: 2 implementation(s) [taichi_cuda, numpy_ref]
-  taichi_cuda: [nan, nan] mean=nan n=4096
-  numpy_ref: [nan, nan] mean=nan n=4096
-  taichi_cuda vs numpy_ref: max_rel_error=0.00e+00 — OK
+  taichi_cuda: ERROR — NaN=3969 Inf=0 in output (4096 elements)
+  numpy_ref: ERROR — NaN=213 Inf=136 in output (4096 elements)
+  All implementations errored — FAIL
 
 C12: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [0.000000, 0.993366] mean=0.015689 n=32768
@@ -87,9 +94,10 @@ C13: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda vs taichi_cpu: max_rel_error=0.00e+00 — OK
 
 C14: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [0.089902, 0.910430] mean=0.503230 n=1024
-  taichi_cpu: [0.087205, 0.906770] mean=0.494574 n=1024
-  FAIL: taichi_cuda vs taichi_cpu max_rel_error=0.8936
+  taichi_cuda: [0.010384, 0.989713] mean=0.505691 n=1024
+  taichi_cpu: [0.009978, 0.987753] mean=0.493608 n=1024
+  taichi_cuda vs taichi_cpu: max_rel_error=0.9889 — EXCEEDS 5%
+  FAIL: no pair within 5% threshold
 
 C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [1.213652, 5.786902] mean=3.462472 n=64
@@ -99,9 +107,10 @@ C15: 2 implementation(s) [taichi_cuda, taichi_cpu]
 C16: 3 implementation(s) [taichi_cuda, taichi_cpu, warp]
   taichi_cuda: [-0.330071, 0.329326] mean=-0.001518 n=8192
   taichi_cpu: [-0.330071, 0.329326] mean=-0.001518 n=8192
-  warp: [-0.330071, 0.329326] mean=-0.001518 n=8192
+  warp: ERROR — Traceback (most recent call last):
+  File "<string>", line 19, in <module>
+  File "/home/scratch.huanhuanc_gpu/spmd/spmd
   taichi_cuda vs taichi_cpu: max_rel_error=2.61e-04 — OK
-  taichi_cuda vs warp: max_rel_error=2.61e-04 — OK
 
 C17: 2 implementation(s) [taichi_cuda, taichi_cpu]
   taichi_cuda: [-0.462042, 0.462042] mean=-0.012163 n=32768
@@ -124,8 +133,9 @@ C20: 2 implementation(s) [taichi_cuda, numpy_ref]
   taichi_cuda vs numpy_ref: max_rel_error=1.37e-02 — OK
 
 C21: 2 implementation(s) [taichi_cuda, taichi_cpu]
-  taichi_cuda: [-0.977508, 0.532591] mean=0.004081 n=4096
-  taichi_cpu: [-0.977508, 0.534831] mean=0.004081 n=4096
-  FAIL: taichi_cuda vs taichi_cpu max_rel_error=1.9998
+  taichi_cuda: [-0.963097, 0.638720] mean=0.012088 n=1024
+  taichi_cpu: [-0.963097, 0.589555] mean=0.012088 n=1024
+  taichi_cuda vs taichi_cpu: max_rel_error=1.9978 — EXCEEDS 5%
+  FAIL: no pair within 5% threshold
 
-=== 16 passed, 5 failed (21 cross-checked out of 21 total) ===
+=== 17 passed, 4 failed (21 cross-checked out of 21 total) ===
