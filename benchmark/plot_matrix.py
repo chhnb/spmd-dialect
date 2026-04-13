@@ -40,6 +40,17 @@ def write_csv(path, rows, fields):
     print(f"  Written: {path} ({len(rows)} rows)")
 
 
+def try_matplotlib():
+    """Try to import matplotlib. Returns (plt, True) or (None, False)."""
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        return plt, True
+    except ImportError:
+        return None, False
+
+
 def plot1(data, od):
     """Overhead% vs kernels/step, smallest size per case."""
     by = defaultdict(lambda: defaultdict(dict))
@@ -69,6 +80,33 @@ def plot1(data, od):
         for s in strats:
             line += f"{case_rows.get(s,'—'):>14s}%" if s in case_rows else f"{'—':>15s}"
         print(line)
+
+    # Generate PNG if matplotlib available
+    plt, has_mpl = try_matplotlib()
+    if has_mpl and rows:
+        fig, ax = plt.subplots(figsize=(14, 6))
+        cases_sorted = sorted(set(r["case"] for r in rows), key=lambda c: KERN.get(c,0))
+        strats_list = sorted(set(r["strategy"] for r in rows))
+        x = range(len(cases_sorted))
+        width = 0.8 / max(len(strats_list), 1)
+        for i, strat in enumerate(strats_list):
+            vals = []
+            for c in cases_sorted:
+                v = next((float(r["overhead_pct"]) for r in rows if r["case"]==c and r["strategy"]==strat), 0)
+                vals.append(v)
+            ax.bar([xi + i*width for xi in x], vals, width, label=strat)
+        ax.set_xlabel("Case (sorted by kernels/step)")
+        ax.set_ylabel("Overhead %")
+        ax.set_title("Launch Overhead vs Kernel Complexity")
+        ax.set_xticks([xi + width*len(strats_list)/2 for xi in x])
+        ax.set_xticklabels([f"{c}\n({KERN.get(c,0)})" for c in cases_sorted], rotation=45, ha='right', fontsize=6)
+        ax.legend(fontsize=7, ncol=2)
+        ax.grid(axis='y', alpha=0.3)
+        plt.tight_layout()
+        png_path = os.path.join(od, "overhead_vs_kernels.png")
+        plt.savefig(png_path, dpi=150)
+        plt.close()
+        print(f"  Plot: {png_path}")
 
 
 def plot2(data, od):
@@ -111,6 +149,29 @@ def plot2(data, od):
         for s in strats:
             line += f"{cr.get(s,'—'):>14s}x" if s in cr else f"{'—':>15s}"
         print(line)
+
+    # Generate PNG
+    plt, has_mpl = try_matplotlib()
+    if has_mpl and rows:
+        cases_sorted = sorted(set(r["case"] for r in rows), key=lambda c: KERN.get(c,0))
+        strats_list = sorted(set(r["strategy"] for r in rows))
+        fig, ax = plt.subplots(figsize=(14, 6))
+        width = 0.8 / max(len(strats_list), 1)
+        x = range(len(cases_sorted))
+        for i, strat in enumerate(strats_list):
+            vals = [float(next((r["speedup_vs_sync"] for r in rows if r["case"]==c and r["strategy"]==strat), 0)) for c in cases_sorted]
+            ax.bar([xi+i*width for xi in x], vals, width, label=strat)
+        ax.set_ylabel("Speedup vs CUDA Sync")
+        ax.set_title("Strategy Speedup Heatmap")
+        ax.set_xticks([xi+width*len(strats_list)/2 for xi in x])
+        ax.set_xticklabels(cases_sorted, rotation=45, ha='right', fontsize=6)
+        ax.axhline(y=1.0, color='black', linestyle='--', alpha=0.3)
+        ax.legend(fontsize=6, ncol=3)
+        plt.tight_layout()
+        png_path = os.path.join(od, "speedup_heatmap.png")
+        plt.savefig(png_path, dpi=150)
+        plt.close()
+        print(f"  Plot: {png_path}")
 
 
 def plot3(data, od):
