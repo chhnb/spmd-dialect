@@ -199,12 +199,21 @@ def run_binary(binary, args_str, size_label, case_id, gpu, dry_run, strategy_pre
             seen_strats.add(strat)
         # Ensure all 4 expected CUDA strategies have a row (AC-1: no silent skips)
         if strategy_prefix == "CUDA":
+            # Collect N/A reasons from binary output
+            na_reasons = {}
+            for line in r.stdout.split("\n"):
+                if "N/A" in line or "SKIPPED" in line:
+                    for s in ["Sync","Async","Graph","Persistent"]:
+                        if s.lower() in line.lower():
+                            reason = line.strip()[:80]
+                            na_reasons[s] = reason
             for expected in ["Sync", "Async", "Graph", "Persistent"]:
                 if expected not in seen_strats:
+                    reason = na_reasons.get(expected, "not reported by binary")
                     rows.append({"case":CN[case_id],"strategy":f"CUDA_{expected}",
                                 "gpu":gpu,"problem_size":size_label,"steps":steps_val,
-                                "median_us":"N/A","min_us":"","max_us":"",
-                                "overhead_pct":""})
+                                "median_us":f"N/A ({reason})",
+                                "min_us":"","max_us":"","overhead_pct":""})
         return rows
     except Exception as e:
         print(f"    ERROR: {e}"); return []
@@ -581,7 +590,7 @@ def main():
         # Step 2: for cases without measured baseline, use fastest CUDA timing as proxy
         cuda_fastest = {}
         for row in all_rows:
-            if row["strategy"].startswith("CUDA_") and row["median_us"] not in ("", "N/A"):
+            if row["strategy"].startswith("CUDA_") and row["median_us"] and not row["median_us"].startswith("N/A"):
                 try:
                     us = float(row["median_us"])
                     key = (row["case"], row["problem_size"])
@@ -596,7 +605,7 @@ def main():
         for row in all_rows:
             if row["strategy"].startswith("CUDA_") and row["overhead_pct"] == "N/A":
                 key = (row["case"], row["problem_size"])
-                if key in cuda_compute and row["median_us"] not in ("", "N/A"):
+                if key in cuda_compute and row["median_us"] and not row["median_us"].startswith("N/A"):
                     try:
                         us = float(row["median_us"])
                         comp = cuda_compute[key]
@@ -607,7 +616,7 @@ def main():
         for row in all_rows:
             if not row["strategy"].startswith("CUDA_") and row["overhead_pct"] == "":
                 key = (row["case"], row["problem_size"])
-                if key in cuda_compute and row["median_us"] not in ("", "N/A"):
+                if key in cuda_compute and row["median_us"] and not row["median_us"].startswith("N/A"):
                     try:
                         us = float(row["median_us"])
                         comp = cuda_compute[key]

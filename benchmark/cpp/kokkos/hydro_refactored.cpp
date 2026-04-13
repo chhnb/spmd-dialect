@@ -298,7 +298,7 @@ int main(int argc, char* argv[]) {
         UpdateCell update_fn{CELL, DT, HM1, HM2, H, U, V, Z, W, ZBC_v, AREA, FNC, SIDE_v, SLCOS, SLSIN, FLUX0, FLUX1, FLUX2, FLUX3};
 
         // Warmup
-        for (int w = 0; w < 3; w++) {
+        for (int w = 0; w < 5; w++) {
             for (int s = 0; s < steps; s++) {
                 Kokkos::parallel_for("flux", nSides, flux_fn);
                 Kokkos::parallel_for("update", CELL, update_fn);

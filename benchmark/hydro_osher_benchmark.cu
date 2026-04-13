@@ -577,7 +577,7 @@ int main(int argc, char* argv[]) {
     auto benchmarkSync = [&](const char* name) -> double {
         // Warmup
         uploadState();
-        for (int s = 0; s < 3; s++) {
+        for (int s = 0; s < 5; s++) {
             calculate_flux<<<fluxBlocks, fluxThreads>>>(CELL, HM1, HM2, d_H, d_U, d_V, d_Z, d_ZBC, d_ZB1, d_NAC, d_KLAS, d_SIDE, d_COSF, d_SINF, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
             update_cell<<<updateBlocks, updateThreads>>>(CELL, DT, HM1, HM2, d_H, d_U, d_V, d_Z, d_W, d_ZBC, d_AREA, d_FNC, d_SIDE, d_SLCOS, d_SLSIN, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
         }
@@ -609,7 +609,7 @@ int main(int argc, char* argv[]) {
     {
         uploadState();
         // Warmup
-        for (int s = 0; s < 3; s++) {
+        for (int s = 0; s < 5; s++) {
             calculate_flux<<<fluxBlocks, fluxThreads>>>(CELL, HM1, HM2, d_H, d_U, d_V, d_Z, d_ZBC, d_ZB1, d_NAC, d_KLAS, d_SIDE, d_COSF, d_SINF, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
             update_cell<<<updateBlocks, updateThreads>>>(CELL, DT, HM1, HM2, d_H, d_U, d_V, d_Z, d_W, d_ZBC, d_AREA, d_FNC, d_SIDE, d_SLCOS, d_SLSIN, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
             CUDA_CHECK(cudaDeviceSynchronize());
@@ -658,7 +658,7 @@ int main(int argc, char* argv[]) {
 
         // Warmup
         uploadState();
-        for (int s = 0; s < 3; s++) {
+        for (int s = 0; s < 5; s++) {
             CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
         }
         CUDA_CHECK(cudaStreamSynchronize(stream));

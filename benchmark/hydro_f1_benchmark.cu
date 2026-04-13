@@ -632,7 +632,7 @@ int main(int argc, char* argv[]) {
     {
         uploadState();
         // Warmup
-        for (int s = 0; s < 3; s++) {
+        for (int s = 0; s < 5; s++) {
             LAUNCH_STEP();
             CUDA_CHECK(cudaDeviceSynchronize());
         }
@@ -661,7 +661,7 @@ int main(int argc, char* argv[]) {
     {
         uploadState();
         // Warmup
-        for (int s = 0; s < 3; s++)
+        for (int s = 0; s < 5; s++)
             LAUNCH_STEP();
         CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -701,7 +701,7 @@ int main(int argc, char* argv[]) {
 
         // Warmup
         uploadState();
-        for (int s = 0; s < 3; s++)
+        for (int s = 0; s < 5; s++)
             CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
         CUDA_CHECK(cudaStreamSynchronize(stream));
 

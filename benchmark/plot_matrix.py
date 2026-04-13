@@ -75,7 +75,7 @@ def plot2(data, od):
     """Speedup heatmap vs CUDA Sync."""
     times = defaultdict(lambda: defaultdict(dict))
     for r in data:
-        if r["median_us"] and r["median_us"] != "N/A":
+        if r["median_us"] and not r["median_us"].startswith("N/A"):
             times[r["case"]][r["problem_size"]][r["strategy"]] = float(r["median_us"])
 
     rows = []
@@ -117,7 +117,7 @@ def plot3(data, od):
     """DSL overhead decomposition."""
     by = defaultdict(lambda: defaultdict(dict))
     for r in data:
-        if r["median_us"] and r["median_us"] != "N/A":
+        if r["median_us"] and not r["median_us"].startswith("N/A"):
             by[r["case"]][r["problem_size"]][r["strategy"]] = float(r["median_us"])
 
     # Extract GPU compute baselines from CUDA rows ONLY (not DSL)
@@ -126,7 +126,7 @@ def plot3(data, od):
         if not r.get("strategy", "").startswith("CUDA_"):
             continue  # Only use CUDA rows for GPU compute baseline
         oh_str = r.get("overhead_pct", "")
-        if oh_str and oh_str != "N/A" and r.get("median_us") and r["median_us"] != "N/A":
+        if oh_str and oh_str != "N/A" and r.get("median_us") and not r["median_us"].startswith("N/A"):
             try:
                 us = float(r["median_us"])
                 oh = float(oh_str)
