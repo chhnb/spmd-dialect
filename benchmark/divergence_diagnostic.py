@@ -63,7 +63,7 @@ import sys, numpy as np
 from {mod} import run
 s, y, o = run({call})
 s(); y()
-a = o.to_numpy().flatten().astype(np.float32)
+a = o.to_numpy().flatten().astype(np.float64)
 np.save("{npy}", a)
 nan_ct = int(np.isnan(a).sum())
 print(f"n={{len(a)}} nan={{nan_ct}}")
@@ -91,7 +91,7 @@ import sys, numpy as np
 sys.path.insert(0, "{BD}")
 from {mod} import *
 _, _, o = {call}
-a = np.array(o).flatten().astype(np.float32) if not isinstance(o, np.ndarray) else o.flatten().astype(np.float32)
+a = np.array(o).flatten().astype(np.float64) if not isinstance(o, np.ndarray) else o.flatten().astype(np.float64)
 np.save("{npy}", a)
 nan_ct = int(np.isnan(a).sum())
 print(f"n={{len(a)}} nan={{nan_ct}}")
