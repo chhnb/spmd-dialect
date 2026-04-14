@@ -138,6 +138,70 @@ __global__ void stable_fluids_persistent(int N, float* vx, float* vy,
     }
 }
 
+// Grid-stride persistent: same algorithm, uses maxCooperativeBlocks
+__global__ void stable_fluids_persistent_stride(int N, float* vx, float* vy,
+                                                 float* vx_tmp, float* vy_tmp,
+                                                 float* p, float* p_tmp, float* div,
+                                                 int jacobi_iters, int STEPS, float dt) {
+    auto grid = cg::this_grid();
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = gridDim.x * blockDim.x;
+    int N2 = N * N;
+
+    for (int step = 0; step < STEPS; step++) {
+        // Phase 1: Advect
+        for (int idx = tid; idx < N2; idx += stride) {
+            int i = idx / N, j = idx % N;
+            if (i >= 1 && i < N-1 && j >= 1 && j < N-1) {
+                float x = (float)i - dt * vx[idx];
+                float y = (float)j - dt * vy[idx];
+                x = fmaxf(0.5f, fminf((float)(N-1)-0.5f, x));
+                y = fmaxf(0.5f, fminf((float)(N-1)-0.5f, y));
+                int i0=(int)x, j0=(int)y;
+                float s=x-i0, t_=y-j0;
+                int i1=min(i0+1,N-1), j1=min(j0+1,N-1);
+                vx_tmp[idx]=(1-s)*(1-t_)*vx[i0*N+j0]+s*(1-t_)*vx[i1*N+j0]+(1-s)*t_*vx[i0*N+j1]+s*t_*vx[i1*N+j1];
+                vy_tmp[idx]=(1-s)*(1-t_)*vy[i0*N+j0]+s*(1-t_)*vy[i1*N+j0]+(1-s)*t_*vy[i0*N+j1]+s*t_*vy[i1*N+j1];
+            }
+        }
+        grid.sync();
+        for (int idx = tid; idx < N2; idx += stride) { vx[idx]=vx_tmp[idx]; vy[idx]=vy_tmp[idx]; }
+        grid.sync();
+
+        // Phase 2: Divergence
+        for (int idx = tid; idx < N2; idx += stride) {
+            int i = idx / N, j = idx % N;
+            if (i >= 1 && i < N-1 && j >= 1 && j < N-1) {
+                div[idx]=-0.5f*((vx[(i+1)*N+j]-vx[(i-1)*N+j])+(vy[i*N+j+1]-vy[i*N+j-1]));
+                p[idx]=0.0f;
+            }
+        }
+        grid.sync();
+
+        // Phase 3: Jacobi
+        for (int it = 0; it < jacobi_iters; it++) {
+            for (int idx = tid; idx < N2; idx += stride) {
+                int i = idx / N, j = idx % N;
+                if (i >= 1 && i < N-1 && j >= 1 && j < N-1)
+                    p_tmp[idx]=0.25f*(p[(i-1)*N+j]+p[(i+1)*N+j]+p[i*N+j-1]+p[i*N+j+1]+div[idx]);
+            }
+            grid.sync();
+            for (int idx = tid; idx < N2; idx += stride) p[idx]=p_tmp[idx];
+            grid.sync();
+        }
+
+        // Phase 4: Project
+        for (int idx = tid; idx < N2; idx += stride) {
+            int i = idx / N, j = idx % N;
+            if (i >= 1 && i < N-1 && j >= 1 && j < N-1) {
+                vx[idx]-=0.5f*(p[(i+1)*N+j]-p[(i-1)*N+j]);
+                vy[idx]-=0.5f*(p[i*N+j+1]-p[i*N+j-1]);
+            }
+        }
+        grid.sync();
+    }
+}
+
 int main(int argc, char* argv[]) {
     int N = (argc > 1) ? atoi(argv[1]) : 256;
     int STEPS = (argc > 2) ? atoi(argv[2]) : 20;
@@ -335,6 +399,25 @@ int main(int argc, char* argv[]) {
         } else {
             printf("Persistent: N/A (need %d blocks, max %d)\n", needed, maxBlocks);
         }
+    }
+
+    // Strategy 5: Grid-Stride Persistent (NEVER N/A)
+    printf("\n--- Strategy 5: Grid-Stride Persistent ---\n");
+    {
+        int gsBSm = 0;
+        CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&gsBSm,
+              stable_fluids_persistent_stride, 256, 0));
+        int gsMax = gsBSm * prop.multiProcessorCount;
+        printf("Grid-stride: %d blocks (always fits)\n", gsMax);
+        float dt = 0.1f;
+        void* gsArgs[] = {&N, &vx, &vy, &vx_tmp, &vy_tmp, &p, &p_tmp, &div_buf,
+                          &jacobi_iters, &STEPS, &dt};
+        run_timed([&]() {
+            reset();
+            cudaLaunchCooperativeKernel((void*)stable_fluids_persistent_stride,
+                dim3(gsMax), dim3(256), gsArgs);
+            cudaDeviceSynchronize();
+        }, "GridStride");
     }
 
     CHECK(cudaFree(vx)); CHECK(cudaFree(vy));

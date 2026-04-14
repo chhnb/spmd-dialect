@@ -83,6 +83,32 @@ __global__ void lu_persistent(int N, float* __restrict__ A) {
     }
 }
 
+// Grid-stride persistent: same algorithm, but uses grid-stride loops
+// so we can use maxCooperativeBlocks instead of problem-sized grid.
+// NEVER N/A regardless of N.
+__global__ void lu_persistent_stride(int N, float* __restrict__ A) {
+    auto grid = cg::this_grid();
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = gridDim.x * blockDim.x;
+
+    for (int k = 0; k < N - 1; k++) {
+        // Factor L column (1D stride over rows k+1..N-1)
+        for (int i = tid + k + 1; i < N; i += stride) {
+            A[i * N + k] /= A[k * N + k];
+        }
+        grid.sync();
+
+        // Update submatrix ((N-k-1)² elements via 1D stride)
+        int subsize = (N - k - 1) * (N - k - 1);
+        for (int idx = tid; idx < subsize; idx += stride) {
+            int i = idx / (N - k - 1) + k + 1;
+            int j = idx % (N - k - 1) + k + 1;
+            A[i * N + j] -= A[i * N + k] * A[k * N + j];
+        }
+        grid.sync();
+    }
+}
+
 int main(int argc, char* argv[]) {
     int N = (argc > 1) ? atoi(argv[1]) : 512;
     int STEPS = (argc > 2) ? atoi(argv[2]) : 3;
@@ -252,8 +278,25 @@ int main(int argc, char* argv[]) {
         } else {
             printf("Persistent: N/A (need %d blocks, max %d) — grid too large for cooperative launch\n",
                    needed, maxBlocks);
-            printf("  LU requires N*N threads to cover full matrix; with N=%d, need %d blocks.\n",
-                   N, needed);
+        }
+
+        // Grid-stride persistent: always works, uses maxCooperativeBlocks
+        int gsBSm = 0;
+        CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&gsBSm,
+              lu_persistent_stride, 256, 0));
+        int gsMaxBlocks = gsBSm * prop.multiProcessorCount;
+        printf("\n--- Strategy 5: Grid-Stride Persistent ---\n");
+        printf("Grid-stride: %d blocks (max cooperative, always fits)\n", gsMaxBlocks);
+        {
+            void* gsArgs[] = {&N, &A};
+            run_timed([&]() {
+                for (int s = 0; s < STEPS; s++) {
+                    reset();
+                    cudaLaunchCooperativeKernel((void*)lu_persistent_stride,
+                        dim3(gsMaxBlocks), dim3(256), gsArgs);
+                    cudaDeviceSynchronize();
+                }
+            }, "GridStride");
         }
     }
 
