@@ -54,3 +54,4 @@ benchmark/results/b200_warp_characterization_full.txt
 benchmark/*_bench
 benchmark/*_a100
 .codex
+benchmark/device_graph_poc
