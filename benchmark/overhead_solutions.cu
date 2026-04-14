@@ -1,6 +1,6 @@
-// Overhead elimination: 4 solutions × 2 kernels × 5 sizes
-// Solutions: Sync loop, Async loop, CUDA Graph, Persistent Kernel
-// Build: nvcc -O3 -arch=sm_90 -rdc=true overhead_solutions.cu -o overhead_solutions -lcudadevrt
+// Overhead elimination: 5 solutions × 2 kernels × 5 sizes
+// Solutions: Sync loop, Async loop, CUDA Graph, Persistent Kernel, Device Graph (tail launch)
+// Build: nvcc -O3 -arch=sm_80 -rdc=true overhead_solutions.cu -o overhead_solutions -lcudadevrt
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
@@ -53,7 +53,17 @@ __global__ void gs_persistent(int N, float* gu, float* gv, float* gu2, float* gv
 
 #define CHECK(call) { auto e = call; if(e) { printf("CUDA error %d at line %d\n", e, __LINE__); exit(1); }}
 
-struct Result { float sync_us, async_us, graph_us, persistent_us; };
+// Device-visible storage for device graph tail launch
+__device__ cudaGraphExec_t d_ge_storage;
+
+__global__ void tail_launch_step(int* steps_left) {
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        int rem = atomicSub(steps_left, 1);
+        if (rem > 1) cudaGraphLaunch(d_ge_storage, cudaStreamGraphTailLaunch);
+    }
+}
+
+struct Result { float sync_us, async_us, graph_us, persistent_us, devgraph_us; };
 
 Result test_heat(int N, int STEPS) {
     int N2=N*N; float *u,*v;
@@ -97,6 +107,27 @@ Result test_heat(int N, int STEPS) {
          cudaEventRecord(t1);cudaDeviceSynchronize();
          cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
      } else r.persistent_us=-1;}
+
+    // Device Graph (tail launch)
+    {int *d_steps; CHECK(cudaMalloc(&d_steps,sizeof(int)));
+     cudaGraph_t g;cudaGraphExec_t ge;
+     cudaStream_t stream;CHECK(cudaStreamCreate(&stream));
+     CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+     heat2d<<<grid,block,0,stream>>>(N,u,v);copy_f<<<cg,256,0,stream>>>(N2,v,u);
+     tail_launch_step<<<1,1,0,stream>>>(d_steps);
+     CHECK(cudaStreamEndCapture(stream,&g));
+     CHECK(cudaGraphInstantiateWithFlags(&ge,g,cudaGraphInstantiateFlagDeviceLaunch));
+     CHECK(cudaGraphUpload(ge,stream));
+     CHECK(cudaMemcpyToSymbol(d_ge_storage,&ge,sizeof(cudaGraphExec_t)));
+     // Warmup
+     for(int w=0;w<5;w++){int sv=STEPS;CHECK(cudaMemcpy(d_steps,&sv,4,cudaMemcpyHostToDevice));
+       CHECK(cudaGraphLaunch(ge,stream));CHECK(cudaStreamSynchronize(stream));}
+     int REPS=10;cudaEventRecord(t0,stream);
+     for(int i=0;i<REPS;i++){int sv=STEPS;CHECK(cudaMemcpy(d_steps,&sv,4,cudaMemcpyHostToDevice));
+       CHECK(cudaGraphLaunch(ge,stream));}
+     cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+     cudaEventElapsedTime(&ms,t0,t1);r.devgraph_us=ms*1000/(STEPS*REPS);
+     cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);cudaFree(d_steps);}
 
     cudaEventDestroy(t0);cudaEventDestroy(t1);cudaFree(u);cudaFree(v);
     return r;
@@ -146,6 +177,27 @@ Result test_gs(int N, int STEPS) {
          cudaEventElapsedTime(&ms,t0,t1);r.persistent_us=ms*1000/(STEPS*REPS);
      } else r.persistent_us=-1;}
 
+    // Device Graph (tail launch) for GrayScott
+    {int *d_steps; CHECK(cudaMalloc(&d_steps,sizeof(int)));
+     cudaGraph_t g;cudaGraphExec_t ge;
+     cudaStream_t stream;CHECK(cudaStreamCreate(&stream));
+     CHECK(cudaStreamBeginCapture(stream,cudaStreamCaptureModeGlobal));
+     gs_step<<<grid,block,0,stream>>>(N,gu,gv,gu2,gv2);
+     copy_f<<<cg,256,0,stream>>>(N2,gu2,gu);copy_f<<<cg,256,0,stream>>>(N2,gv2,gv);
+     tail_launch_step<<<1,1,0,stream>>>(d_steps);
+     CHECK(cudaStreamEndCapture(stream,&g));
+     CHECK(cudaGraphInstantiateWithFlags(&ge,g,cudaGraphInstantiateFlagDeviceLaunch));
+     CHECK(cudaGraphUpload(ge,stream));
+     CHECK(cudaMemcpyToSymbol(d_ge_storage,&ge,sizeof(cudaGraphExec_t)));
+     for(int w=0;w<5;w++){int sv=STEPS;CHECK(cudaMemcpy(d_steps,&sv,4,cudaMemcpyHostToDevice));
+       CHECK(cudaGraphLaunch(ge,stream));CHECK(cudaStreamSynchronize(stream));}
+     int REPS=10;cudaEventRecord(t0,stream);
+     for(int i=0;i<REPS;i++){int sv=STEPS;CHECK(cudaMemcpy(d_steps,&sv,4,cudaMemcpyHostToDevice));
+       CHECK(cudaGraphLaunch(ge,stream));}
+     cudaEventRecord(t1,stream);cudaStreamSynchronize(stream);
+     cudaEventElapsedTime(&ms,t0,t1);r.devgraph_us=ms*1000/(STEPS*REPS);
+     cudaGraphExecDestroy(ge);cudaGraphDestroy(g);cudaStreamDestroy(stream);cudaFree(d_steps);}
+
     cudaEventDestroy(t0);cudaEventDestroy(t1);
     cudaFree(gu);cudaFree(gv);cudaFree(gu2);cudaFree(gv2);
     return r;
@@ -154,10 +206,10 @@ Result test_gs(int N, int STEPS) {
 int main(){
     cudaDeviceProp prop;cudaGetDeviceProperties(&prop,0);
     printf("GPU: %s (SMs=%d, Compute %d.%d)\n\n",prop.name,prop.multiProcessorCount,prop.major,prop.minor);
-    printf("%-25s %10s %10s %10s %10s  | Speedups over Sync\n","Kernel","Sync","Async","Graph","Persist");
-    printf("%-25s %10s %10s %10s %10s  | %8s %8s %8s\n","","(us)","(us)","(us)","(us)","Async","Graph","Persist");
-    printf("%.25s %.10s %.10s %.10s %.10s  | %.8s %.8s %.8s\n",
-           "-------------------------","----------","----------","----------","----------","--------","--------","--------");
+    printf("%-25s %10s %10s %10s %10s %10s | Speedups over Sync\n","Kernel","Sync","Async","Graph","Persist","DevGraph");
+    printf("%-25s %10s %10s %10s %10s %10s | %8s %8s %8s %8s\n","","(us)","(us)","(us)","(us)","(us)","Async","Graph","Persist","DevGrph");
+    printf("%.25s %.10s %.10s %.10s %.10s %.10s | %.8s %.8s %.8s %.8s\n",
+           "-------------------------","----------","----------","----------","----------","----------","--------","--------","--------","--------");
 
     struct {const char*name;int N;int steps;int type;} cases[]={
         {"Heat2D 128sq",128,2000,0},{"Heat2D 256sq",256,1000,0},{"Heat2D 512sq",512,1000,0},
@@ -167,12 +219,14 @@ int main(){
     };
     for(auto&c:cases){
         Result r=(c.type==0)?test_heat(c.N,c.steps):test_gs(c.N,c.steps);
-        char ps[32],sa[16],sg[16],sp[16];
+        char ps[32],ds[32],sa[16],sg[16],sp[16],sd[16];
         if(r.persistent_us<0){snprintf(ps,32,"%10s","N/A");snprintf(sp,16,"%8s","N/A");}
         else{snprintf(ps,32,"%10.2f",r.persistent_us);snprintf(sp,16,"%7.1fx",r.sync_us/r.persistent_us);}
+        snprintf(ds,32,"%10.2f",r.devgraph_us);
         snprintf(sa,16,"%7.1fx",r.sync_us/r.async_us);
         snprintf(sg,16,"%7.1fx",r.sync_us/r.graph_us);
-        printf("%-25s %10.2f %10.2f %10.2f %s  | %8s %8s %8s\n",
-               c.name,r.sync_us,r.async_us,r.graph_us,ps,sa,sg,sp);
+        snprintf(sd,16,"%7.1fx",r.sync_us/r.devgraph_us);
+        printf("%-25s %10.2f %10.2f %10.2f %s %s | %8s %8s %8s %8s\n",
+               c.name,r.sync_us,r.async_us,r.graph_us,ps,ds,sa,sg,sp,sd);
     }
 }

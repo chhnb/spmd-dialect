@@ -104,6 +104,8 @@ def normalize_strategy(name):
         return 'Sync'
     if 'async' in n:
         return 'Async'
+    if 'devgraph' in n or 'device graph' in n or 'devicegraph' in n:
+        return 'DeviceGraph'
     if 'graph' in n:
         return 'Graph'
     if 'persistent' in n or 'fused' in n:
@@ -156,6 +158,20 @@ def parse_overhead_solutions(output):
     heat_steps  = {"128":2000,"256":1000,"512":1000,"1024":500,"2048":200}
     gs_steps    = {"128":2000,"256":1000,"512":500,"1024":200}
     for line in output.split("\n"):
+        m = re.match(r'\s*(Heat2D|GrayScott)\s+(\d+)sq\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.N/A]+)\s+([\d.]+)', line)
+        if m:
+            kernel,sz,sync,asyn,graph,pers,devgraph = m.groups()
+            cid = "C3" if kernel=="Heat2D" else "C10"
+            smap = heat_steps if kernel=="Heat2D" else gs_steps
+            st = smap.get(sz, 100)
+            for name,val in [("Sync",sync),("Async",asyn),("Graph",graph),("Persistent",pers),("DeviceGraph",devgraph)]:
+                if val == "N/A":
+                    us = "N/A (grid exceeds cooperative launch limit)"
+                else:
+                    us = float(val)
+                rows.append((cid, f"{sz}x{sz}", name, us, st))
+            continue
+        # Fallback: old 4-strategy format
         m = re.match(r'\s*(Heat2D|GrayScott)\s+(\d+)sq\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.N/A]+)', line)
         if m:
             kernel,sz,sync,asyn,graph,pers = m.groups()
