@@ -1006,8 +1006,9 @@ def run_real(steps=1, backend="cuda", mesh="default"):
             H_res, U_res, V_res, Z_res, W_res = update_mod(
                 COSF_t, SINF_t, SIDE_t, AREA_t, ZBC_t, FNC_t,
                 F0, F1, F2, H_pre, U_pre, V_pre)
+            # xfer_mod has out_idx=[0..4]: first 5 args are outputs (allocated by JIT),
+            # last 5 args are inputs. Pass only the source (res) arrays.
             H_pre, U_pre, V_pre, Z_pre, W_pre = xfer_mod(
-                H_pre, U_pre, V_pre, Z_pre, W_pre,
                 H_res, U_res, V_res, Z_res, W_res)
         H_out.copy_(H_pre)  # update persistent handle
 
