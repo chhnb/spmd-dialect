@@ -690,37 +690,47 @@ int main(int argc, char* argv[]) {
         cudaStream_t stream;
         CUDA_CHECK(cudaStreamCreate(&stream));
 
-        // Capture graph for one step
+        // Full capture: all steps in one graph
         cudaGraph_t graph;
         cudaGraphExec_t graphExec;
 
         CUDA_CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
-        LAUNCH_STEP_STREAM(stream);
+        for (int s = 0; s < steps; s++)
+            LAUNCH_STEP_STREAM(stream);
         CUDA_CHECK(cudaStreamEndCapture(stream, &graph));
+
+        size_t numNodes;
+        CUDA_CHECK(cudaGraphGetNodes(graph, nullptr, &numNodes));
+        printf("Graph: %zu nodes (%d steps)\n", numNodes, steps);
+
         CUDA_CHECK(cudaGraphInstantiate(&graphExec, graph, nullptr, nullptr, 0));
 
         // Warmup
         uploadState();
-        for (int s = 0; s < 5; s++)
-            CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
+        CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
         CUDA_CHECK(cudaStreamSynchronize(stream));
 
+        cudaEvent_t g0, g1;
+        CUDA_CHECK(cudaEventCreate(&g0));
+        CUDA_CHECK(cudaEventCreate(&g1));
         std::vector<double> times;
         for (int r = 0; r < repeat; r++) {
             uploadState();
             CUDA_CHECK(cudaStreamSynchronize(stream));
-            auto t0 = std::chrono::high_resolution_clock::now();
-            for (int s = 0; s < steps; s++)
-                CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
+            CUDA_CHECK(cudaEventRecord(g0, stream));
+            CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
+            CUDA_CHECK(cudaEventRecord(g1, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
-            double ms = std::chrono::duration<double, std::milli>(
-                std::chrono::high_resolution_clock::now() - t0).count();
+            float ms;
+            CUDA_CHECK(cudaEventElapsedTime(&ms, g0, g1));
             times.push_back(ms);
         }
         std::sort(times.begin(), times.end());
         double median = times[repeat / 2];
         printf("[CUDA Graph] %d steps: median=%.3f ms, %.2f us/step\n",
                steps, median, median / steps * 1000.0);
+        CUDA_CHECK(cudaEventDestroy(g0));
+        CUDA_CHECK(cudaEventDestroy(g1));
 
         CUDA_CHECK(cudaGraphExecDestroy(graphExec));
         CUDA_CHECK(cudaGraphDestroy(graph));

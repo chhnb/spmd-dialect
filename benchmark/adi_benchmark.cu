@@ -55,6 +55,9 @@ int main(int argc,char**argv){
      bench([&]{cudaGraphLaunch(ge,s);cudaStreamSynchronize(s);},"Graph");
      CHECK(cudaGraphExecDestroy(ge));CHECK(cudaGraphDestroy(g));CHECK(cudaStreamDestroy(s));}
 
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    printf("[DevGraph] N/A (each launch processes a different row/col; serial dependency between phases)\n");
+
     // Persistent is N/A: ADI launches one kernel per row/column with different
     // row/col index parameters. A cooperative persistent kernel would require all
     // rows/columns to be processed by the same grid, but each row kernel only

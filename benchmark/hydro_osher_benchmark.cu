@@ -37,6 +37,15 @@ constexpr float C1_C  = 1.7f;
 constexpr float VMIN  = 0.001f;
 constexpr float QLUA  = 0.0f;
 
+// --- Device Graph tail launch support ---
+__device__ cudaGraphExec_t d_graph_exec;
+__global__ void tail_launch_kernel(int* steps_remaining) {
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        int rem = atomicSub(steps_remaining, 1);
+        if (rem > 1) cudaGraphLaunch(d_graph_exec, cudaStreamGraphTailLaunch);
+    }
+}
+
 // ===== Device: QF flux function =====
 __device__ __forceinline__
 void QF(float h, float u, float v, float& F0, float& F1, float& F2, float& F3) {
@@ -583,22 +592,28 @@ int main(int argc, char* argv[]) {
         }
         CUDA_CHECK(cudaDeviceSynchronize());
 
+        cudaEvent_t a0, a1;
+        CUDA_CHECK(cudaEventCreate(&a0));
+        CUDA_CHECK(cudaEventCreate(&a1));
         std::vector<double> times;
         for (int r = 0; r < repeat; r++) {
             uploadState();
             CUDA_CHECK(cudaDeviceSynchronize());
-            auto t0 = std::chrono::high_resolution_clock::now();
+            CUDA_CHECK(cudaEventRecord(a0));
             for (int s = 0; s < steps; s++) {
                 calculate_flux<<<fluxBlocks, fluxThreads>>>(CELL, HM1, HM2, d_H, d_U, d_V, d_Z, d_ZBC, d_ZB1, d_NAC, d_KLAS, d_SIDE, d_COSF, d_SINF, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
                 update_cell<<<updateBlocks, updateThreads>>>(CELL, DT, HM1, HM2, d_H, d_U, d_V, d_Z, d_W, d_ZBC, d_AREA, d_FNC, d_SIDE, d_SLCOS, d_SLSIN, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
             }
-            CUDA_CHECK(cudaDeviceSynchronize());
-            double ms = std::chrono::duration<double, std::milli>(
-                std::chrono::high_resolution_clock::now() - t0).count();
+            CUDA_CHECK(cudaEventRecord(a1));
+            CUDA_CHECK(cudaEventSynchronize(a1));
+            float ms;
+            CUDA_CHECK(cudaEventElapsedTime(&ms, a0, a1));
             times.push_back(ms);
         }
         std::sort(times.begin(), times.end());
         double median = times[repeat / 2];
+        CUDA_CHECK(cudaEventDestroy(a0));
+        CUDA_CHECK(cudaEventDestroy(a1));
         double per_step = median / steps * 1000.0;  // us/step
         printf("[%s] %d steps: median=%.3f ms, %.2f us/step\n", name, steps, median, per_step);
         return median;
@@ -650,27 +665,96 @@ int main(int argc, char* argv[]) {
         cudaGraph_t graph;
         cudaGraphExec_t graphExec;
 
+        // Full capture: all steps in one graph (no per-step host overhead)
         CUDA_CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
-        calculate_flux<<<fluxBlocks, fluxThreads, 0, stream>>>(CELL, HM1, HM2, d_H, d_U, d_V, d_Z, d_ZBC, d_ZB1, d_NAC, d_KLAS, d_SIDE, d_COSF, d_SINF, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
-        update_cell<<<updateBlocks, updateThreads, 0, stream>>>(CELL, DT, HM1, HM2, d_H, d_U, d_V, d_Z, d_W, d_ZBC, d_AREA, d_FNC, d_SIDE, d_SLCOS, d_SLSIN, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
+        for (int s = 0; s < steps; s++) {
+            calculate_flux<<<fluxBlocks, fluxThreads, 0, stream>>>(CELL, HM1, HM2, d_H, d_U, d_V, d_Z, d_ZBC, d_ZB1, d_NAC, d_KLAS, d_SIDE, d_COSF, d_SINF, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
+            update_cell<<<updateBlocks, updateThreads, 0, stream>>>(CELL, DT, HM1, HM2, d_H, d_U, d_V, d_Z, d_W, d_ZBC, d_AREA, d_FNC, d_SIDE, d_SLCOS, d_SLSIN, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
+        }
         CUDA_CHECK(cudaStreamEndCapture(stream, &graph));
+
+        size_t numNodes;
+        CUDA_CHECK(cudaGraphGetNodes(graph, nullptr, &numNodes));
+        printf("Graph: %zu nodes (%d steps x 2 kernels)\n", numNodes, steps);
+
         CUDA_CHECK(cudaGraphInstantiate(&graphExec, graph, nullptr, nullptr, 0));
 
         // Warmup
         uploadState();
-        for (int s = 0; s < 5; s++) {
-            CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
-        }
+        CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
         CUDA_CHECK(cudaStreamSynchronize(stream));
+
+        cudaEvent_t g0, g1;
+        CUDA_CHECK(cudaEventCreate(&g0));
+        CUDA_CHECK(cudaEventCreate(&g1));
+        std::vector<double> times;
+        for (int r = 0; r < repeat; r++) {
+            uploadState();
+            CUDA_CHECK(cudaStreamSynchronize(stream));
+            CUDA_CHECK(cudaEventRecord(g0, stream));
+            CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
+            CUDA_CHECK(cudaEventRecord(g1, stream));
+            CUDA_CHECK(cudaStreamSynchronize(stream));
+            float ms;
+            CUDA_CHECK(cudaEventElapsedTime(&ms, g0, g1));
+            times.push_back(ms);
+        }
+        std::sort(times.begin(), times.end());
+        double median = times[repeat / 2];
+        printf("[CUDA Graph] %d steps: median=%.3f ms, %.2f us/step\n", steps, median, median / steps * 1000.0);
+        CUDA_CHECK(cudaEventDestroy(g0));
+        CUDA_CHECK(cudaEventDestroy(g1));
+
+        CUDA_CHECK(cudaGraphExecDestroy(graphExec));
+        CUDA_CHECK(cudaGraphDestroy(graph));
+        CUDA_CHECK(cudaStreamDestroy(stream));
+    }
+
+    // ===== Strategy 3b: Device Graph (tail launch) =====
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    {
+        int *d_steps_dg;
+        CUDA_CHECK(cudaMalloc(&d_steps_dg, sizeof(int)));
+        cudaStream_t stream;
+        CUDA_CHECK(cudaStreamCreate(&stream));
+        cudaGraph_t graph;
+        cudaGraphExec_t graphExec;
+
+        // Capture ONE step: calculate_flux + update_cell
+        CUDA_CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
+        calculate_flux<<<fluxBlocks, fluxThreads, 0, stream>>>(CELL, HM1, HM2, d_H, d_U, d_V, d_Z, d_ZBC, d_ZB1, d_NAC, d_KLAS, d_SIDE, d_COSF, d_SINF, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
+        update_cell<<<updateBlocks, updateThreads, 0, stream>>>(CELL, DT, HM1, HM2, d_H, d_U, d_V, d_Z, d_W, d_ZBC, d_AREA, d_FNC, d_SIDE, d_SLCOS, d_SLSIN, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
+        tail_launch_kernel<<<1, 1, 0, stream>>>(d_steps_dg);
+        CUDA_CHECK(cudaStreamEndCapture(stream, &graph));
+
+        // Instantiate for device-side launch
+        CUDA_CHECK(cudaGraphInstantiateWithFlags(&graphExec, graph,
+              cudaGraphInstantiateFlagDeviceLaunch));
+        CUDA_CHECK(cudaGraphUpload(graphExec, stream));
+
+        // Copy graph exec handle to device symbol
+        cudaGraphExec_t* d_sym_ptr;
+        CUDA_CHECK(cudaGetSymbolAddress((void**)&d_sym_ptr, d_graph_exec));
+        CUDA_CHECK(cudaMemcpy(d_sym_ptr, &graphExec, sizeof(cudaGraphExec_t),
+              cudaMemcpyHostToDevice));
+
+        // Warmup
+        uploadState();
+        for (int w = 0; w < 5; w++) {
+            int sv = steps;
+            CUDA_CHECK(cudaMemcpy(d_steps_dg, &sv, sizeof(int), cudaMemcpyHostToDevice));
+            CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
+            CUDA_CHECK(cudaStreamSynchronize(stream));
+        }
 
         std::vector<double> times;
         for (int r = 0; r < repeat; r++) {
             uploadState();
             CUDA_CHECK(cudaStreamSynchronize(stream));
             auto t0 = std::chrono::high_resolution_clock::now();
-            for (int s = 0; s < steps; s++) {
-                CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
-            }
+            int sv = steps;
+            CUDA_CHECK(cudaMemcpy(d_steps_dg, &sv, sizeof(int), cudaMemcpyHostToDevice));
+            CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
             double ms = std::chrono::duration<double, std::milli>(
                 std::chrono::high_resolution_clock::now() - t0).count();
@@ -678,11 +762,12 @@ int main(int argc, char* argv[]) {
         }
         std::sort(times.begin(), times.end());
         double median = times[repeat / 2];
-        printf("[CUDA Graph] %d steps: median=%.3f ms, %.2f us/step\n", steps, median, median / steps * 1000.0);
+        printf("[DevGraph] %d steps: median=%.3f ms, %.2f us/step\n", steps, median, median / steps * 1000.0);
 
         CUDA_CHECK(cudaGraphExecDestroy(graphExec));
         CUDA_CHECK(cudaGraphDestroy(graph));
         CUDA_CHECK(cudaStreamDestroy(stream));
+        CUDA_CHECK(cudaFree(d_steps_dg));
     }
 
     // ===== Strategy 4: Persistent Kernel (cooperative launch) =====
@@ -794,6 +879,28 @@ int main(int argc, char* argv[]) {
         CUDA_CHECK(cudaEventDestroy(e2));
         CUDA_CHECK(cudaEventDestroy(e3));
         CUDA_CHECK(cudaEventDestroy(e4));
+    }
+
+    // ===== Dump final state for correctness validation =====
+    // Run N steps with Async and dump H to binary
+    {
+        uploadState();
+        for (int s = 0; s < steps; s++) {
+            calculate_flux<<<fluxBlocks, fluxThreads>>>(CELL, HM1, HM2, d_H, d_U, d_V, d_Z, d_ZBC, d_ZB1, d_NAC, d_KLAS, d_SIDE, d_COSF, d_SINF, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
+            update_cell<<<updateBlocks, updateThreads>>>(CELL, DT, HM1, HM2, d_H, d_U, d_V, d_Z, d_W, d_ZBC, d_AREA, d_FNC, d_SIDE, d_SLCOS, d_SLSIN, d_FLUX0, d_FLUX1, d_FLUX2, d_FLUX3);
+        }
+        CUDA_CHECK(cudaDeviceSynchronize());
+        std::vector<float> h_out(CELL);
+        cudaMemcpy(h_out.data(), d_H, CELL*sizeof(float), cudaMemcpyDeviceToHost);
+        // Write to /tmp/cuda_H.bin
+        FILE* fp = fopen("/tmp/cuda_H.bin", "wb");
+        if (fp) {
+            fwrite(h_out.data(), sizeof(float), CELL, fp);
+            fclose(fp);
+            printf("\nDumped CUDA H[%d] to /tmp/cuda_H.bin after %d steps\n", CELL, steps);
+            printf("H range: [%.6f, %.6f]\n", *std::min_element(h_out.begin(), h_out.end()),
+                   *std::max_element(h_out.begin(), h_out.end()));
+        }
     }
 
     // ===== Summary =====

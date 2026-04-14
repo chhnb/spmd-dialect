@@ -16,6 +16,15 @@ namespace cg = cooperative_groups;
 
 #define CHECK(call) do { auto e = call; if(e) { fprintf(stderr,"CUDA error %d at %s:%d\n",e,__FILE__,__LINE__); exit(1); }} while(0)
 
+// --- Device Graph tail launch support ---
+__device__ cudaGraphExec_t d_graph_exec;
+__global__ void tail_launch_kernel(int* steps_remaining) {
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        int rem = atomicSub(steps_remaining, 1);
+        if (rem > 1) cudaGraphLaunch(d_graph_exec, cudaStreamGraphTailLaunch);
+    }
+}
+
 // SPH parameters
 static const float H = 0.05f;       // smoothing radius
 static const float H2 = H * H;
@@ -309,6 +318,61 @@ int main(int argc, char* argv[]) {
         CHECK(cudaGraphExecDestroy(graphExec));
         CHECK(cudaGraphDestroy(graph));
         CHECK(cudaStreamDestroy(stream));
+    }
+
+    // Strategy 3b: Device Graph (tail launch, same kernels, no fusion)
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    {
+        int *d_steps_dg;
+        CHECK(cudaMalloc(&d_steps_dg, sizeof(int)));
+        cudaGraph_t graph;
+        cudaGraphExec_t graphExec;
+        cudaStream_t stream;
+        CHECK(cudaStreamCreate(&stream));
+
+        // Capture ONE step: memset + build_grid + compute_density + jitter
+        // Note: jitter uses step=0 in capture (fixed in graph), acceptable for benchmark
+        CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
+        cudaMemsetAsync(d_cellCount, 0, gp.totalCells * sizeof(int), stream);
+        build_grid<<<gridSize, blockSize, 0, stream>>>(N, d_pos, d_cellCount, d_cellParticles,
+                                                        gp.gridX, gp.gridY, gp.cellSize, gp.maxPerCell);
+        compute_density<<<gridSize, blockSize, 0, stream>>>(N, d_pos, d_density, d_cellCount,
+                                                              d_cellParticles, gp.gridX, gp.gridY,
+                                                              gp.cellSize, gp.maxPerCell, H2);
+        jitter_positions<<<gridSize, blockSize, 0, stream>>>(N, d_pos, 0);
+        tail_launch_kernel<<<1, 1, 0, stream>>>(d_steps_dg);
+        CHECK(cudaStreamEndCapture(stream, &graph));
+
+        // Instantiate for device-side launch
+        CHECK(cudaGraphInstantiateWithFlags(&graphExec, graph,
+              cudaGraphInstantiateFlagDeviceLaunch));
+        CHECK(cudaGraphUpload(graphExec, stream));
+
+        // Copy graph exec handle to device symbol
+        cudaGraphExec_t* d_sym_ptr;
+        CHECK(cudaGetSymbolAddress((void**)&d_sym_ptr, d_graph_exec));
+        CHECK(cudaMemcpy(d_sym_ptr, &graphExec, sizeof(cudaGraphExec_t),
+              cudaMemcpyHostToDevice));
+
+        // Warmup
+        for (int w = 0; w < 5; w++) {
+            int sv = STEPS;
+            CHECK(cudaMemcpy(d_steps_dg, &sv, sizeof(int), cudaMemcpyHostToDevice));
+            CHECK(cudaGraphLaunch(graphExec, stream));
+            CHECK(cudaStreamSynchronize(stream));
+        }
+
+        run_timed([&]() {
+            int sv = STEPS;
+            CHECK(cudaMemcpy(d_steps_dg, &sv, sizeof(int), cudaMemcpyHostToDevice));
+            CHECK(cudaGraphLaunch(graphExec, stream));
+            cudaStreamSynchronize(stream);
+        }, "DevGraph");
+
+        CHECK(cudaGraphExecDestroy(graphExec));
+        CHECK(cudaGraphDestroy(graph));
+        CHECK(cudaStreamDestroy(stream));
+        CHECK(cudaFree(d_steps_dg));
     }
 
     // Strategy 4: Persistent Kernel

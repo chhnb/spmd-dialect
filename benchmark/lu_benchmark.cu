@@ -254,6 +254,10 @@ int main(int argc, char* argv[]) {
         CHECK(cudaEventDestroy(gi1));
     }
 
+    // Strategy 3b: Device Graph (tail launch)
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    printf("[DevGraph] N/A (requires host reset between steps)\n");
+
     // Strategy 4: Persistent Kernel
     printf("\n--- Strategy 4: Persistent Kernel ---\n");
     {

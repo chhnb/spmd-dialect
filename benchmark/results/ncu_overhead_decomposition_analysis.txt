@@ -1,0 +1,138 @@
+=============================================================================
+  NCU Overhead Decomposition Analysis — A100 (sm_80, 108 SMs)
+  Date: 2026-04-14
+=============================================================================
+
+Method: Use CUDA Graph us/step as proxy for GPU body time (Graph has ~0
+launch overhead, closest to pure compute). Then decompose:
+  overhead = wall_clock - body_time
+
+For HydroF2 we also have event-based body measurements for validation.
+
+=============================================================================
+  C1: Jacobi2D (2 kernels/step: jacobi_step + copy_kernel)
+=============================================================================
+
+  N=256 (65K cells, small problem)
+  -------------------------------------------------------
+  Strategy       us/step   Body(est)  Overhead   OH%
+  -------------------------------------------------------
+  Sync Loop       14.97      5.76      9.21      61.5%
+  Async Loop       8.24      5.76      2.48      30.1%
+  CUDA Graph       5.76      5.76      0.00       0.0%   ← body proxy
+  Persistent       6.46      5.76      0.70      10.8%   (barrier cost)
+  GridStride      12.27      5.76      6.51      53.1%   (stride div/mod)
+  -------------------------------------------------------
+  Per-kernel overhead:
+    Sync:  4.6 us/kernel  (launch + sync)
+    Async: 1.2 us/kernel  (launch only)
+
+  N=1024 (1M cells, medium problem)
+  -------------------------------------------------------
+  Strategy       us/step   Body(est)  Overhead   OH%
+  -------------------------------------------------------
+  Sync Loop       34.89     27.51      7.38      21.2%
+  Async Loop      29.48     27.51      1.97       6.7%
+  CUDA Graph      27.51     27.51      0.00       0.0%   ← body proxy
+  Persistent       N/A       N/A        —          —     (grid too large)
+  GridStride      44.81     27.51     17.30      38.6%   (stride overhead)
+  -------------------------------------------------------
+
+  N=4096 (16M cells, large problem)
+  -------------------------------------------------------
+  Strategy       us/step   Body(est)  Overhead   OH%
+  -------------------------------------------------------
+  Sync Loop      398.29    388.40      9.89       2.5%
+  Async Loop     391.98    388.40      3.58       0.9%
+  CUDA Graph     388.40    388.40      0.00       0.0%   ← body proxy
+  Persistent       N/A       N/A        —          —     (grid too large)
+  GridStride     763.85    388.40    375.45      49.2%   (stride HURTS)
+  -------------------------------------------------------
+  NOTE: At large N, launch overhead is negligible (2.5%).
+        GridStride is 2x SLOWER due to changed memory access pattern.
+
+=============================================================================
+  F2: HydroF2 OSHER (2 kernels/step: flux + update, CELL=24020)
+=============================================================================
+
+  Event-based body: flux=6.24 + update=5.64 = 11.88 us/step
+  (This is pure GPU compute time, measured with cudaEvent)
+
+  -------------------------------------------------------
+  Strategy       us/step   Body(evt)  Overhead   OH%
+  -------------------------------------------------------
+  Sync Loop       25.65     11.88     13.77      53.7%
+  Async Loop      12.33     11.88      0.45       3.7%
+  CUDA Graph      11.10     11.88     -0.78        —     (overlap effect)
+  Persistent      12.11     11.88      0.23       1.9%   (barrier cost)
+  -------------------------------------------------------
+  NOTE: Graph < body because graph replay can overlap kernel transitions.
+        Persistent overhead (0.23 us) = grid.sync() barrier cost.
+        Async overhead (0.45 us) = 2× host launch overhead.
+
+  NCU body times (inflated by instrumentation ~1.7x):
+    flux:   ~10.3 us (NCU) vs 6.24 us (event)
+    update:  ~9.4 us (NCU) vs 5.64 us (event)
+    persistent_fused(100 steps): 1600 us → 16.0 us/step
+      → barrier overhead per step: 16.0 - 11.88 = 4.12 us (NCU-inflated)
+      → real barrier overhead: ~0.23 us (from wall-clock)
+
+=============================================================================
+  C3: Heat2D (1 kernel/step)
+=============================================================================
+
+  Size     Sync    Async   Graph  Persist  | Graph OH%  Async OH%  Sync OH%
+  ------  ------  ------  ------  -------  | --------  ---------  --------
+  128sq    12.46    6.00    3.52    3.35    |    0.0%     41.3%     71.8%
+  256sq    13.89    7.46    4.86    5.71    |    0.0%     34.8%     65.0%
+  512sq    19.67   13.19   10.70     N/A    |    0.0%     18.9%     45.6%
+  1024sq   39.40   32.55   30.39     N/A    |    0.0%     6.6%      22.9%
+  2048sq  122.61  115.82  112.95     N/A    |    0.0%     2.5%       7.9%
+
+=============================================================================
+  C10: GrayScott (2 kernels/step)
+=============================================================================
+
+  Size     Sync    Async   Graph  Persist  | Graph OH%  Async OH%  Sync OH%
+  ------  ------  ------  ------  -------  | --------  ---------  --------
+  128sq    16.03    9.44    5.77    4.53    |    0.0%     38.9%     64.0%
+  256sq    19.14   12.57    8.71    8.75    |    0.0%     30.7%     54.5%
+  512sq    31.32   24.82   20.55     N/A    |    0.0%     17.2%     34.4%
+  1024sq   71.76   65.04   61.80     N/A    |    0.0%      5.0%     13.9%
+
+=============================================================================
+  C4: Wave2D (1 kernel/step, persistent does N steps in 1 launch)
+=============================================================================
+
+  Size     Sync    Async   Graph  Persist  | Persist speedup
+  ------  ------  ------  ------  -------  | ---------------
+  512     17.24   10.83   10.10    8.18    |  1.23x vs Graph
+  4096   423.33  416.49  415.76  154.46    |  2.69x vs Graph!
+
+  NOTE: Wave2D N=4096 persistent 2.69x faster than Graph!
+        This is because persistent avoids ALL launch overhead and
+        does N steps in a single kernel with grid.sync() between steps.
+        The kernel body is memory-bound (stencil), and persistent
+        improves temporal locality by keeping data in L2 cache.
+
+=============================================================================
+  SUMMARY: Overhead Components
+=============================================================================
+
+  Component              A100 Cost    Where measured
+  ---------------------  -----------  --------------------------------
+  Host cudaLaunchKernel  ~1.0-1.5 us  (Async - Graph) / num_kernels
+  Host cudaDeviceSync    ~3.5-5.0 us  (Sync - Async) / num_syncs
+  Graph replay per node  ~0.1-0.3 us  Graph total / num_nodes
+  grid.sync() barrier    ~0.2-0.5 us  Persistent - Graph (small cases)
+  Grid-stride div/mod    variable     Can be 0-50% penalty depending on
+                                      problem size and memory pattern
+
+  Key findings:
+  1. Launch overhead dominates for small problems (>60% for <64K cells)
+  2. Launch overhead negligible for large problems (<3% for >16M cells)
+  3. Graph effectively eliminates launch overhead
+  4. Persistent eliminates launch overhead BUT adds barrier cost
+  5. Grid-stride persistent can HURT for large problems (2x slower)
+     due to changed memory access pattern, NOT barrier cost
+  6. The "overhead wall" is real but size-dependent

@@ -32,16 +32,14 @@ __global__ void conv3d_slice_kernel(int NX, int NY, int NZ, int z,
     }
 }
 
-// Persistent: process all z-slices in one kernel using grid_sync
+// Persistent: process all z-slices in one kernel
+// All z-slices are independent (read A, write B) — no barrier needed
 __global__ void conv3d_persistent(int NX, int NY, int NZ,
                                    const float* __restrict__ A,
                                    float* __restrict__ B) {
-    auto grid = cg::this_grid();
     int tid_x = blockIdx.x * blockDim.x + threadIdx.x + 1;
     int tid_y = blockIdx.y * blockDim.y + threadIdx.y + 1;
 
-    // Process all interior z-slices; since each slice is independent for convolution,
-    // we just loop and sync between slices for consistent memory view
     for (int z = 1; z < NZ - 1; z++) {
         if (tid_x < NX-1 && tid_y < NY-1) {
             float sum = 0.0f;
@@ -51,31 +49,30 @@ __global__ void conv3d_persistent(int NX, int NY, int NZ,
                         sum += A[(tid_x+dx)*NY*NZ + (tid_y+dy)*NZ + (z+dz)];
             B[tid_x*NY*NZ + tid_y*NZ + z] = sum / 27.0f;
         }
-        grid.sync();
     }
 }
 
-// Grid-stride persistent: never N/A
+// Grid-stride persistent: flatten all interior points, 0 barrier per step
+// All z-slices are independent (read A, write B), no sync needed between them
 __global__ void conv3d_persistent_stride(int NX, int NY, int NZ,
                                           const float* __restrict__ A,
                                           float* __restrict__ B) {
-    auto grid = cg::this_grid();
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = gridDim.x * blockDim.x;
-    int slice_size = (NX-2) * (NY-2);  // interior xy points per z-slice
+    int total = (NX-2) * (NY-2) * (NZ-2);  // all interior points
 
-    for (int z = 1; z < NZ - 1; z++) {
-        for (int idx = tid; idx < slice_size; idx += stride) {
-            int ix = idx / (NY-2) + 1;
-            int iy = idx % (NY-2) + 1;
-            float sum = 0.0f;
-            for (int dz = -1; dz <= 1; dz++)
-                for (int dy = -1; dy <= 1; dy++)
-                    for (int dx = -1; dx <= 1; dx++)
-                        sum += A[(ix+dx)*NY*NZ + (iy+dy)*NZ + (z+dz)];
-            B[ix*NY*NZ + iy*NZ + z] = sum / 27.0f;
-        }
-        grid.sync();
+    for (int idx = tid; idx < total; idx += stride) {
+        int tmp = idx;
+        int iz = tmp / ((NX-2) * (NY-2)) + 1;
+        tmp = tmp % ((NX-2) * (NY-2));
+        int ix = tmp / (NY-2) + 1;
+        int iy = tmp % (NY-2) + 1;
+        float sum = 0.0f;
+        for (int dz = -1; dz <= 1; dz++)
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    sum += A[(ix+dx)*NY*NZ + (iy+dy)*NZ + (iz+dz)];
+        B[ix*NY*NZ + iy*NZ + iz] = sum / 27.0f;
     }
 }
 
@@ -209,49 +206,35 @@ int main(int argc, char* argv[]) {
         CHECK(cudaEventDestroy(gi1));
     }
 
+    // Strategy 3b: Device Graph (tail launch)
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    printf("[DevGraph] N/A (requires host pointer swap between steps)\n");
+
     // Strategy 4: Persistent Kernel
     printf("\n--- Strategy 4: Persistent Kernel ---\n");
     {
-        int numBlocks;
-        CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocks,
-              conv3d_persistent, block.x * block.y, 0));
-        int maxBlocks = numBlocks * prop.multiProcessorCount;
+        // No cooperative launch needed — z-slices are independent, no barrier
         int needed = slice_grid.x * slice_grid.y;
-
-        if (needed <= maxBlocks) {
-            printf("Persistent: %d blocks (max %d)\n", needed, maxBlocks);
-            // Persistent version does all z-slices internally
-            void* args[] = {&NX, &NY, &NZ, &A, &B};
-            run_timed([&]() {
-                for (int s = 0; s < STEPS; s++) {
-                    cudaLaunchCooperativeKernel((void*)conv3d_persistent,
-                        dim3(needed, 1, 1), block, args);
-                    cudaDeviceSynchronize();
-                    float* tmp = A; A = B; B = tmp;
-                    // Update args for swapped pointers
-                    args[3] = &A; args[4] = &B;
-                }
-            }, "Persistent");
-        } else {
-            printf("Persistent: N/A (need %d blocks, max %d)\n", needed, maxBlocks);
-        }
+        printf("Persistent: %d blocks (no barrier, no grid limit)\n", needed);
+        run_timed([&]() {
+            for (int s = 0; s < STEPS; s++) {
+                conv3d_persistent<<<dim3(needed, 1, 1), block>>>(NX, NY, NZ, A, B);
+                cudaDeviceSynchronize();
+                float* tmp = A; A = B; B = tmp;
+            }
+        }, "Persistent");
     }
 
-    // Strategy 5: Grid-Stride Persistent (never N/A)
-    printf("\n--- Strategy 5: Grid-Stride Persistent ---\n");
+    // Strategy 5: Fused kernel (all interior points in one launch, 0 barriers)
+    printf("\n--- Strategy 5: Fused (0 barrier, 1 launch) ---\n");
     {
-        int gsBSm = 0;
-        CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&gsBSm,
-              conv3d_persistent_stride, 256, 0));
-        int gsMax = gsBSm * prop.multiProcessorCount;
-        printf("Grid-stride: %d blocks (always fits)\n", gsMax);
-        void* gsArgs[] = {&NX, &NY, &NZ, &A, &B};
+        int total = (NX-2) * (NY-2) * (NZ-2);
+        int fusedBlocks = (total + 255) / 256;
+        printf("Fused: %d blocks x 256 threads (total %d interior points)\n", fusedBlocks, total);
         run_timed([&]() {
-            CHECK(cudaMemcpy(A, h_A.data(), N3*sizeof(float), cudaMemcpyHostToDevice));
-            cudaLaunchCooperativeKernel((void*)conv3d_persistent_stride,
-                dim3(gsMax), dim3(256), gsArgs);
+            conv3d_persistent_stride<<<fusedBlocks, 256>>>(NX, NY, NZ, A, B);
             cudaDeviceSynchronize();
-        }, "GridStride");
+        }, "Fused");
     }
 
     CHECK(cudaFree(A));

@@ -1,0 +1,136 @@
+=== NCU Overhead Decomposition (A100, sm_80) ===
+Date: Tue Apr 14 09:54:36 PDT 2026
+name, compute_cap
+NVIDIA A100 80GB PCIe, 8.0
+
+=== C1: Jacobi2D ===
+--- N=256 ---
+[jacobi_step body]
+    gpu__time_duration.sum                                     us         6.46
+    gpu__time_duration.sum                                     us         5.92
+    gpu__time_duration.sum                                     us         5.76
+[copy_kernel body]
+    gpu__time_duration.sum                                     us         4.38
+    gpu__time_duration.sum                                     us         3.68
+    gpu__time_duration.sum                                     us         3.78
+[persistent total (10 steps)]
+    gpu__time_duration.sum                                     us        74.53
+[grid-stride persistent total (10 steps)]
+    gpu__time_duration.sum                                     us           76
+[wall-clock timing]
+[Sync Loop] 10 steps: median=0.150 ms, 14.97 us/step
+[Async Loop] 10 steps: median=0.082 ms, 8.24 us/step
+[CUDA Graph] 10 steps: median=0.058 ms, 5.76 us/step
+[Persistent] 10 steps: median=0.065 ms, 6.46 us/step
+[GridStride] 10 steps: median=0.123 ms, 12.27 us/step
+
+--- N=1024 ---
+[jacobi_step body]
+    gpu__time_duration.sum                                     us        30.40
+    gpu__time_duration.sum                                     us        29.86
+    gpu__time_duration.sum                                     us        29.82
+[copy_kernel body]
+    gpu__time_duration.sum                                     us         9.47
+    gpu__time_duration.sum                                     us         8.80
+    gpu__time_duration.sum                                     us         8.67
+[persistent total (10 steps)]
+[grid-stride persistent total (10 steps)]
+    gpu__time_duration.sum                                     us       163.52
+[wall-clock timing]
+[Sync Loop] 10 steps: median=0.349 ms, 34.89 us/step
+[Async Loop] 10 steps: median=0.295 ms, 29.48 us/step
+[CUDA Graph] 10 steps: median=0.275 ms, 27.51 us/step
+[GridStride] 10 steps: median=0.448 ms, 44.81 us/step
+
+--- N=4096 ---
+[jacobi_step body]
+    gpu__time_duration.sum                                     us       402.69
+    gpu__time_duration.sum                                     us       404.42
+    gpu__time_duration.sum                                     us       403.97
+[copy_kernel body]
+    gpu__time_duration.sum                                     us        95.10
+    gpu__time_duration.sum                                     us        92.67
+    gpu__time_duration.sum                                     us        92.74
+[persistent total (10 steps)]
+[grid-stride persistent total (10 steps)]
+    gpu__time_duration.sum                                     ms         2.96
+[wall-clock timing]
+[Sync Loop] 10 steps: median=3.983 ms, 398.29 us/step
+[Async Loop] 10 steps: median=3.920 ms, 391.98 us/step
+[CUDA Graph] 10 steps: median=3.884 ms, 388.40 us/step
+[GridStride] 10 steps: median=7.639 ms, 763.85 us/step
+
+=== F2: HydroF2 OSHER (CELL=24020) ===
+[calculate_flux body]
+    gpu__time_duration.sum                                     us        10.53
+    gpu__time_duration.sum                                     us        10.27
+    gpu__time_duration.sum                                     us         9.98
+[update_cell body]
+    gpu__time_duration.sum                                     us         9.98
+    gpu__time_duration.sum                                     us         9.22
+    gpu__time_duration.sum                                     us         9.09
+[persistent_fused total (100 steps)]
+    gpu__time_duration.sum                                     ms         1.60
+[wall-clock timing]
+Flux kernel:   376 blocks x 256 threads = 96256 (need 96080)
+Update kernel: 94 blocks x 256 threads = 24064 (need 24020)
+[Sync Loop] 100 steps: median=2.565 ms, 25.65 us/step
+[Async Loop] 100 steps: median=1.233 ms, 12.33 us/step
+[CUDA Graph] 100 steps: median=1.110 ms, 11.10 us/step
+[Persistent] 100 steps: median=1.211 ms, 12.11 us/step
+Flux kernel:   6.24 us/call
+Update kernel: 5.64 us/call
+GPU total:     11.88 us/step
+
+=== C4: Wave2D ===
+--- N=512 ---
+[wave_step body]
+[wall-clock]
+[Sync Loop] 100 steps: median=1.724 ms, 17.24 us/step
+[Async Loop] 100 steps: median=1.083 ms, 10.83 us/step
+[CUDA Graph] 100 steps: median=1.010 ms, 10.10 us/step
+[Persistent] 100 steps: median=0.818 ms, 8.18 us/step
+
+--- N=4096 ---
+[wave_step body]
+[wall-clock]
+[Sync Loop] 100 steps: median=42.333 ms, 423.33 us/step
+[Async Loop] 100 steps: median=41.649 ms, 416.49 us/step
+[CUDA Graph] 100 steps: median=41.576 ms, 415.76 us/step
+[Persistent] 100 steps: median=15.446 ms, 154.46 us/step
+
+=== C5: LBM D2Q9 ===
+--- 512 256 ---
+[lbm_stream_collide body]
+[wall-clock]
+[Sync Loop] 100 steps: median=2.503 ms, 25.03 us/step
+[Async Loop] 100 steps: median=1.900 ms, 19.00 us/step
+[CUDA Graph] 100 steps: median=1.853 ms, 18.53 us/step
+[Persistent] 100 steps: median=1.020 ms, 10.20 us/step
+
+--- 2048 1024 ---
+[lbm_stream_collide body]
+[wall-clock]
+[Sync Loop] 100 steps: median=37.273 ms, 372.73 us/step
+[Async Loop] 100 steps: median=36.614 ms, 366.14 us/step
+[CUDA Graph] 100 steps: median=36.531 ms, 365.31 us/step
+[Persistent] 100 steps: median=11.141 ms, 111.41 us/step
+
+=== C3/C10: Heat2D + GrayScott ===
+[wall-clock]
+GPU: NVIDIA A100 80GB PCIe (SMs=108, Compute 8.0)
+
+Kernel                          Sync      Async      Graph    Persist   DevGraph | Speedups over Sync
+                                (us)       (us)       (us)       (us)       (us) |    Async    Graph  Persist  DevGrph
+------------------------- ---------- ---------- ---------- ---------- ---------- | -------- -------- -------- --------
+Heat2D 128sq                   12.46       6.00       3.52       3.35      10.37 |     2.1x     3.5x     3.7x     1.2x
+Heat2D 256sq                   13.89       7.46       4.86       5.71      11.61 |     1.9x     2.9x     2.4x     1.2x
+Heat2D 512sq                   19.67      13.19      10.70        N/A      17.56 |     1.5x     1.8x      N/A     1.1x
+Heat2D 1024sq                  39.40      32.55      30.39        N/A      37.35 |     1.2x     1.3x      N/A     1.1x
+Heat2D 2048sq                 122.61     115.82     112.95        N/A     122.24 |     1.1x     1.1x      N/A     1.0x
+GrayScott 128sq                16.03       9.44       5.77       4.53      12.51 |     1.7x     2.8x     3.5x     1.3x
+GrayScott 256sq                19.14      12.57       8.71       8.75      15.69 |     1.5x     2.2x     2.2x     1.2x
+GrayScott 512sq                31.32      24.82      20.55        N/A      27.53 |     1.3x     1.5x      N/A     1.1x
+GrayScott 1024sq               71.76      65.04      61.80        N/A      68.80 |     1.1x     1.2x      N/A     1.0x
+
+=== DONE ===

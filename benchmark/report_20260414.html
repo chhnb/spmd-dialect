@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>GPU Simulation Launch Overhead - Progress Report 2026-04-14</title>
+<style>
+body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #e6edf3; margin: 0; padding: 20px; }
+.slide { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 30px 40px; margin: 30px auto; max-width: 1000px; page-break-after: always; }
+h1 { color: #58a6ff; font-size: 28px; border-bottom: 2px solid #30363d; padding-bottom: 10px; }
+h2 { color: #79c0ff; font-size: 22px; margin-top: 25px; }
+h3 { color: #d2a8ff; font-size: 18px; }
+table { border-collapse: collapse; width: 100%; margin: 15px 0; font-size: 15px; }
+th { background: #21262d; color: #79c0ff; padding: 10px 12px; text-align: left; border: 1px solid #30363d; }
+td { padding: 8px 12px; border: 1px solid #30363d; }
+tr:nth-child(even) { background: #1c2128; }
+.best { color: #3fb950; font-weight: bold; }
+.bad { color: #f85149; }
+.note { color: #8b949e; font-size: 13px; font-style: italic; }
+.highlight { background: #1f3a1f; }
+.warn { background: #3d2a1a; }
+code { background: #1c2128; padding: 2px 6px; border-radius: 4px; font-size: 14px; }
+pre { background: #1c2128; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 4px; }
+.tag-launch { background: #1f3a5f; color: #79c0ff; }
+.tag-transform { background: #3a1f5f; color: #d2a8ff; }
+.tag-dsl { background: #3a3a1f; color: #e3b341; }
+</style>
+</head>
+<body>
+
+<!-- Slide 1: Title -->
+<div class="slide">
+<h1>GPU Simulation Kernel Launch Overhead Characterization</h1>
+<h2>Progress Report - 2026-04-14</h2>
+<p>Benchmark: Hydro-Cal OSHER Riemann Solver (F1 + F2)</p>
+<p>GPU: NVIDIA A100 80GB PCIe (108 SMs, sm_80)</p>
+<p>Frameworks: CUDA (4 strategies) + Taichi + Warp</p>
+<p>Correctness: CUDA vs Taichi vs Warp cross-validated (max_diff < 5e-6 for 24K, < 2.4e-4 for 207K)</p>
+</div>
+
+<!-- Slide 2: What we benchmark -->
+<div class="slide">
+<h1>Benchmark Setup</h1>
+
+<h2>Two Real-World Hydro-Cal Cases</h2>
+<table>
+<tr><th>Case</th><th>Solver</th><th>Kernels/Step</th><th>Mesh Sizes</th></tr>
+<tr><td><b>HydroF1</b></td><td>Monolithic OSHER (flux+update in 1 kernel)</td><td>1</td><td>6.7K / 207K cells</td></tr>
+<tr><td><b>HydroF2</b></td><td>Refactored OSHER (flux and update separate)</td><td>2</td><td>24K / 207K cells</td></tr>
+</table>
+
+<h2>Strategies Compared</h2>
+<table>
+<tr><th>Strategy</th><th>Type</th><th>Description</th></tr>
+<tr><td><span class="tag tag-launch">CUDA Sync</span></td><td>Launch strategy</td><td>每个 kernel 后 <code>cudaDeviceSynchronize()</code></td></tr>
+<tr><td><span class="tag tag-launch">CUDA Async</span></td><td>Launch strategy</td><td>连续 launch，最后 sync（CUDA 默认行为）</td></tr>
+<tr><td><span class="tag tag-launch">CUDA Graph</span></td><td>Launch strategy</td><td>全步录制成 1 个 graph，1 次 launch</td></tr>
+<tr><td><span class="tag tag-launch">CUDA DevGraph</span></td><td>Launch strategy</td><td>Device-side tail launch（Blink 方式）</td></tr>
+<tr><td><span class="tag tag-transform">CUDA Persistent</span></td><td>Code transform</td><td>Megakernel + grid.sync()（改了 kernel 代码）</td></tr>
+<tr><td><span class="tag tag-dsl">Taichi</span></td><td>DSL</td><td>Python JIT, async dispatch (~25 us/kernel)</td></tr>
+<tr><td><span class="tag tag-dsl">Warp</span></td><td>DSL</td><td>Python JIT, async dispatch (~10 us/kernel)</td></tr>
+</table>
+
+<p class="note">所有 launch 策略使用完全相同的 CUDA kernel 代码。Persistent 改了 kernel（megakernel fusion），单独标注。</p>
+<p class="note">Graph 使用全步录制（100 steps = 100/200 nodes in 1 graph），使用 cudaEvent 计时。</p>
+</div>
+
+<!-- Slide 3: HydroF2 Results -->
+<div class="slide">
+<h1>HydroF2: 端到端性能 (2 kernels/step)</h1>
+
+<h2>24K Cells (小网格)</h2>
+<table>
+<tr><th>#</th><th>Strategy</th><th>us/step</th><th>vs Graph</th></tr>
+<tr class="highlight"><td>1</td><td><span class="tag tag-launch">CUDA Graph</span></td><td class="best">9.83</td><td>1.00x</td></tr>
+<tr><td>2</td><td><span class="tag tag-transform">CUDA Persistent</span></td><td>12.10</td><td>0.81x</td></tr>
+<tr><td>3</td><td><span class="tag tag-launch">CUDA Async</span></td><td>12.31</td><td>0.80x</td></tr>
+<tr><td>4</td><td><span class="tag tag-launch">CUDA DevGraph</span></td><td>17.10</td><td>0.57x</td></tr>
+<tr><td>5</td><td><span class="tag tag-dsl">Kokkos</span></td><td>13.96</td><td>0.70x</td></tr>
+<tr><td>6</td><td><span class="tag tag-launch">CUDA DevGraph</span></td><td>17.10</td><td>0.57x</td></tr>
+<tr><td>7</td><td><span class="tag tag-dsl">Warp</span></td><td>25.32</td><td>0.39x</td></tr>
+<tr><td>8</td><td><span class="tag tag-launch">CUDA Sync</span></td><td>25.70</td><td>0.38x</td></tr>
+<tr><td>9</td><td><span class="tag tag-dsl">Taichi</span></td><td>49.76</td><td class="bad">0.20x</td></tr>
+</table>
+<p><b>Launch overhead = Sync(25.70) - Graph(9.83) = 15.87 us = 62%</b></p>
+
+<h2>207K Cells (大网格)</h2>
+<table>
+<tr><th>#</th><th>Strategy</th><th>us/step</th><th>vs Graph</th></tr>
+<tr class="highlight"><td>1</td><td><span class="tag tag-dsl">Taichi</span></td><td class="best">50.10</td><td>1.12x</td></tr>
+<tr><td>2</td><td><span class="tag tag-launch">CUDA Graph</span></td><td>56.24</td><td>1.00x</td></tr>
+<tr><td>3</td><td><span class="tag tag-launch">CUDA Async</span></td><td>59.51</td><td>0.94x</td></tr>
+<tr><td>4</td><td><span class="tag tag-transform">CUDA Persistent</span></td><td>62.16</td><td>0.90x</td></tr>
+<tr><td>5</td><td><span class="tag tag-dsl">Kokkos</span></td><td>64.01</td><td>0.88x</td></tr>
+<tr><td>6</td><td><span class="tag tag-launch">CUDA DevGraph</span></td><td>65.66</td><td>0.86x</td></tr>
+<tr><td>7</td><td><span class="tag tag-launch">CUDA Sync</span></td><td>72.81</td><td>0.77x</td></tr>
+<tr><td>8</td><td><span class="tag tag-dsl">Warp</span></td><td class="bad">172.33</td><td>0.33x</td></tr>
+</table>
+<p><b>Launch overhead = Sync(72.29) - Graph(56.18) = 16.11 us = 22%</b></p>
+<p class="note">Taichi 在 207K 上最快（~12% faster than Graph）。正确性已验证。差距原因待确认——可能来自 Graph node 遍历开销、Taichi JIT 优化差异、或计时方式差异（cudaEvent vs perf_counter）。需 nsys profiling 进一步定位。</p>
+</div>
+
+<!-- Slide 4: HydroF1 Results -->
+<div class="slide">
+<h1>HydroF1: 端到端性能 (1 kernel/step)</h1>
+
+<h2>6.7K Cells (小网格)</h2>
+<table>
+<tr><th>#</th><th>Strategy</th><th>us/step</th><th>vs Graph</th></tr>
+<tr class="highlight"><td>1</td><td><span class="tag tag-launch">CUDA Graph</span></td><td class="best">23.24</td><td>1.00x</td></tr>
+<tr><td>2</td><td><span class="tag tag-transform">CUDA Persistent</span></td><td>23.33</td><td>1.00x</td></tr>
+<tr><td>3</td><td><span class="tag tag-launch">CUDA Async</span></td><td>24.69</td><td>0.94x</td></tr>
+<tr><td>4</td><td><span class="tag tag-dsl">Warp</span></td><td>30.01</td><td>0.77x</td></tr>
+<tr><td>5</td><td><span class="tag tag-launch">CUDA Sync</span></td><td>30.75</td><td>0.76x</td></tr>
+<tr><td>6</td><td><span class="tag tag-dsl">Taichi</span></td><td>50.34</td><td class="bad">0.46x</td></tr>
+</table>
+<p><b>Launch overhead = Sync(30.75) - Graph(23.24) = 7.51 us = 24%</b></p>
+<p class="note">F1 只有 1 kernel/step，Sync 每步只有 1 次 cudaDeviceSynchronize，所以 overhead 比 F2(2 kernels) 小。</p>
+
+<h2>207K Cells (大网格)</h2>
+<table>
+<tr><th>#</th><th>Strategy</th><th>us/step</th><th>vs Graph</th></tr>
+<tr class="highlight"><td>1</td><td><span class="tag tag-launch">CUDA Graph</span></td><td class="best">120.01</td><td>1.00x</td></tr>
+<tr><td>2</td><td><span class="tag tag-dsl">Taichi</span></td><td>121.84</td><td>0.99x</td></tr>
+<tr><td>3</td><td><span class="tag tag-launch">CUDA Async</span></td><td>122.66</td><td>0.98x</td></tr>
+<tr><td>4</td><td><span class="tag tag-launch">CUDA Sync</span></td><td>127.97</td><td>0.94x</td></tr>
+<tr><td>5</td><td><span class="tag tag-transform">CUDA Persistent</span></td><td>128.16</td><td>0.94x</td></tr>
+<tr><td>6</td><td><span class="tag tag-dsl">Warp</span></td><td class="bad">262.57</td><td>0.46x</td></tr>
+</table>
+<p><b>Launch overhead = Sync(127.97) - Graph(120.01) = 7.96 us = 6%</b></p>
+<p class="note">大网格 + 1 kernel/step → GPU compute 主导(~120us)，所有 CUDA 策略趋同。Persistent 反而最慢（megakernel occupancy 低）。</p>
+</div>
+
+<!-- Slide 5: Key Findings -->
+<div class="slide">
+<h1>Key Findings</h1>
+
+<h2>1. Launch Overhead 是真实的，但 size-dependent</h2>
+<table>
+<tr><th>Case</th><th>小网格 overhead</th><th>大网格 overhead</th></tr>
+<tr><td>HydroF2 (2 kern/step)</td><td><b>62%</b> (15.87 us)</td><td><b>22%</b> (16.11 us)</td></tr>
+<tr><td>HydroF1 (1 kern/step)</td><td><b>24%</b> (7.51 us)</td><td><b>6%</b> (7.96 us)</td></tr>
+</table>
+<p>绝对值 ~8-16 us 不变（取决于 kernels/step），但占比随 GPU compute 增大而下降。</p>
+
+<h2>2. CUDA Graph 是最优的 launch 策略</h2>
+<p>在所有小网格 case 上 Graph 最快。大网格上 Graph ≈ Async ≈ Taichi（GPU compute 主导）。</p>
+
+<h2>3. Device-side Graph Launch (Blink 方式) 全面不如 Host Graph</h2>
+<p>每步恒定 +7 us overhead。原因：GPU command processor 从 device 端处理 graph launch 比 host 端慢。</p>
+
+<h2>4. Persistent (Megakernel) 不是 launch 策略</h2>
+<p>Persistent 改了 kernel 代码（把 host 编排搬进 kernel + grid.sync()）。<br>
+在 F1 207K 上 Persistent(128) 反而比 Graph(120) 慢——说明 megakernel 的 occupancy 损失可能抵消 launch overhead 节省。<br>
+<b>Persistent 的收益混合了 launch elimination + L2 locality + occupancy 变化，不可简单归因于 launch overhead。</b></p>
+
+<h2>5. DSL Dispatch Overhead ≈ 25-50 us/kernel (Taichi), ~10 us/kernel (Warp)</h2>
+<p>源码验证：Taichi 和 Warp 都是 async dispatch（不 sync）。<br>
+小网格上 dispatch 是瓶颈（Taichi 5x 慢于 Graph）。<br>
+大网格上 dispatch 被 GPU compute overlap → Taichi 接近甚至略快于 CUDA Graph。</p>
+</div>
+
+<!-- Slide 6: Crossover -->
+<div class="slide">
+<h1>Crossover: 什么时候 DSL dispatch 不再是瓶颈？</h1>
+
+<pre>
+Taichi per-step time = max(Python_dispatch, GPU_compute)
+
+小网格 (GPU_compute < dispatch):
+  Taichi time ≈ dispatch ≈ 50 us  →  比 CUDA Graph 慢 5x
+
+大网格 (GPU_compute > dispatch):
+  Taichi time ≈ GPU_compute ≈ 52-120 us  →  和 CUDA Graph 持平
+
+Crossover point: GPU_compute ≈ Python_dispatch ≈ 50 us
+  对 HydroF2: ~200K cells 附近
+  对 HydroF1: ~50K cells 附近（单 kernel 更大）
+</pre>
+
+<p>下一步：精确扫描 crossover point（在多个 mesh size 上测）。</p>
+</div>
+
+<!-- Slide 7: Related Work -->
+<div class="slide">
+<h1>Related Work</h1>
+
+<h2>PERKS / EBISU (Zhang, Wahib et al., ICS'23)</h2>
+<p><b>做了什么</b>：Persistent kernel + temporal blocking for stencil。利用 GPU 的剩余 register 和 shared memory 缓存多个时间步数据，减少全局内存访问。</p>
+<p><b>核心 insight</b>：GPU kernel 通常不用完所有 on-chip 资源，剩余的可以用来做 temporal caching。低 occupancy + 高 temporal depth 是 Pareto 最优的。</p>
+<p><b>和我们的关系</b>：不在同一层对比。PERKS 是 kernel 级算法优化（temporal blocking），我们是 launch 级 characterization。PERKS 只适用于规则 stencil，我们覆盖通用 simulation（包括 CFD、粒子等 PERKS 无法处理的 case）。</p>
+
+<h2>Blink (arXiv'25)</h2>
+<p><b>做了什么</b>：CPU-free LLM inference，用 device-side graph launch 让整个推理过程不回 host。</p>
+<p><b>我们的测试结果</b>：在 simulation 场景下 device-side graph launch 全面不如 host graph（每步 +7 us overhead）。原因：simulation kernel 小（几十 us），7 us overhead 占比大。LLM kernel 大（几 ms），7 us 可忽略。</p>
+
+<h2>PyGraph (arXiv'25)</h2>
+<p>CUDA Graph 的 selective deployment + cost-benefit analysis。我们的 cost model / strategy selector 可借鉴其方法论。</p>
+</div>
+
+<!-- Slide 8: Issues Found & Fixed -->
+<div class="slide">
+<h1>Benchmark 修正记录</h1>
+
+<h2>今天发现并修正的问题</h2>
+<table>
+<tr><th>问题</th><th>影响</th><th>修正</th></tr>
+<tr><td>CUDA Graph 使用 per-step replay 而非全步录制</td><td>Graph 性能偏低 ~10%</td><td>改为全步录制（F1: N nodes, F2: 2N nodes）</td></tr>
+<tr><td>CUDA Async 使用 chrono 而非 cudaEvent 计时</td><td>计时不统一</td><td>统一使用 cudaEvent</td></tr>
+<tr><td>Persistent = code transform，不可与 launch 策略直接对比</td><td>Persistent 列的数据含 fusion 收益</td><td>单独标注，不归因于 launch overhead</td></tr>
+<tr><td>Taichi/Warp 是 async dispatch（源码验证）</td><td>之前以为 DSL 默认 sync</td><td>更正认知：DSL dispatch overhead 可被 GPU compute overlap</td></tr>
+<tr><td>跨框架正确性未验证</td><td>无法确认各框架计算同一结果</td><td>CUDA vs Taichi vs Warp 全部 PASS (max_diff < 5e-6)</td></tr>
+</table>
+</div>
+
+<!-- Slide 9: Next Steps -->
+<div class="slide">
+<h1>Next Steps</h1>
+
+<h2>短期（本周）</h2>
+<ul>
+<li>扫描 crossover point：在 6K → 200K 之间取 5-10 个 mesh size，找到 "DSL dispatch 不再是瓶颈" 的精确位置</li>
+<li>修复其他 benchmark 的 CUDA kernel 效率问题（Jacobi2D 等带宽利用率只有 16%）</li>
+<li>统一所有 benchmark 的 Graph 实现（全步录制 + cudaEvent 计时）</li>
+</ul>
+
+<h2>中期</h2>
+<ul>
+<li>Cost model / strategy selector：基于 kernels/step、problem size、GPU compute time 自动选择最优策略</li>
+<li>更多 case 的端到端验证（Jacobi2D, FDTD2D, StableFluids 等，修正 kernel 效率后）</li>
+</ul>
+
+<h2>讨论点</h2>
+<ul>
+<li>Persistent (megakernel) 是否值得作为独立贡献？E2E 数据显示收益有限</li>
+<li>论文定位：benchmark characterization + strategy selection framework?</li>
+<li>PERKS/EBISU 的 temporal blocking 是否作为 future work？</li>
+</ul>
+</div>
+
+</body>
+</html>

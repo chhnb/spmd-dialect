@@ -33,12 +33,12 @@ __global__ void doitgen_slice_kernel(int NP, int NQ, int NR,
     }
 }
 
-// Persistent: process all r-indices in one cooperative kernel
+// Persistent: process all r-indices in one kernel
+// All r-indices are independent (read A, write A_out) — no barrier needed
 __global__ void doitgen_persistent(int NP, int NQ, int NR,
                                     const float* __restrict__ A,
                                     const float* __restrict__ C4,
                                     float* __restrict__ A_out) {
-    auto grid = cg::this_grid();
     int p = blockIdx.x * blockDim.x + threadIdx.x;
     int q = blockIdx.y * blockDim.y + threadIdx.y;
 
@@ -50,29 +50,28 @@ __global__ void doitgen_persistent(int NP, int NQ, int NR,
             }
             A_out[p * NQ * NR + q * NR + r] = sum;
         }
-        grid.sync();
     }
 }
 
-// Grid-stride persistent: never N/A
+// Grid-stride persistent: flatten all (p,q,r), 0 barrier per step
+// All r-indices are independent (read A, write A_out), no sync needed
 __global__ void doitgen_persistent_stride(int NP, int NQ, int NR,
                                            const float* __restrict__ A,
                                            const float* __restrict__ C4,
                                            float* __restrict__ A_out) {
-    auto grid = cg::this_grid();
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = gridDim.x * blockDim.x;
-    int pq_size = NP * NQ;
+    int total = NP * NQ * NR;
 
-    for (int r = 0; r < NR; r++) {
-        for (int pq = tid; pq < pq_size; pq += stride) {
-            int p = pq / NQ, q = pq % NQ;
-            float sum = 0.0f;
-            for (int s = 0; s < NR; s++)
-                sum += A[p * NQ * NR + q * NR + s] * C4[s * NR + r];
-            A_out[p * NQ * NR + q * NR + r] = sum;
-        }
-        grid.sync();
+    for (int idx = tid; idx < total; idx += stride) {
+        int tmp = idx;
+        int r = tmp % NR; tmp /= NR;
+        int q = tmp % NQ;
+        int p = tmp / NQ;
+        float sum = 0.0f;
+        for (int s = 0; s < NR; s++)
+            sum += A[p * NQ * NR + q * NR + s] * C4[s * NR + r];
+        A_out[p * NQ * NR + q * NR + r] = sum;
     }
 }
 
@@ -208,46 +207,35 @@ int main(int argc, char* argv[]) {
         CHECK(cudaEventDestroy(gi1));
     }
 
+    // Strategy 3b: Device Graph (tail launch)
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    printf("[DevGraph] N/A (requires host memcpy between steps)\n");
+
     // Strategy 4: Persistent Kernel
     printf("\n--- Strategy 4: Persistent Kernel ---\n");
     {
-        int numBlocks;
-        CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocks,
-              doitgen_persistent, block.x * block.y, 0));
-        int maxBlocks = numBlocks * prop.multiProcessorCount;
+        // No cooperative launch needed — r-indices are independent, no barrier
         int needed = grid2d.x * grid2d.y;
-
-        if (needed <= maxBlocks) {
-            printf("Persistent: %d blocks (max %d)\n", needed, maxBlocks);
-            void* args[] = {&NP, &NQ, &NR, &A, &C4, &A_out};
-            run_timed([&]() {
-                for (int s = 0; s < STEPS; s++) {
-                    cudaLaunchCooperativeKernel((void*)doitgen_persistent,
-                        dim3(needed, 1, 1), block, args);
-                    cudaDeviceSynchronize();
-                    cudaMemcpy(A, A_out, N3*sizeof(float), cudaMemcpyDeviceToDevice);
-                }
-            }, "Persistent");
-        } else {
-            printf("Persistent: N/A (need %d blocks, max %d)\n", needed, maxBlocks);
-        }
+        printf("Persistent: %d blocks (no barrier, no grid limit)\n", needed);
+        run_timed([&]() {
+            for (int s = 0; s < STEPS; s++) {
+                doitgen_persistent<<<dim3(needed, 1, 1), block>>>(NP, NQ, NR, A, C4, A_out);
+                cudaDeviceSynchronize();
+                cudaMemcpy(A, A_out, N3*sizeof(float), cudaMemcpyDeviceToDevice);
+            }
+        }, "Persistent");
     }
 
-    // Strategy 5: Grid-Stride Persistent (never N/A)
-    printf("\n--- Strategy 5: Grid-Stride Persistent ---\n");
+    // Strategy 5: Fused kernel (all (p,q,r) in one launch, 0 barriers)
+    printf("\n--- Strategy 5: Fused (0 barrier, 1 launch) ---\n");
     {
-        int gsBSm = 0;
-        CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&gsBSm,
-              doitgen_persistent_stride, 256, 0));
-        int gsMax = gsBSm * prop.multiProcessorCount;
-        printf("Grid-stride: %d blocks (always fits)\n", gsMax);
-        void* gsArgs[] = {&NP, &NQ, &NR, &A, &C4, &A_out};
+        int total = NP * NQ * NR;
+        int fusedBlocks = (total + 255) / 256;
+        printf("Fused: %d blocks x 256 threads (total %d elements)\n", fusedBlocks, total);
         run_timed([&]() {
-            reset();
-            cudaLaunchCooperativeKernel((void*)doitgen_persistent_stride,
-                dim3(gsMax), dim3(256), gsArgs);
+            doitgen_persistent_stride<<<fusedBlocks, 256>>>(NP, NQ, NR, A, C4, A_out);
             cudaDeviceSynchronize();
-        }, "GridStride");
+        }, "Fused");
     }
 
     CHECK(cudaFree(A));

@@ -15,6 +15,15 @@ namespace cg = cooperative_groups;
 
 #define CHECK(call) do { auto e = call; if(e) { fprintf(stderr,"CUDA error %d at %s:%d\n",e,__FILE__,__LINE__); exit(1); }} while(0)
 
+// --- Device Graph tail launch support ---
+__device__ cudaGraphExec_t d_graph_exec;
+__global__ void tail_launch_kernel(int* steps_remaining) {
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        int rem = atomicSub(steps_remaining, 1);
+        if (rem > 1) cudaGraphLaunch(d_graph_exec, cudaStreamGraphTailLaunch);
+    }
+}
+
 // --- Kernels ---
 __global__ void jacobi_step(int N, const float* __restrict__ u, float* __restrict__ v) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -167,6 +176,55 @@ int main(int argc, char* argv[]) {
         CHECK(cudaStreamDestroy(stream));
     }
 
+    // Strategy 3b: Device Graph (tail launch, same kernels, no fusion)
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    {
+        int *d_steps;
+        CHECK(cudaMalloc(&d_steps, sizeof(int)));
+        cudaGraph_t graph;
+        cudaGraphExec_t graphExec;
+        cudaStream_t stream;
+        CHECK(cudaStreamCreate(&stream));
+
+        // Capture ONE step: same kernels as Graph strategy
+        CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
+        jacobi_step<<<grid, block, 0, stream>>>(N, u, v);
+        copy_kernel<<<copy_grid, 256, 0, stream>>>(N2, v, u);
+        tail_launch_kernel<<<1, 1, 0, stream>>>(d_steps);
+        CHECK(cudaStreamEndCapture(stream, &graph));
+
+        // Instantiate for device-side launch
+        CHECK(cudaGraphInstantiateWithFlags(&graphExec, graph,
+              cudaGraphInstantiateFlagDeviceLaunch));
+        CHECK(cudaGraphUpload(graphExec, stream));
+
+        // Copy graph exec handle to device symbol
+        cudaGraphExec_t* d_sym_ptr;
+        CHECK(cudaGetSymbolAddress((void**)&d_sym_ptr, d_graph_exec));
+        CHECK(cudaMemcpy(d_sym_ptr, &graphExec, sizeof(cudaGraphExec_t),
+              cudaMemcpyHostToDevice));
+
+        // Warmup
+        for (int w = 0; w < 5; w++) {
+            int sv = STEPS;
+            CHECK(cudaMemcpy(d_steps, &sv, sizeof(int), cudaMemcpyHostToDevice));
+            CHECK(cudaGraphLaunch(graphExec, stream));
+            CHECK(cudaStreamSynchronize(stream));
+        }
+
+        run_timed([&]() {
+            int sv = STEPS;
+            CHECK(cudaMemcpy(d_steps, &sv, sizeof(int), cudaMemcpyHostToDevice));
+            CHECK(cudaGraphLaunch(graphExec, stream));
+            cudaStreamSynchronize(stream);
+        }, "DevGraph");
+
+        CHECK(cudaGraphExecDestroy(graphExec));
+        CHECK(cudaGraphDestroy(graph));
+        CHECK(cudaStreamDestroy(stream));
+        CHECK(cudaFree(d_steps));
+    }
+
     // Strategy 4: Persistent Kernel
     printf("\n--- Strategy 4: Persistent Kernel ---\n");
     {
@@ -200,8 +258,6 @@ int main(int argc, char* argv[]) {
         printf("Grid-stride: %d blocks (always fits)\n", gsMax);
         void* gsArgs[] = {&N, &u, &v, &STEPS};
         run_timed([&]() {
-            CHECK(cudaMemcpy(u, h_u.data(), N2 * sizeof(float), cudaMemcpyHostToDevice));
-            CHECK(cudaMemset(v, 0, N2 * sizeof(float)));
             cudaLaunchCooperativeKernel((void*)jacobi_persistent_stride,
                 dim3(gsMax), dim3(256), gsArgs);
             cudaDeviceSynchronize();

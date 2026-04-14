@@ -80,6 +80,9 @@ int main(int argc,char**argv){
      bench([&]{cudaGraphLaunch(ge,s);cudaStreamSynchronize(s);},"Graph");
      CHECK(cudaGraphExecDestroy(ge));CHECK(cudaGraphDestroy(g));CHECK(cudaStreamDestroy(s));}
 
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    printf("[DevGraph] N/A (serial dependency chain, variable grid per launch)\n");
+
     printf("[Persistent] N/A (serial dependency chain, variable grid per launch)\n");
     CHECK(cudaFree(Q));CHECK(cudaFree(R)); return 0;
 }

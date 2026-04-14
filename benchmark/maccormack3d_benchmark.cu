@@ -16,6 +16,15 @@ namespace cg = cooperative_groups;
 
 #define CHECK(call) do { auto e = call; if(e) { fprintf(stderr,"CUDA error %d at %s:%d\n",e,__FILE__,__LINE__); exit(1); }} while(0)
 
+// --- Device Graph tail launch support ---
+__device__ cudaGraphExec_t d_graph_exec;
+__global__ void tail_launch_kernel(int* steps_remaining) {
+    if (threadIdx.x == 0 && blockIdx.x == 0) {
+        int rem = atomicSub(steps_remaining, 1);
+        if (rem > 1) cudaGraphLaunch(d_graph_exec, cudaStreamGraphTailLaunch);
+    }
+}
+
 // Constant velocity field
 static constexpr float U = 1.0f, V = 0.5f, W = 0.25f;
 static constexpr float DT = 0.001f, DX = 1.0f;
@@ -231,6 +240,56 @@ int main(int argc, char* argv[]) {
         CHECK(cudaGraphExecDestroy(graphExec));
         CHECK(cudaGraphDestroy(graph));
         CHECK(cudaStreamDestroy(stream));
+    }
+
+    // Strategy 3b: Device Graph (tail launch, same kernels, no fusion)
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    {
+        int *d_steps;
+        CHECK(cudaMalloc(&d_steps, sizeof(int)));
+        cudaGraph_t graph;
+        cudaGraphExec_t graphExec;
+        cudaStream_t stream;
+        CHECK(cudaStreamCreate(&stream));
+
+        // Capture ONE step: predictor + corrector + copy
+        CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
+        predictor<<<grid3d, block, 0, stream>>>(Nx, Ny, Nz, q, qp);
+        corrector<<<grid3d, block, 0, stream>>>(Nx, Ny, Nz, q, qp, qnew);
+        copy_kernel<<<copy_grid, 256, 0, stream>>>(total, qnew, q);
+        tail_launch_kernel<<<1, 1, 0, stream>>>(d_steps);
+        CHECK(cudaStreamEndCapture(stream, &graph));
+
+        // Instantiate for device-side launch
+        CHECK(cudaGraphInstantiateWithFlags(&graphExec, graph,
+              cudaGraphInstantiateFlagDeviceLaunch));
+        CHECK(cudaGraphUpload(graphExec, stream));
+
+        // Copy graph exec handle to device symbol
+        cudaGraphExec_t* d_sym_ptr;
+        CHECK(cudaGetSymbolAddress((void**)&d_sym_ptr, d_graph_exec));
+        CHECK(cudaMemcpy(d_sym_ptr, &graphExec, sizeof(cudaGraphExec_t),
+              cudaMemcpyHostToDevice));
+
+        // Warmup
+        for (int w = 0; w < 5; w++) {
+            int sv = STEPS;
+            CHECK(cudaMemcpy(d_steps, &sv, sizeof(int), cudaMemcpyHostToDevice));
+            CHECK(cudaGraphLaunch(graphExec, stream));
+            CHECK(cudaStreamSynchronize(stream));
+        }
+
+        run_timed([&]() {
+            int sv = STEPS;
+            CHECK(cudaMemcpy(d_steps, &sv, sizeof(int), cudaMemcpyHostToDevice));
+            CHECK(cudaGraphLaunch(graphExec, stream));
+            cudaStreamSynchronize(stream);
+        }, "DevGraph");
+
+        CHECK(cudaGraphExecDestroy(graphExec));
+        CHECK(cudaGraphDestroy(graph));
+        CHECK(cudaStreamDestroy(stream));
+        CHECK(cudaFree(d_steps));
     }
 
     // Strategy 4: Persistent Kernel

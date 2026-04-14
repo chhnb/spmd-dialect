@@ -189,6 +189,10 @@ int main(int argc, char* argv[]) {
         CHECK(cudaStreamDestroy(stream));
     }
 
+    // Strategy 3b: Device Graph (tail launch)
+    printf("\n--- Strategy 3b: Device Graph (tail launch) ---\n");
+    printf("[DevGraph] N/A (requires host pointer swap between steps)\n");
+
     // Strategy 4: Persistent Kernel (1D thread mapping)
     printf("\n--- Strategy 4: Persistent Kernel ---\n");
     {
