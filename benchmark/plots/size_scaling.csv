@@ -72,6 +72,10 @@ Jacobi3D,256,PERKS_baseline,0.0
 Jacobi3D,256,PERKS_gen,0.0
 Jacobi3D,256,PERKS_genwr,0.0
 Jacobi3D,256,Taichi,0.0
+Jacobi3D,512,CUDA_Async,0.1
+Jacobi3D,512,CUDA_Graph,0.0
+Jacobi3D,512,CUDA_Persistent,17.9
+Jacobi3D,512,CUDA_Sync,0.5
 Heat2D,128,CUDA_Async,0.0
 Heat2D,128,CUDA_DeviceGraph,40.3
 Heat2D,128,CUDA_Graph,0.0
@@ -178,6 +182,10 @@ MacCormack3D,128,CUDA_Graph,0.0
 MacCormack3D,128,CUDA_Persistent,0.0
 MacCormack3D,128,CUDA_Sync,3.5
 MacCormack3D,128,Taichi,9.0
+MacCormack3D,256,CUDA_Async,0.0
+MacCormack3D,256,CUDA_Graph,0.0
+MacCormack3D,256,CUDA_Persistent,0.0
+MacCormack3D,256,CUDA_Sync,0.0
 LULESH,32,CUDA_Async,42.9
 LULESH,32,CUDA_Graph,6.2
 LULESH,32,CUDA_Persistent,0.0
@@ -188,6 +196,10 @@ LULESH,64,CUDA_Graph,6.0
 LULESH,64,CUDA_Persistent,0.0
 LULESH,64,CUDA_Sync,61.2
 LULESH,64,Taichi,91.9
+LULESH,128,CUDA_Async,42.7
+LULESH,128,CUDA_Graph,10.9
+LULESH,128,CUDA_Persistent,0.0
+LULESH,128,CUDA_Sync,60.8
 PIC1D,4096,CUDA_Async,1.9
 PIC1D,4096,CUDA_Graph,0.0
 PIC1D,4096,CUDA_Persistent,12.7
@@ -204,6 +216,8 @@ CG_Solver,64,Taichi,95.5
 CG_Solver,256,CUDA_Persistent,0.0
 CG_Solver,256,CUDA_Sync,75.5
 CG_Solver,256,Taichi,95.0
+CG_Solver,1024,CUDA_Persistent,0.0
+CG_Solver,1024,CUDA_Sync,62.9
 StableFluids,256,CUDA_Async,35.4
 StableFluids,256,CUDA_Graph,0.0
 StableFluids,256,CUDA_Persistent,13.6
@@ -225,6 +239,9 @@ Conv3D,256,CUDA_Graph,30.3
 Conv3D,256,CUDA_Persistent,0.0
 Conv3D,256,CUDA_Sync,50.6
 Conv3D,256,Taichi,67.5
+Conv3D,512,CUDA_Async,3.5
+Conv3D,512,CUDA_Graph,0.0
+Conv3D,512,CUDA_Sync,11.3
 DOITGEN,128,CUDA_Async,5.2
 DOITGEN,128,CUDA_Graph,0.0
 DOITGEN,128,CUDA_Persistent,3.5
@@ -235,6 +252,9 @@ DOITGEN,256,CUDA_Graph,32.7
 DOITGEN,256,CUDA_Persistent,0.0
 DOITGEN,256,CUDA_Sync,36.2
 DOITGEN,256,Taichi,0.0
+DOITGEN,512,CUDA_Async,0.2
+DOITGEN,512,CUDA_Graph,0.0
+DOITGEN,512,CUDA_Sync,0.9
 LU,512,CUDA_Async,61.1
 LU,512,CUDA_Graph,0.0
 LU,512,CUDA_Sync,73.5
@@ -251,9 +271,14 @@ ADI,512,CUDA_Async,43.1
 ADI,512,CUDA_Graph,0.0
 ADI,512,CUDA_Sync,45.3
 ADI,512,Taichi,95.1
+ADI,2048,CUDA_Async,40.0
+ADI,2048,CUDA_Graph,0.0
+ADI,2048,CUDA_Sync,40.3
 GramSchmidt,128,CUDA_Graph,0.0
 GramSchmidt,128,CUDA_Sync,10.8
 GramSchmidt,128,Taichi,100.0
 GramSchmidt,256,CUDA_Graph,0.0
 GramSchmidt,256,CUDA_Sync,5.6
 GramSchmidt,256,Taichi,100.0
+GramSchmidt,512,CUDA_Graph,0.0
+GramSchmidt,512,CUDA_Sync,2.9
