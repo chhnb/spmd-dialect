@@ -193,41 +193,71 @@ p { line-height: 1.7; margin-bottom: 12px; }
 </div>
 </div>
 
-<!-- ==================== SLIDE 4: Related Work - Launch Overhead ==================== -->
+<!-- ==================== SLIDE 4: Related Work - Core Papers ==================== -->
 <div class="slide" data-num="4/15" id="s4">
-<h2>Related Work (1): GPU Kernel Launch Overhead</h2>
+<h2>Related Work (1): 核心相关论文 (直接竞争/对比)</h2>
 
-<table>
-<tr><th style="width:20%">工作</th><th style="width:15%">来源</th><th>核心思想</th><th style="width:25%">与我们的关系</th></tr>
-<tr>
-<td><b>CUDA Graphs</b></td>
-<td>NVIDIA, CUDA 10+</td>
-<td>将 kernel launch 序列<b>捕获成图</b>，一次性 replay 消除逐次 host-side launch 开销。Graph Full Capture 将 N 步全部捕获，amortize launch cost 到 ~0μs/step。</td>
-<td>我们的 <span class="blue">Strategy S3</span>。基线方法。</td>
+<table style="font-size:13px;">
+<tr><th style="width:16%">工作</th><th style="width:10%">出处</th><th>核心思想</th><th style="width:22%">与我们的关系</th></tr>
+<tr style="background:#1a2e1a">
+<td><b>PERKS</b><br><small>Zhang, Wahib et al.</small></td>
+<td><b>ICS'23</b></td>
+<td>Persistent kernel + <b>寄存器缓存</b>: halo 数据放寄存器而非 shared memory。Jacobi 2D/3D + CG。2.12× stencil, 4.86× SpMV/CG。</td>
+<td><span class="green">★ 直接 baseline</span>。C1/C2 有 PERKS 数据。我们扩展到 21 案例 + 策略选择 + grid-stride。</td>
+</tr>
+<tr style="background:#1a2e1a">
+<td><b>EBISU</b><br><small>Matsumura et al.</small></td>
+<td><b>ICS'23</b></td>
+<td><b>Deep temporal blocking</b>: 故意用低 occupancy(12.5%) 获更大 tile。2.53×。insight: 低 occupancy 反而更快。</td>
+<td><span class="green">★ 直接 baseline</span>。C1/C2 有 EBISU 数据。验证低 occupancy 优势。</td>
+</tr>
+<tr style="background:#1a1a2e">
+<td><b>Blink</b><br><small>arxiv 2604.07609</small></td>
+<td><b>2025</b></td>
+<td>LLM: GPU-resident scheduler + device-side <code>cudaGraphLaunch</code> (fire-and-forget)。P99 TTFT 8.47×。CPU 干扰免疫。</td>
+<td><span class="orange">探索 + 启发</span>。fire-and-forget 不适用仿真。启发了 CPU 干扰实验 + grid-stride 思路。</td>
+</tr>
+<tr style="background:#1a1a2e">
+<td><b>AsyncTaichi</b><br><small>Hu, Xu et al.</small></td>
+<td><b>arXiv'20</b></td>
+<td>SFG 图 + megakernel fusion。3-4× 减少 launch，1.87×。<span class="red">后放弃</span>（70% 代码复杂度来自 sparse tracking）。</td>
+<td><span class="orange">警示案例</span>: 无 cost model 的 fusion 容易失败。</td>
 </tr>
 <tr>
-<td><b>Cooperative Groups<br>+ Persistent Kernel</b></td>
-<td>NVIDIA, CUDA 9+</td>
-<td>单次 <code>cudaLaunchCooperativeKernel</code>，kernel 内部 <code>grid_sync()</code> 做步间同步。<b>零 launch overhead</b>，但要求所有 block 同时驻留 → grid 大小受限。</td>
-<td>我们的 <span class="green">Strategy S4</span>。13/21 案例 N/A → <span class="highlight">Grid-Stride 解决此限制</span>。</td>
+<td><b>PyGraph</b><br><small>Ghosh et al.</small></td>
+<td><b>EuroSys'25</b></td>
+<td>Auto CUDA Graph for PyTorch。发现 <b>25% 的 Graph 反而变慢</b>（最高 397% 劣化）。</td>
+<td><span class="highlight">验证策略选择论点</span>: 不是所有情况都该用 Graph。</td>
 </tr>
 <tr>
-<td><b>Blink</b><br><small>arxiv 2604.07609, 2025</small></td>
-<td>学术论文</td>
-<td>LLM 推理中用 <b>GPU-resident scheduler kernel</b> + device-side <code>cudaGraphLaunch</code> (fire-and-forget) 消除 CPU 参与。TTFT P99 降低 8.47×。</td>
-<td>我们实验了 fire-and-forget / tail launch / conditional loop，<span class="red">不适用仿真</span>（步骤间有数据依赖）。但启发了 CPU 干扰实验。</td>
+<td><b>CUDA Graph Batching</b><br><small>EuroHPC Plasma</small></td>
+<td><b>arXiv'25</b></td>
+<td>迭代仿真 (HotSpot/FDTD) 的 Graph batch size 模型。50-100 nodes 最优。</td>
+<td><span class="green">直接可比</span>: 只有 Graph vs Stream，我们加 Persistent + Grid-Stride。</td>
 </tr>
 <tr>
-<td><b>PyGraph</b><br><small>EuroSys 2024</small></td>
-<td>学术论文</td>
-<td>自动将 Python GPU 程序转换为 CUDA Graph。分析 kernel 之间的依赖关系，自动 capture + replay。</td>
-<td>关注同一问题（Python DSL launch overhead），但从编译器角度解决。我们从 benchmark 角度量化。</td>
+<td><b>Yamazaki (NICAM)</b></td>
+<td><b>SC'24 WS</b></td>
+<td>大气模型 NICAM: async -37% + fusion -10%。<b>真实生产代码验证 overhead wall</b>。</td>
+<td><span class="green">直接验证</span>: overhead wall 在真实应用中存在。</td>
 </tr>
 <tr>
-<td><b>AsyncTaichi</b><br><small>Taichi 异步引擎</small></td>
-<td>Taichi Team</td>
-<td>Taichi 的 async backend：kernel launch 入队而不立即执行，batch 后一起发射。类似 CUDA Async 策略。</td>
-<td>Taichi 的 overhead 仍然很高（47μs vs CUDA 5μs），说明 Python→C++ bridge 是主要瓶颈，不只是 launch 本身。</td>
+<td><b>PyFuser</b><br><small>Al-Awar et al.</small></td>
+<td><b>ISSTA'25</b></td>
+<td>首个 Python HPC 动态 fusion (PyKokkos)。lazy trace + auto fusion。3.8×。</td>
+<td><span class="orange">竞争者</span>: 类似 scope 但缺 persistent/graph 策略选择。</td>
+</tr>
+<tr>
+<td><b>Mirage</b><br><small>Jia et al. (CMU)</small></td>
+<td><b>OSDI'25</b></td>
+<td>首个多 GPU LLM megakernel 自动编译。1.2-6.7× latency reduction。</td>
+<td>最大规模 persistent megakernel。但无 cost model。</td>
+</tr>
+<tr>
+<td><b>Yasin Top-Down</b></td>
+<td><b>ISPASS'14</b></td>
+<td>CPU pipeline slot 分解为 4 层 (Front-end/Back-end/Bad Spec/Retiring)。集成到 Intel VTune。500+ citations。</td>
+<td><span class="highlight">方法论启发</span>: 我们的 5 层 GPU overhead 分解灵感来源。</td>
 </tr>
 </table>
 </div>
@@ -252,14 +282,29 @@ p { line-height: 1.7; margin-bottom: 12px; }
 <td>C1/C2 有 EBISU 数据。与 PERKS 的区别: EBISU 做时间维融合，PERKS 做寄存器缓存。</td>
 </tr>
 <tr>
-<td><b>Temporal Blocking</b><br><small>经典优化</small></td>
-<td>在 tile 内做多个 time step，减少 global memory 带宽需求。AN5D, Pochoir 等工具自动化此优化。</td>
-<td>PERKS/EBISU 是其 GPU 持久化版本。</td>
+<td><b>AN5D</b><br><small>Matsumura et al., CGO'20</small></td>
+<td>自动将 stencil C 代码转为 temporal blocking CUDA (最高 degree 10)。性能模型指导参数选择。</td>
+<td>模型指导的 auto-tuning 方法论参考。仅结构化 stencil。</td>
 </tr>
 <tr>
-<td><b>Kernel Fusion</b><br><small>编译器优化</small></td>
-<td>将多个小 kernel 合并为一个，减少 launch 次数和中间数据写回 global memory。</td>
-<td>我们的 Persistent kernel 本质上是手动 kernel fusion。Grid-Stride 扩展了其适用范围。</td>
+<td><b>ConvStencil</b><br><small>Chen et al., PPoPP'24</small></td>
+<td>Stencil → GEMM on Tensor Cores。stencil2row layout + dual tessellation。</td>
+<td>正交方向: TC 加速 stencil。我们关注 launch overhead。</td>
+</tr>
+<tr>
+<td><b>FreeStencil</b><br><small>Zhu et al., ICPP'24</small></td>
+<td>Stencil solver 编译器：12 kernel → 2 MINRES iter。34% DRAM 减少，3.29×。</td>
+<td>仅结构化网格线性求解器。我们 scope 更广。</td>
+</tr>
+<tr>
+<td><b>Wahib & Maruyama</b><br><small>SC'14</small></td>
+<td>可扩展 kernel fusion 搜索方法。FD 应用 1.35×。</td>
+<td>早期 HPC fusion 工作。缺少 persistent/graph 选项。</td>
+</tr>
+<tr>
+<td><b>Leonid (Kokkos Fusion)</b><br><small>ICS'25</small></td>
+<td>Kokkos 自动 fusion。LBM/Cavity/MD 最高 1.58×。</td>
+<td>可比 baseline: 无 persistent，无 cost model。</td>
 </tr>
 </table>
 </div>
@@ -289,8 +334,18 @@ p { line-height: 1.7; margin-bottom: 12px; }
 <td>关注可微分仿真，我们引用了 MPM/Fluid 案例但不做 AD。</td>
 </tr>
 </table>
+<h3 style="margin-top:15px;">仿真领域参考项目</h3>
+<table style="font-size:13px;">
+<tr><th>项目</th><th>领域</th><th>出处</th><th>我们的使用</th></tr>
+<tr><td><b>hydro-cal</b></td><td>浅水方程 (Osher)</td><td>合作者 Chen</td><td>C8/C9 真实工程案例 (207K cells)</td></tr>
+<tr><td><b>LULESH</b></td><td>Lagrangian 水动力</td><td>LLNL, Karlin'13</td><td>C13 多 kernel 代理应用</td></tr>
+<tr><td><b>PIConGPU</b></td><td>等离子体 PIC</td><td>Bussmann SC'13</td><td>PIC 领域参考 (exascale)</td></tr>
+<tr><td><b>GPUSPH</b></td><td>光滑粒子水动力</td><td>Hérault'10</td><td>SPH 领域参考</td></tr>
+<tr><td><b>DEM-Engine</b></td><td>离散元方法</td><td>Tasora/Chrono'23</td><td>DEM 领域参考 (150M elements)</td></tr>
+<tr><td><b>DiffTaichi</b></td><td>可微分物理</td><td>Hu ICLR'20</td><td>10 个可微分仿真案例参考</td></tr>
+</table>
 <p style="margin-top:10px; font-size:14px; color:#aaa;">
-<b>我们的独特性:</b> 唯一同时测量 <b>launch overhead × 多策略 × 多 DSL × 多尺寸</b> 的仿真 benchmark suite。
+<b>我们的独特性:</b> 唯一同时测量 <b>launch overhead × 多策略 × 多 DSL × 多尺寸</b> 的仿真 benchmark suite。现有 suites (PolyBench/Rodinia/Parboil) 只测 kernel 性能，不测 launch overhead pattern。
 </p>
 </div>
 </div>
