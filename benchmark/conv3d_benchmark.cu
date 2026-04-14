@@ -55,6 +55,30 @@ __global__ void conv3d_persistent(int NX, int NY, int NZ,
     }
 }
 
+// Grid-stride persistent: never N/A
+__global__ void conv3d_persistent_stride(int NX, int NY, int NZ,
+                                          const float* __restrict__ A,
+                                          float* __restrict__ B) {
+    auto grid = cg::this_grid();
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = gridDim.x * blockDim.x;
+    int slice_size = (NX-2) * (NY-2);  // interior xy points per z-slice
+
+    for (int z = 1; z < NZ - 1; z++) {
+        for (int idx = tid; idx < slice_size; idx += stride) {
+            int ix = idx / (NY-2) + 1;
+            int iy = idx % (NY-2) + 1;
+            float sum = 0.0f;
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        sum += A[(ix+dx)*NY*NZ + (iy+dy)*NZ + (z+dz)];
+            B[ix*NY*NZ + iy*NZ + z] = sum / 27.0f;
+        }
+        grid.sync();
+    }
+}
+
 int main(int argc, char* argv[]) {
     int NX = (argc > 1) ? atoi(argv[1]) : 128;
     int NY = NX, NZ = NX;
@@ -211,6 +235,23 @@ int main(int argc, char* argv[]) {
         } else {
             printf("Persistent: N/A (need %d blocks, max %d)\n", needed, maxBlocks);
         }
+    }
+
+    // Strategy 5: Grid-Stride Persistent (never N/A)
+    printf("\n--- Strategy 5: Grid-Stride Persistent ---\n");
+    {
+        int gsBSm = 0;
+        CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&gsBSm,
+              conv3d_persistent_stride, 256, 0));
+        int gsMax = gsBSm * prop.multiProcessorCount;
+        printf("Grid-stride: %d blocks (always fits)\n", gsMax);
+        void* gsArgs[] = {&NX, &NY, &NZ, &A, &B};
+        run_timed([&]() {
+            CHECK(cudaMemcpy(A, h_A.data(), N3*sizeof(float), cudaMemcpyHostToDevice));
+            cudaLaunchCooperativeKernel((void*)conv3d_persistent_stride,
+                dim3(gsMax), dim3(256), gsArgs);
+            cudaDeviceSynchronize();
+        }, "GridStride");
     }
 
     CHECK(cudaFree(A));

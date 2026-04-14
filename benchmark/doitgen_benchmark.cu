@@ -54,6 +54,28 @@ __global__ void doitgen_persistent(int NP, int NQ, int NR,
     }
 }
 
+// Grid-stride persistent: never N/A
+__global__ void doitgen_persistent_stride(int NP, int NQ, int NR,
+                                           const float* __restrict__ A,
+                                           const float* __restrict__ C4,
+                                           float* __restrict__ A_out) {
+    auto grid = cg::this_grid();
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = gridDim.x * blockDim.x;
+    int pq_size = NP * NQ;
+
+    for (int r = 0; r < NR; r++) {
+        for (int pq = tid; pq < pq_size; pq += stride) {
+            int p = pq / NQ, q = pq % NQ;
+            float sum = 0.0f;
+            for (int s = 0; s < NR; s++)
+                sum += A[p * NQ * NR + q * NR + s] * C4[s * NR + r];
+            A_out[p * NQ * NR + q * NR + r] = sum;
+        }
+        grid.sync();
+    }
+}
+
 int main(int argc, char* argv[]) {
     int NP = (argc > 1) ? atoi(argv[1]) : 128;
     int NQ = NP, NR = NP;
@@ -209,6 +231,23 @@ int main(int argc, char* argv[]) {
         } else {
             printf("Persistent: N/A (need %d blocks, max %d)\n", needed, maxBlocks);
         }
+    }
+
+    // Strategy 5: Grid-Stride Persistent (never N/A)
+    printf("\n--- Strategy 5: Grid-Stride Persistent ---\n");
+    {
+        int gsBSm = 0;
+        CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&gsBSm,
+              doitgen_persistent_stride, 256, 0));
+        int gsMax = gsBSm * prop.multiProcessorCount;
+        printf("Grid-stride: %d blocks (always fits)\n", gsMax);
+        void* gsArgs[] = {&NP, &NQ, &NR, &A, &C4, &A_out};
+        run_timed([&]() {
+            reset();
+            cudaLaunchCooperativeKernel((void*)doitgen_persistent_stride,
+                dim3(gsMax), dim3(256), gsArgs);
+            cudaDeviceSynchronize();
+        }, "GridStride");
     }
 
     CHECK(cudaFree(A));

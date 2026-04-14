@@ -47,6 +47,25 @@ __global__ void jacobi_persistent(int N, float* u, float* v, int STEPS) {
     }
 }
 
+// Grid-stride persistent: uses maxCooperativeBlocks, never N/A
+__global__ void jacobi_persistent_stride(int N, float* u, float* v, int STEPS) {
+    auto grid = cg::this_grid();
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = gridDim.x * blockDim.x;
+    int N2 = N * N;
+    for (int s = 0; s < STEPS; s++) {
+        for (int idx = tid; idx < N2; idx += stride) {
+            int i = idx / N, j = idx % N;
+            if (i >= 1 && i < N-1 && j >= 1 && j < N-1)
+                v[idx] = 0.25f * (u[idx-N] + u[idx+N] + u[idx-1] + u[idx+1]);
+        }
+        grid.sync();
+        for (int idx = tid; idx < N2; idx += stride)
+            u[idx] = v[idx];
+        grid.sync();
+    }
+}
+
 int main(int argc, char* argv[]) {
     int N = (argc > 1) ? atoi(argv[1]) : 4096;
     int STEPS = (argc > 2) ? atoi(argv[2]) : 100;
@@ -169,6 +188,24 @@ int main(int argc, char* argv[]) {
         } else {
             printf("Persistent: N/A (need %d blocks, max %d)\n", needed, maxBlocks);
         }
+    }
+
+    // Strategy 5: Grid-Stride Persistent (never N/A)
+    printf("\n--- Strategy 5: Grid-Stride Persistent ---\n");
+    {
+        int gsBSm = 0;
+        CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&gsBSm,
+              jacobi_persistent_stride, 256, 0));
+        int gsMax = gsBSm * prop.multiProcessorCount;
+        printf("Grid-stride: %d blocks (always fits)\n", gsMax);
+        void* gsArgs[] = {&N, &u, &v, &STEPS};
+        run_timed([&]() {
+            CHECK(cudaMemcpy(u, h_u.data(), N2 * sizeof(float), cudaMemcpyHostToDevice));
+            CHECK(cudaMemset(v, 0, N2 * sizeof(float)));
+            cudaLaunchCooperativeKernel((void*)jacobi_persistent_stride,
+                dim3(gsMax), dim3(256), gsArgs);
+            cudaDeviceSynchronize();
+        }, "GridStride");
     }
 
     // Overhead breakdown
